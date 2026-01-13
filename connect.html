@@ -188,7 +188,7 @@
     <div class="subtitle">Guest Wi-Fi Connect</div>
     <p class="lead">Enter your details to connect to Batesford Free Wi-Fi. This helps us keep the network safe and share special offers with past guests.</p>
 
-    <form id="connect-form">
+    <form id="connect-form" action="javascript:void(0)" onsubmit="return false;">
       <div class="field">
         <label for="name">Full name</label>
         <input id="name" name="name" type="text" autocomplete="name" required>
@@ -287,17 +287,32 @@
 
     const hasSupabase = typeof supabase !== 'undefined' &&
       typeof supabase.createClient === 'function';
+    const supabaseClient = hasSupabase
+      ? supabase.createClient(supabaseUrl, supabaseKey)
+      : null;
+    const functionUrl = `${supabaseUrl}/functions/v1/wifi-connect`;
 
-    if (!hasSupabase) {
-      setStatus('Please try again in a moment.', true);
-      form.addEventListener('submit', (event) => {
-        event.preventDefault();
-        setStatus('Please try again in a moment.', true);
+    const invokeWifiConnect = async (payload) => {
+      if (supabaseClient) {
+        return supabaseClient.functions.invoke('wifi-connect', { body: payload });
+      }
+
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`
+        },
+        body: JSON.stringify(payload)
       });
-      return;
-    }
 
-    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return { data, error: { message: data.error || 'Request failed.' } };
+      }
+      return { data, error: null };
+    };
 
     if (!unifiState.client_mac) {
       setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
@@ -330,9 +345,7 @@
       };
 
       try {
-        const { data, error } = await supabaseClient.functions.invoke('wifi-connect', {
-          body: payload
-        });
+        const { data, error } = await invokeWifiConnect(payload);
 
         if (error) {
           setStatus(error.message || 'Sorry, we could not connect you right now.', true);
@@ -351,11 +364,11 @@
               window.location.href = decodedUrl;
               return;
             } catch (err) {
-              setStatus('Connected 🎉');
+              setStatus('Connected!');
               return;
             }
           }
-          setStatus('Connected 🎉');
+          setStatus('Connected!');
         }, 1000);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
