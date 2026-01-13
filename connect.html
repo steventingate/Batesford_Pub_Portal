@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Batesford Pub Guest Wi-Fi | Connect</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      background: linear-gradient(135deg, #1a472a 0%, #2d5a3d 100%);
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      padding: 36px;
+      border-radius: 20px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      width: 100%;
+      max-width: 520px;
+    }
+
+    h1 {
+      color: #1a472a;
+      margin: 0 0 8px 0;
+      font-size: 30px;
+      font-weight: bold;
+    }
+
+    .subtitle {
+      color: #2d5a3d;
+      font-size: 22px;
+      margin: 0 0 10px 0;
+      font-weight: 600;
+    }
+
+    .lead {
+      color: #333;
+      margin: 0 0 24px 0;
+      line-height: 1.6;
+      font-size: 15px;
+    }
+
+    form {
+      text-align: left;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      color: #1a472a;
+      font-weight: 600;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    input[type="text"],
+    input[type="email"],
+    input[type="tel"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid #cbd7d0;
+      font-size: 16px;
+      background: #ffffff;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #1a472a;
+      box-shadow: 0 0 0 2px rgba(26, 71, 42, 0.2);
+    }
+
+    .consent {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 14px;
+      border-radius: 10px;
+      background: #f0f7f4;
+      border-left: 4px solid #1a472a;
+      font-size: 14px;
+      color: #333;
+      margin: 10px 0 18px;
+    }
+
+    .consent input {
+      margin-top: 3px;
+    }
+
+    button {
+      background: #1a472a;
+      color: white;
+      border: none;
+      padding: 14px 24px;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      width: 100%;
+      transition: background 0.3s;
+    }
+
+    button:hover {
+      background: #2d5a3d;
+    }
+
+    .status {
+      margin-top: 12px;
+      font-size: 13px;
+      color: #1a472a;
+      display: none;
+    }
+
+    .note {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #666;
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    .info-box {
+      background: #fff9e6;
+      border: 2px solid #f4c542;
+      border-radius: 8px;
+      padding: 14px;
+      margin: 22px 0 0;
+      text-align: left;
+    }
+
+    .info-box h4 {
+      margin: 0 0 8px 0;
+      color: #8b6914;
+      font-size: 15px;
+    }
+
+    .info-box p {
+      margin: 6px 0;
+      color: #333;
+      font-size: 14px;
+    }
+
+    .network-name {
+      font-weight: bold;
+      color: #1a472a;
+      font-family: monospace;
+      font-size: 14px;
+    }
+
+    .footer {
+      margin-top: 18px;
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+    }
+
+    .footer a {
+      color: #1a472a;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        padding: 16px;
+      }
+
+      .container {
+        padding: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h1>BATESFORD PUB</h1>
+    <div class="subtitle">Guest Wi-Fi Connect</div>
+    <p class="lead">Enter your details to connect to Batesford Free Wi-Fi. This helps us keep the network safe and share special offers with past guests.</p>
+
+    <form id="connect-form">
+      <div class="field">
+        <label for="name">Full name</label>
+        <input id="name" name="name" type="text" autocomplete="name" required>
+      </div>
+      <div class="field">
+        <label for="email">Email address</label>
+        <input id="email" name="email" type="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="phone">Contact number</label>
+        <input id="phone" name="phone" type="tel" autocomplete="tel" required>
+      </div>
+
+      <div class="consent">
+        <input id="terms" name="terms" type="checkbox" required>
+        <label for="terms">I agree to the Batesford Pub Wi-Fi terms and understand my details may be used for guest Wi-Fi access and marketing updates. I can unsubscribe anytime.</label>
+      </div>
+
+      <button type="submit">Connect and Agree</button>
+      <div class="status" id="status">Thanks. Connecting you now.</div>
+      <p class="note">By connecting you accept the acceptable use policy and consent to receiving occasional offers. We never share your details with third parties.</p>
+    </form>
+
+    <div class="info-box">
+      <h4>Network Details</h4>
+      <p>Network Name: <span class="network-name">Batesford Free Wi-Fi</span></p>
+      <p>Security: Open (No Password)</p>
+      <p>Terms & Conditions apply</p>
+    </div>
+
+    <div class="footer">
+      Questions? Ask our team or review our <a href="/terms">Wi-Fi terms</a>.
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById('connect-form');
+    const status = document.getElementById('status');
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) {
+        return;
+      }
+      status.style.display = 'block';
+      status.textContent = 'Thanks. Connecting you now.';
+    });
+  </script>
+</body>
+</html>
