@@ -221,7 +221,6 @@
   <script>
     const supabaseUrl = 'https://ieyetpwbubyxxpdkqcdy.supabase.co';
     const supabaseKey = 'sb_publishable_ZSD2WmBD_UZB53EFZ-820g_p0Fh_606';
-    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
 
     const form = document.getElementById('connect-form');
     const status = document.getElementById('status');
@@ -234,7 +233,21 @@
     };
 
     const parseUnifiParams = () => {
-      const params = new URLSearchParams(window.location.search);
+      const search = window.location.search || '';
+      if (typeof URLSearchParams === 'undefined') {
+        const fallback = {};
+        const query = search.replace(/^\?/, '');
+        if (!query) {
+          return fallback;
+        }
+        query.split('&').forEach((pair) => {
+          const [key, value] = pair.split('=');
+          if (!key) return;
+          fallback[decodeURIComponent(key)] = decodeURIComponent(value || '');
+        });
+        return fallback;
+      }
+      const params = new URLSearchParams(search);
       return {
         client_mac: params.get('id') || '',
         ap_mac: params.get('ap') || '',
@@ -243,19 +256,48 @@
       };
     };
 
+    const storage = (() => {
+      try {
+        const testKey = '__unifi_test';
+        sessionStorage.setItem(testKey, '1');
+        sessionStorage.removeItem(testKey);
+        return sessionStorage;
+      } catch (err) {
+        return null;
+      }
+    })();
+
     const unifiState = (() => {
-      const stored = sessionStorage.getItem('unifi_params');
+      const stored = storage ? storage.getItem('unifi_params') : null;
       if (stored) {
         try {
           return JSON.parse(stored);
         } catch (err) {
-          sessionStorage.removeItem('unifi_params');
+          if (storage) {
+            storage.removeItem('unifi_params');
+          }
         }
       }
       const parsed = parseUnifiParams();
-      sessionStorage.setItem('unifi_params', JSON.stringify(parsed));
+      if (storage) {
+        storage.setItem('unifi_params', JSON.stringify(parsed));
+      }
       return parsed;
     })();
+
+    const hasSupabase = typeof supabase !== 'undefined' &&
+      typeof supabase.createClient === 'function';
+
+    if (!hasSupabase) {
+      setStatus('Please try again in a moment.', true);
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        setStatus('Please try again in a moment.', true);
+      });
+      return;
+    }
+
+    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
 
     if (!unifiState.client_mac) {
       setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
