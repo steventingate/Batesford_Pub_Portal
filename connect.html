@@ -233,34 +233,88 @@
       status.style.color = isError ? '#b42318' : '#1a472a';
     };
 
+    const parseUnifiParams = () => {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        client_mac: params.get('id') || '',
+        ap_mac: params.get('ap') || '',
+        ssid: params.get('ssid') || '',
+        redirect_url: params.get('url') || ''
+      };
+    };
+
+    const unifiState = (() => {
+      const stored = sessionStorage.getItem('unifi_params');
+      if (stored) {
+        try {
+          return JSON.parse(stored);
+        } catch (err) {
+          sessionStorage.removeItem('unifi_params');
+        }
+      }
+      const parsed = parseUnifiParams();
+      sessionStorage.setItem('unifi_params', JSON.stringify(parsed));
+      return parsed;
+    })();
+
+    if (!unifiState.client_mac) {
+      setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
+    }
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!form.reportValidity()) {
         return;
       }
+
+      if (!unifiState.client_mac) {
+        setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
+        return;
+      }
+
       submitButton.disabled = true;
-      submitButton.textContent = 'Submitting...';
-      setStatus('Thanks. Connecting you now.');
+      submitButton.textContent = 'Connecting...';
+      setStatus('Connecting you to Wi-Fi...');
 
       const payload = {
-        full_name: form.elements.name.value.trim(),
+        name: form.elements.name.value.trim(),
         email: form.elements.email.value.trim(),
-        phone: form.elements.phone.value.trim(),
-        consent: form.elements.terms.checked
+        mobile: form.elements.phone.value.trim(),
+        marketing_opt_in: form.elements.terms.checked,
+        client_mac: unifiState.client_mac,
+        ap_mac: unifiState.ap_mac,
+        ssid: unifiState.ssid,
+        redirect_url: unifiState.redirect_url
       };
 
       try {
-        const { error } = await supabaseClient
-          .from('contact_submissions')
-          .insert(payload);
+        const { data, error } = await supabaseClient.functions.invoke('wifi-connect', {
+          body: payload
+        });
 
         if (error) {
-          setStatus('Sorry, we could not save your details. Please try again.', true);
+          setStatus(error.message || 'Sorry, we could not connect you right now.', true);
           return;
         }
 
-        form.reset();
-        setStatus('Thanks. You are connected. Enjoy the Wi-Fi!');
+        if (!data || data.success !== true) {
+          setStatus('Sorry, we could not connect you right now.', true);
+          return;
+        }
+
+        setTimeout(() => {
+          if (unifiState.redirect_url) {
+            try {
+              const decodedUrl = decodeURIComponent(unifiState.redirect_url);
+              window.location.href = decodedUrl;
+              return;
+            } catch (err) {
+              setStatus('Connected 🎉');
+              return;
+            }
+          }
+          setStatus('Connected 🎉');
+        }, 1000);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
