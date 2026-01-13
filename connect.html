@@ -217,17 +217,56 @@
     </div>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
+    const supabaseUrl = 'https://ieyetpwbubyxxpdkqcdy.supabase.co';
+    const supabaseKey = 'sb_publishable_ZSD2WmBD_UZB53EFZ-820g_p0Fh_606';
+    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+
     const form = document.getElementById('connect-form');
     const status = document.getElementById('status');
+    const submitButton = form.querySelector('button[type="submit"]');
 
-    form.addEventListener('submit', (event) => {
+    const setStatus = (message, isError) => {
+      status.style.display = 'block';
+      status.textContent = message;
+      status.style.color = isError ? '#b42318' : '#1a472a';
+    };
+
+    form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!form.reportValidity()) {
         return;
       }
-      status.style.display = 'block';
-      status.textContent = 'Thanks. Connecting you now.';
+      submitButton.disabled = true;
+      submitButton.textContent = 'Submitting...';
+      setStatus('Thanks. Connecting you now.');
+
+      const payload = {
+        full_name: form.elements.name.value.trim(),
+        email: form.elements.email.value.trim(),
+        phone: form.elements.phone.value.trim(),
+        consent: form.elements.terms.checked
+      };
+
+      try {
+        const { error } = await supabaseClient
+          .from('contact_submissions')
+          .insert(payload);
+
+        if (error) {
+          setStatus('Sorry, we could not save your details. Please try again.', true);
+          return;
+        }
+
+        form.reset();
+        setStatus('Thanks. You are connected. Enjoy the Wi-Fi!');
+      } catch (err) {
+        setStatus('Something went wrong. Please try again.', true);
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Connect and Agree';
+      }
     });
   </script>
 </body>
