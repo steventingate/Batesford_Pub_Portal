@@ -324,7 +324,7 @@
           if (!parsed.ssid && current.ssid) {
             parsed.ssid = current.ssid;
           }
-          if (!parsed.client_mac && parsed.unifi_id) {
+          if (!parsed.client_mac && isMacAddress(parsed.unifi_id)) {
             parsed.client_mac = parsed.unifi_id;
             if (storage) {
               storage.setItem('unifi_params', JSON.stringify(parsed));
@@ -339,7 +339,7 @@
       }
       const parsed = parseUnifiParams();
       const values = parsed.values;
-      if (!values.client_mac && values.unifi_id) {
+      if (!values.client_mac && isMacAddress(values.unifi_id)) {
         values.client_mac = values.unifi_id;
       }
       if (storage) {
@@ -354,16 +354,12 @@
     })();
     const debugPanel = document.getElementById('debug-panel');
 
-    const isIOS = () => {
-      const ua = navigator.userAgent || '';
-      return /iPhone|iPad|iPod/i.test(ua) || ua.indexOf('CaptiveNetworkSupport') !== -1;
-    };
+    function isMacAddress(value) {
+      return /^([0-9A-Fa-f]{2}([-:])){5}([0-9A-Fa-f]{2})$/.test(value || '');
+    }
 
     const chooseRedirectTarget = () => {
-      if (isIOS()) {
-        return 'https://www.gstatic.com/generate_204';
-      }
-      return 'https://www.google.com/generate_204';
+      return 'https://www.gstatic.com/generate_204';
     };
 
     const hasSupabase = typeof supabase !== 'undefined' &&
