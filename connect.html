@@ -356,15 +356,12 @@
 
     const isIOS = () => {
       const ua = navigator.userAgent || '';
-      return /iPhone|iPad|iPod/i.test(ua);
+      return /iPhone|iPad|iPod/i.test(ua) || ua.indexOf('CaptiveNetworkSupport') !== -1;
     };
 
-    const chooseRedirectTarget = (redirectUrl) => {
-      if (redirectUrl && redirectUrl.indexOf('https://') === 0) {
-        return redirectUrl;
-      }
+    const chooseRedirectTarget = () => {
       if (isIOS()) {
-        return 'https://www.apple.com/library/test/success.html';
+        return 'https://www.gstatic.com/generate_204';
       }
       return 'https://www.google.com/generate_204';
     };
@@ -435,7 +432,7 @@
 
       try {
         const { data, error } = await invokeWifiConnect(payload);
-        const redirectTarget = chooseRedirectTarget(unifiState.redirect_url);
+        const redirectTarget = chooseRedirectTarget();
 
         if (debugEnabled && debugPanel) {
           debugPanel.style.display = 'block';
@@ -461,7 +458,7 @@
         setStatus('Connected ✅');
         setTimeout(() => {
           window.location.replace(redirectTarget);
-        }, 1000);
+        }, 1500);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
