@@ -171,6 +171,19 @@
       color: #1a472a;
     }
 
+    .debug {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #f8f9fb;
+      border: 1px solid #d8dde3;
+      font-size: 12px;
+      color: #333;
+      white-space: pre-wrap;
+      word-break: break-word;
+      display: none;
+    }
+
     @media (max-width: 600px) {
       body {
         padding: 16px;
@@ -215,6 +228,8 @@
     <div class="footer">
       Questions? Ask our team or review our <a href="/terms">Wi-Fi terms</a>.
     </div>
+
+    <pre id="debug-panel" class="debug"></pre>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -232,31 +247,49 @@
       status.style.color = isError ? '#b42318' : '#1a472a';
     };
 
+    const parseUnifiSite = () => {
+      const path = window.location.pathname || '';
+      const match = path.match(/\/guest\/s\/([^/]+)\//);
+      return match ? decodeURIComponent(match[1]) : '';
+    };
+
+    const safeDecode = (value) => {
+      if (!value) return '';
+      try {
+        return decodeURIComponent(String(value).replace(/\+/g, ' '));
+      } catch (err) {
+        return String(value);
+      }
+    };
+
     const parseUnifiParams = () => {
       const search = window.location.search || '';
+      const debugEnabled = search.indexOf('debug=1') !== -1;
       if (typeof URLSearchParams === 'undefined') {
         const fallback = {};
         const query = search.replace(/^\?/, '');
         if (!query) {
-          return fallback;
+          return { values: fallback, debugEnabled };
         }
         query.split('&').forEach((pair) => {
           const [key, value] = pair.split('=');
           if (!key) return;
-          fallback[decodeURIComponent(key)] = decodeURIComponent(value || '');
+          fallback[safeDecode(key)] = safeDecode(value || '');
         });
-        return fallback;
+        return { values: fallback, debugEnabled };
       }
       const params = new URLSearchParams(search);
-      return {
+      const values = {
         client_mac: params.get('id') || '',
         ap_mac: params.get('ap') || '',
-        ssid: params.get('ssid') || '',
-        redirect_url: params.get('url') || '',
+        ssid: safeDecode(params.get('ssid') || ''),
+        redirect_url: safeDecode(params.get('url') || ''),
+        unifi_site: parseUnifiSite(),
         unifi_id: params.get('id') || '',
         unifi_ap: params.get('ap') || '',
         unifi_t: params.get('t') || ''
       };
+      return { values, debugEnabled };
     };
 
     const storage = (() => {
@@ -274,7 +307,30 @@
       const stored = storage ? storage.getItem('unifi_params') : null;
       if (stored) {
         try {
-          return JSON.parse(stored);
+          const parsed = JSON.parse(stored);
+          const current = parseUnifiParams().values;
+          if (!parsed.unifi_site && current.unifi_site) {
+            parsed.unifi_site = current.unifi_site;
+          }
+          if (!parsed.unifi_ap && current.unifi_ap) {
+            parsed.unifi_ap = current.unifi_ap;
+          }
+          if (!parsed.unifi_t && current.unifi_t) {
+            parsed.unifi_t = current.unifi_t;
+          }
+          if (!parsed.redirect_url && current.redirect_url) {
+            parsed.redirect_url = current.redirect_url;
+          }
+          if (!parsed.ssid && current.ssid) {
+            parsed.ssid = current.ssid;
+          }
+          if (!parsed.client_mac && parsed.unifi_id) {
+            parsed.client_mac = parsed.unifi_id;
+            if (storage) {
+              storage.setItem('unifi_params', JSON.stringify(parsed));
+            }
+          }
+          return parsed;
         } catch (err) {
           if (storage) {
             storage.removeItem('unifi_params');
@@ -282,11 +338,21 @@
         }
       }
       const parsed = parseUnifiParams();
-      if (storage) {
-        storage.setItem('unifi_params', JSON.stringify(parsed));
+      const values = parsed.values;
+      if (!values.client_mac && values.unifi_id) {
+        values.client_mac = values.unifi_id;
       }
-      return parsed;
+      if (storage) {
+        storage.setItem('unifi_params', JSON.stringify(values));
+      }
+      return values;
     })();
+
+    const debugEnabled = (() => {
+      const parsed = parseUnifiParams();
+      return parsed.debugEnabled;
+    })();
+    const debugPanel = document.getElementById('debug-panel');
 
     const hasSupabase = typeof supabase !== 'undefined' &&
       typeof supabase.createClient === 'function';
@@ -345,14 +411,23 @@
         ap_mac: unifiState.ap_mac,
         ssid: unifiState.ssid,
         redirect_url: unifiState.redirect_url,
+        unifi_site: unifiState.unifi_site,
         unifi_id: unifiState.unifi_id,
         unifi_ap: unifiState.unifi_ap,
         unifi_t: unifiState.unifi_t,
-        debug: true
+        debug: debugEnabled
       };
 
       try {
         const { data, error } = await invokeWifiConnect(payload);
+        if (debugEnabled && debugPanel) {
+          debugPanel.style.display = 'block';
+          debugPanel.textContent = JSON.stringify({
+            parsed: unifiState,
+            response: data || null,
+            error: error || null
+          }, null, 2);
+        }
 
         if (error) {
           setStatus(error.message || 'Sorry, we could not connect you right now.', true);
@@ -364,19 +439,9 @@
           return;
         }
 
-        setStatus('Connected 🎉');
+        setStatus('Connected ✅');
         setTimeout(() => {
-          if (unifiState.redirect_url) {
-            try {
-              const decodedUrl = decodeURIComponent(unifiState.redirect_url);
-              window.location.href = decodedUrl;
-              return;
-            } catch (err) {
-              setStatus('Connected 🎉');
-              return;
-            }
-          }
-          setStatus('Connected 🎉');
+          window.location.href = 'https://neverssl.com';
         }, 800);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
