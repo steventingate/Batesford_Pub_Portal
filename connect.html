@@ -354,6 +354,21 @@
     })();
     const debugPanel = document.getElementById('debug-panel');
 
+    const isIOS = () => {
+      const ua = navigator.userAgent || '';
+      return /iPhone|iPad|iPod/i.test(ua);
+    };
+
+    const chooseRedirectTarget = (redirectUrl) => {
+      if (redirectUrl && redirectUrl.indexOf('https://') === 0) {
+        return redirectUrl;
+      }
+      if (isIOS()) {
+        return 'https://www.apple.com/library/test/success.html';
+      }
+      return 'https://www.google.com/generate_204';
+    };
+
     const hasSupabase = typeof supabase !== 'undefined' &&
       typeof supabase.createClient === 'function';
     const supabaseClient = hasSupabase
@@ -420,10 +435,14 @@
 
       try {
         const { data, error } = await invokeWifiConnect(payload);
+        const redirectTarget = chooseRedirectTarget(unifiState.redirect_url);
+
         if (debugEnabled && debugPanel) {
           debugPanel.style.display = 'block';
           debugPanel.textContent = JSON.stringify({
             parsed: unifiState,
+            redirectTarget,
+            userAgent: navigator.userAgent,
             response: data || null,
             error: error || null
           }, null, 2);
@@ -441,8 +460,8 @@
 
         setStatus('Connected ✅');
         setTimeout(() => {
-          window.location.href = 'https://neverssl.com';
-        }, 800);
+          window.location.replace(redirectTarget);
+        }, 1000);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
