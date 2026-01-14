@@ -358,29 +358,56 @@
       return /^([0-9A-Fa-f]{2}([-:])){5}([0-9A-Fa-f]{2})$/.test(value || '');
     }
 
-    const isAndroid = () => {
-      const ua = navigator.userAgent || '';
-      return ua.indexOf('Android') !== -1;
+    const getHostname = (value) => {
+      if (!value) return '';
+      try {
+        return new URL(value).hostname.toLowerCase();
+      } catch (err) {
+        return '';
+      }
     };
 
-    const isAppleCaptive = () => {
-      const ua = navigator.userAgent || '';
-      if (ua.indexOf('CaptiveNetworkSupport') !== -1) {
-        return true;
-      }
-      const isAppleWebKit = ua.indexOf('AppleWebKit') !== -1;
-      const hotspotHint = /(hotspot|wifi|wi-fi|captive|network)/i.test(ua);
-      return isAppleWebKit && hotspotHint;
+    const isAppleHost = (hostname) => {
+      return hostname.indexOf('captive.apple.com') !== -1 ||
+        hostname.indexOf('apple.com') !== -1;
     };
 
-    const chooseRedirectTarget = () => {
-      if (isAppleCaptive()) {
-        return 'https://www.apple.com/library/test/success.html';
+    const isAndroidHost = (hostname) => {
+      return hostname.indexOf('gstatic.com') !== -1;
+    };
+
+    const detectFallbackPlatform = () => {
+      const ua = navigator.userAgent || '';
+      if (ua.indexOf('Android') !== -1) {
+        return 'android';
       }
-      if (isAndroid()) {
-        return 'http://connectivitycheck.gstatic.com/generate_204';
+      if (ua.indexOf('CaptiveNetworkSupport') !== -1 || /iPhone|iPad|iPod/i.test(ua)) {
+        return 'apple';
       }
-      return 'https://batesfordpub.netlify.app/';
+      return 'other';
+    };
+
+    const chooseRedirectPlan = (redirectUrl) => {
+      const hostname = getHostname(redirectUrl);
+      let platform = '';
+      if (hostname) {
+        if (isAppleHost(hostname)) {
+          platform = 'apple';
+        } else if (isAndroidHost(hostname)) {
+          platform = 'android';
+        }
+      }
+
+      if (!platform) {
+        platform = detectFallbackPlatform();
+      }
+
+      const step1 = redirectUrl || 'https://www.apple.com/library/test/success.html';
+      const step2 = platform === 'apple'
+        ? 'https://www.apple.com/library/test/success.html'
+        : 'https://batesfordpub.netlify.app/';
+
+      return { step1, step2, platform, hostname };
     };
 
     const hasSupabase = typeof supabase !== 'undefined' &&
@@ -449,13 +476,13 @@
 
       try {
         const { data, error } = await invokeWifiConnect(payload);
-        const redirectTarget = chooseRedirectTarget();
+        const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
 
         if (debugEnabled && debugPanel) {
           debugPanel.style.display = 'block';
           debugPanel.textContent = JSON.stringify({
             parsed: unifiState,
-            redirectTarget,
+            redirectPlan,
             userAgent: navigator.userAgent,
             response: data || null,
             error: error || null
@@ -474,13 +501,16 @@
 
         setStatus('Connected ✅');
         setTimeout(() => {
-          window.location.replace(redirectTarget);
+          window.location.replace(redirectPlan.step1);
+        }, 500);
+        setTimeout(() => {
+          window.location.replace(redirectPlan.step2);
           try {
             window.close();
           } catch (err) {
             // Ignore close failures in captive portals.
           }
-        }, 800);
+        }, 1400);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
