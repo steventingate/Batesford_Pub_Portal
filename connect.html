@@ -252,7 +252,10 @@
         client_mac: params.get('id') || '',
         ap_mac: params.get('ap') || '',
         ssid: params.get('ssid') || '',
-        redirect_url: params.get('url') || ''
+        redirect_url: params.get('url') || '',
+        unifi_id: params.get('id') || '',
+        unifi_ap: params.get('ap') || '',
+        unifi_t: params.get('t') || ''
       };
     };
 
@@ -342,6 +345,9 @@
         ap_mac: unifiState.ap_mac,
         ssid: unifiState.ssid,
         redirect_url: unifiState.redirect_url,
+        unifi_id: unifiState.unifi_id,
+        unifi_ap: unifiState.unifi_ap,
+        unifi_t: unifiState.unifi_t,
         debug: true
       };
 
@@ -358,6 +364,7 @@
           return;
         }
 
+        setStatus('Connected 🎉');
         setTimeout(() => {
           if (unifiState.redirect_url) {
             try {
@@ -365,12 +372,12 @@
               window.location.href = decodedUrl;
               return;
             } catch (err) {
-              setStatus('Connected!');
+              setStatus('Connected 🎉');
               return;
             }
           }
-          setStatus('Connected!');
-        }, 1000);
+          setStatus('Connected 🎉');
+        }, 800);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
