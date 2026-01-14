@@ -358,8 +358,29 @@
       return /^([0-9A-Fa-f]{2}([-:])){5}([0-9A-Fa-f]{2})$/.test(value || '');
     }
 
+    const isAndroid = () => {
+      const ua = navigator.userAgent || '';
+      return ua.indexOf('Android') !== -1;
+    };
+
+    const isAppleCaptive = () => {
+      const ua = navigator.userAgent || '';
+      if (ua.indexOf('CaptiveNetworkSupport') !== -1) {
+        return true;
+      }
+      const isAppleWebKit = ua.indexOf('AppleWebKit') !== -1;
+      const hotspotHint = /(hotspot|wifi|wi-fi|captive|network)/i.test(ua);
+      return isAppleWebKit && hotspotHint;
+    };
+
     const chooseRedirectTarget = () => {
-      return 'https://www.gstatic.com/generate_204';
+      if (isAppleCaptive()) {
+        return 'https://www.apple.com/library/test/success.html';
+      }
+      if (isAndroid()) {
+        return 'http://connectivitycheck.gstatic.com/generate_204';
+      }
+      return 'https://batesfordpub.netlify.app/';
     };
 
     const hasSupabase = typeof supabase !== 'undefined' &&
@@ -454,7 +475,12 @@
         setStatus('Connected ✅');
         setTimeout(() => {
           window.location.replace(redirectTarget);
-        }, 1500);
+          try {
+            window.close();
+          } catch (err) {
+            // Ignore close failures in captive portals.
+          }
+        }, 800);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
