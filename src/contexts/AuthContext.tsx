@@ -74,6 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profile: null
   });
 
+  const stateRef = useRef<AuthState>(state);
   const mountedRef = useRef(true);
   const bootingRef = useRef(false);
   const bootIdRef = useRef(0);
@@ -82,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const safeSetState = useCallback((next: AuthState) => {
     if (!mountedRef.current) return;
+    stateRef.current = next;
     setState(next);
   }, []);
 
@@ -243,6 +245,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!session?.user) {
         resolveGuest();
+        return;
+      }
+
+      if (event === 'TOKEN_REFRESHED' && stateRef.current.status === 'authed') {
+        safeSetState({
+          ...stateRef.current,
+          session,
+          user: session.user
+        });
         return;
       }
 
