@@ -8,7 +8,7 @@ import { Select } from '../components/ui/Select';
 import { useToast } from '../components/ToastProvider';
 import { SegmentFilters, normalizeTags } from '../lib/segments';
 import { defaultEmailTemplate } from '../lib/emailTemplate';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../auth/useAuth';
 
 const steps = ['Details', 'Segment', 'Content', 'Review'];
 

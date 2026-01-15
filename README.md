@@ -14,6 +14,7 @@ Admin web app for managing guest Wi-Fi submissions, tags, notes, and marketing c
 2. Create a .env file
    VITE_SUPABASE_URL=your-project-url
    VITE_SUPABASE_ANON_KEY=your-anon-key
+   VITE_ADMIN_ALLOWLIST=admin@example.com,manager@example.com
 3. Run the app
    npm run dev
 
@@ -29,6 +30,7 @@ values ('<auth_user_id>', 'Staff Name', 'manager');
 Set the following environment variables in Netlify:
 - VITE_SUPABASE_URL
 - VITE_SUPABASE_ANON_KEY
+- VITE_ADMIN_ALLOWLIST (optional, comma-separated emails)
 - SUPABASE_SERVICE_ROLE_KEY
 - EMAIL_PROVIDER (SMTP2GO or RESEND)
 - SMTP2GO_API_KEY (if using SMTP2GO)
@@ -57,3 +59,7 @@ Use these in campaign HTML:
 - contact_submissions is read-only for admins.
 - contact_tags and contact_notes are editable by admins.
 - Use the Supabase SQL editor or a secure admin script to insert admin_profiles entries.
+- Netlify SPA refresh: keep `public/_redirects` with `/* /index.html 200` or equivalent in `netlify.toml`.
+- Supabase auth redirect URLs should include:
+  - https://admin.batesfordpub.netlify.app
+  - https://admin.batesfordpub.netlify.app/login

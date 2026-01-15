@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { useToast } from '../components/ToastProvider';
+import { useAuth } from '../auth/useAuth';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -13,7 +15,21 @@ export default function Login() {
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
+  const { status } = useAuth();
   const from = (location.state as { from?: Location })?.from?.pathname || '/';
+  const reason = new URLSearchParams(location.search).get('reason');
+
+  useEffect(() => {
+    if (status === 'authed') {
+      navigate(from, { replace: true });
+    }
+  }, [status, navigate, from]);
+
+  useEffect(() => {
+    if (reason === 'denied') {
+      toast.pushToast('Access denied. Your account is not an admin.', 'error');
+    }
+  }, [reason, toast]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -27,7 +43,6 @@ export default function Login() {
     }
 
     toast.pushToast('Welcome back.', 'success');
-    navigate(from, { replace: true });
   };
 
   return (
