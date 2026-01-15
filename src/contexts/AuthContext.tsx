@@ -129,7 +129,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .select('user_id, full_name, role')
         .eq('user_id', user.id)
         .in('role', ['admin', 'manager'])
-        .maybeSingle();
+        .maybeSingle()
+        .then((result) => result);
       const { data, error } = await withTimeout(query, 4000);
 
       if (error) {
