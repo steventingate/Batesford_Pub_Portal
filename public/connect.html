@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Batesford Pub Guest Wi-Fi | Connect</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      background: linear-gradient(135deg, #1a472a 0%, #2d5a3d 100%);
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      padding: 36px;
+      border-radius: 20px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      width: 100%;
+      max-width: 520px;
+    }
+
+    h1 {
+      color: #1a472a;
+      margin: 0 0 8px 0;
+      font-size: 30px;
+      font-weight: bold;
+    }
+
+    .subtitle {
+      color: #2d5a3d;
+      font-size: 22px;
+      margin: 0 0 10px 0;
+      font-weight: 600;
+    }
+
+    .lead {
+      color: #333;
+      margin: 0 0 24px 0;
+      line-height: 1.6;
+      font-size: 15px;
+    }
+
+    form {
+      text-align: left;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      color: #1a472a;
+      font-weight: 600;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    input[type="text"],
+    input[type="email"],
+    input[type="tel"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid #cbd7d0;
+      font-size: 16px;
+      background: #ffffff;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #1a472a;
+      box-shadow: 0 0 0 2px rgba(26, 71, 42, 0.2);
+    }
+
+    .consent {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 14px;
+      border-radius: 10px;
+      background: #f0f7f4;
+      border-left: 4px solid #1a472a;
+      font-size: 14px;
+      color: #333;
+      margin: 10px 0 18px;
+    }
+
+    .consent input {
+      margin-top: 3px;
+    }
+
+    button {
+      background: #1a472a;
+      color: white;
+      border: none;
+      padding: 14px 24px;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      width: 100%;
+      transition: background 0.3s;
+    }
+
+    button:hover {
+      background: #2d5a3d;
+    }
+
+    .status {
+      margin-top: 12px;
+      font-size: 13px;
+      color: #1a472a;
+      display: none;
+    }
+
+    .note {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #666;
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    .info-box {
+      background: #fff9e6;
+      border: 2px solid #f4c542;
+      border-radius: 8px;
+      padding: 14px;
+      margin: 22px 0 0;
+      text-align: left;
+    }
+
+    .info-box h4 {
+      margin: 0 0 8px 0;
+      color: #8b6914;
+      font-size: 15px;
+    }
+
+    .info-box p {
+      margin: 6px 0;
+      color: #333;
+      font-size: 14px;
+    }
+
+    .network-name {
+      font-weight: bold;
+      color: #1a472a;
+      font-family: monospace;
+      font-size: 14px;
+    }
+
+    .footer {
+      margin-top: 18px;
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+    }
+
+    .footer a {
+      color: #1a472a;
+    }
+
+    .debug {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #f8f9fb;
+      border: 1px solid #d8dde3;
+      font-size: 12px;
+      color: #333;
+      white-space: pre-wrap;
+      word-break: break-word;
+      display: none;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        padding: 16px;
+      }
+
+      .container {
+        padding: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h1>BATESFORD PUB</h1>
+    <div class="subtitle">Guest Wi-Fi Connect</div>
+    <p class="lead">Enter your details to connect to Batesford Free Wi-Fi. This helps us keep the network safe and share special offers with past guests.</p>
+
+    <form id="connect-form" action="javascript:void(0)" onsubmit="return false;">
+      <div class="field">
+        <label for="name">Full name</label>
+        <input id="name" name="name" type="text" autocomplete="name" required>
+      </div>
+      <div class="field">
+        <label for="email">Email address</label>
+        <input id="email" name="email" type="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="phone">Contact number</label>
+        <input id="phone" name="phone" type="tel" autocomplete="tel" required>
+      </div>
+
+      <div class="consent">
+        <input id="terms" name="terms" type="checkbox" required>
+        <label for="terms">I agree to the Batesford Pub Wi-Fi terms and understand my details may be used for guest Wi-Fi access and marketing updates. I can unsubscribe anytime.</label>
+      </div>
+
+      <button type="submit">Connect and Agree</button>
+      <div class="status" id="status">Thanks. Connecting you now.</div>
+      <p class="note">By connecting you accept the acceptable use policy and consent to receiving occasional offers. We never share your details with third parties.</p>
+    </form>
+
+    <div class="footer">
+      Questions? Ask our team or review our <a href="/terms">Wi-Fi terms</a>.
+    </div>
+
+    <pre id="debug-panel" class="debug"></pre>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const supabaseUrl = 'https://ieyetpwbubyxxpdkqcdy.supabase.co';
+    const supabaseKey = 'sb_publishable_ZSD2WmBD_UZB53EFZ-820g_p0Fh_606';
+
+    const form = document.getElementById('connect-form');
+    const status = document.getElementById('status');
+    const submitButton = form.querySelector('button[type="submit"]');
+
+    const setStatus = (message, isError) => {
+      status.style.display = 'block';
+      status.textContent = message;
+      status.style.color = isError ? '#b42318' : '#1a472a';
+    };
+
+    const parseUnifiSite = () => {
+      const path = window.location.pathname || '';
+      const match = path.match(/\/guest\/s\/([^/]+)\//);
+      return match ? decodeURIComponent(match[1]) : '';
+    };
+
+    const safeDecode = (value) => {
+      if (!value) return '';
+      try {
+        return decodeURIComponent(String(value).replace(/\+/g, ' '));
+      } catch (err) {
+        return String(value);
+      }
+    };
+
+    const parseUnifiParams = () => {
+      const search = window.location.search || '';
+      const debugEnabled = search.indexOf('debug=1') !== -1;
+      if (typeof URLSearchParams === 'undefined') {
+        const fallback = {};
+        const query = search.replace(/^\?/, '');
+        if (!query) {
+          return { values: fallback, debugEnabled };
+        }
+        query.split('&').forEach((pair) => {
+          const [key, value] = pair.split('=');
+          if (!key) return;
+          fallback[safeDecode(key)] = safeDecode(value || '');
+        });
+        return { values: fallback, debugEnabled };
+      }
+      const params = new URLSearchParams(search);
+      const values = {
+        client_mac: params.get('id') || '',
+        ap_mac: params.get('ap') || '',
+        ssid: safeDecode(params.get('ssid') || ''),
+        redirect_url: safeDecode(params.get('url') || ''),
+        unifi_site: parseUnifiSite(),
+        unifi_id: params.get('id') || '',
+        unifi_ap: params.get('ap') || '',
+        unifi_t: params.get('t') || ''
+      };
+      return { values, debugEnabled };
+    };
+
+    const storage = (() => {
+      try {
+        const testKey = '__unifi_test';
+        sessionStorage.setItem(testKey, '1');
+        sessionStorage.removeItem(testKey);
+        return sessionStorage;
+      } catch (err) {
+        return null;
+      }
+    })();
+
+    const unifiState = (() => {
+      const stored = storage ? storage.getItem('unifi_params') : null;
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          const current = parseUnifiParams().values;
+          if (!parsed.unifi_site && current.unifi_site) {
+            parsed.unifi_site = current.unifi_site;
+          }
+          if (!parsed.unifi_ap && current.unifi_ap) {
+            parsed.unifi_ap = current.unifi_ap;
+          }
+          if (!parsed.unifi_t && current.unifi_t) {
+            parsed.unifi_t = current.unifi_t;
+          }
+          if (!parsed.redirect_url && current.redirect_url) {
+            parsed.redirect_url = current.redirect_url;
+          }
+          if (!parsed.ssid && current.ssid) {
+            parsed.ssid = current.ssid;
+          }
+          if (!parsed.client_mac && isMacAddress(parsed.unifi_id)) {
+            parsed.client_mac = parsed.unifi_id;
+            if (storage) {
+              storage.setItem('unifi_params', JSON.stringify(parsed));
+            }
+          }
+          return parsed;
+        } catch (err) {
+          if (storage) {
+            storage.removeItem('unifi_params');
+          }
+        }
+      }
+      const parsed = parseUnifiParams();
+      const values = parsed.values;
+      if (!values.client_mac && isMacAddress(values.unifi_id)) {
+        values.client_mac = values.unifi_id;
+      }
+      if (storage) {
+        storage.setItem('unifi_params', JSON.stringify(values));
+      }
+      return values;
+    })();
+
+    const debugEnabled = (() => {
+      const parsed = parseUnifiParams();
+      return parsed.debugEnabled;
+    })();
+    const debugPanel = document.getElementById('debug-panel');
+
+    function isMacAddress(value) {
+      return /^([0-9A-Fa-f]{2}([-:])){5}([0-9A-Fa-f]{2})$/.test(value || '');
+    }
+
+    const getHostname = (value) => {
+      if (!value) return '';
+      try {
+        return new URL(value).hostname.toLowerCase();
+      } catch (err) {
+        return '';
+      }
+    };
+
+    const isAppleHost = (hostname) => {
+      return hostname.indexOf('captive.apple.com') !== -1 ||
+        hostname.indexOf('apple.com') !== -1;
+    };
+
+    const isAndroidHost = (hostname) => {
+      return hostname.indexOf('gstatic.com') !== -1;
+    };
+
+    const detectFallbackPlatform = () => {
+      const ua = navigator.userAgent || '';
+      if (ua.indexOf('Android') !== -1) {
+        return 'android';
+      }
+      if (ua.indexOf('CaptiveNetworkSupport') !== -1 || /iPhone|iPad|iPod/i.test(ua)) {
+        return 'apple';
+      }
+      return 'other';
+    };
+
+    const chooseRedirectPlan = (redirectUrl) => {
+      const hostname = getHostname(redirectUrl);
+      let platform = '';
+      if (hostname) {
+        if (isAppleHost(hostname)) {
+          platform = 'apple';
+        } else if (isAndroidHost(hostname)) {
+          platform = 'android';
+        }
+      }
+
+      if (!platform) {
+        platform = detectFallbackPlatform();
+      }
+
+      const step1 = redirectUrl || 'https://www.apple.com/library/test/success.html';
+      const step2 = platform === 'apple'
+        ? 'https://www.apple.com/library/test/success.html'
+        : 'https://www.thebatesfordhotel.com.au/';
+
+      return { step1, step2, platform, hostname };
+    };
+
+    const hasSupabase = typeof supabase !== 'undefined' &&
+      typeof supabase.createClient === 'function';
+    const supabaseClient = hasSupabase
+      ? supabase.createClient(supabaseUrl, supabaseKey)
+      : null;
+    const functionUrl = `${supabaseUrl}/functions/v1/wifi-connect`;
+
+    const invokeWifiConnect = async (payload) => {
+      if (supabaseClient) {
+        return supabaseClient.functions.invoke('wifi-connect', { body: payload });
+      }
+
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return { data, error: { message: data.error || 'Request failed.' } };
+      }
+      return { data, error: null };
+    };
+
+    if (!unifiState.client_mac) {
+      setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) {
+        return;
+      }
+
+      if (!unifiState.client_mac) {
+        setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
+        return;
+      }
+
+      submitButton.disabled = true;
+      submitButton.textContent = 'Connecting...';
+      setStatus('Connecting you to Wi-Fi...');
+
+      const payload = {
+        name: form.elements.name.value.trim(),
+        email: form.elements.email.value.trim(),
+        mobile: form.elements.phone.value.trim(),
+        marketing_opt_in: form.elements.terms.checked,
+        client_mac: unifiState.client_mac,
+        ap_mac: unifiState.ap_mac,
+        ssid: unifiState.ssid,
+        redirect_url: unifiState.redirect_url,
+        unifi_site: unifiState.unifi_site,
+        unifi_id: unifiState.unifi_id,
+        unifi_ap: unifiState.unifi_ap,
+        unifi_t: unifiState.unifi_t,
+        debug: debugEnabled
+      };
+
+      try {
+        const { data, error } = await invokeWifiConnect(payload);
+        const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
+
+        if (debugEnabled && debugPanel) {
+          debugPanel.style.display = 'block';
+          debugPanel.textContent = JSON.stringify({
+            parsed: unifiState,
+            redirectPlan,
+            userAgent: navigator.userAgent,
+            response: data || null,
+            error: error || null
+          }, null, 2);
+        }
+
+        if (error) {
+          setStatus(error.message || 'Sorry, we could not connect you right now.', true);
+          return;
+        }
+
+        if (!data || data.success !== true) {
+          setStatus('Sorry, we could not connect you right now.', true);
+          return;
+        }
+
+        setStatus('Connected ✅');
+        setTimeout(() => {
+          window.location.replace(redirectPlan.step1);
+        }, 500);
+        setTimeout(() => {
+          window.location.replace(redirectPlan.step2);
+          try {
+            window.close();
+          } catch (err) {
+            // Ignore close failures in captive portals.
+          }
+        }, 1400);
+      } catch (err) {
+        setStatus('Something went wrong. Please try again.', true);
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Connect and Agree';
+      }
+    });
+  </script>
+</body>
+</html>
