@@ -8,7 +8,8 @@ import {
   useState
 } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabaseClient';
+import { clearLegacySupabaseStorage } from '../auth/authRecovery';
 
 export type AdminProfile = {
   user_id: string;
@@ -62,6 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const bootingRef = useRef(false);
   const bootIdRef = useRef(0);
   const timeoutRef = useRef<number | null>(null);
+  const legacyClearedRef = useRef(false);
 
   const safeSetState = useCallback((next: AuthState) => {
     if (!mountedRef.current) return;
@@ -149,6 +151,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, 6000);
 
     try {
+      if (!legacyClearedRef.current) {
+        legacyClearedRef.current = true;
+        await clearLegacySupabaseStorage();
+      }
+
       const { data, error } = await supabase.auth.getSession();
       if (!mountedRef.current || bootIdRef.current !== bootId) return;
       if (error || !data.session?.user) {
@@ -258,3 +265,4 @@ export function useAuth() {
   }
   return context;
 }
+

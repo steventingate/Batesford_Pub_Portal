@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabaseClient';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { formatDateTime } from '../lib/format';
@@ -103,3 +103,4 @@ export default function Campaigns() {
     </div>
   );
 }
+

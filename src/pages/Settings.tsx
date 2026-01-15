@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabaseClient';
 import { useToast } from '../components/ToastProvider';
 
 export default function Settings() {
@@ -50,3 +50,4 @@ export default function Settings() {
     </div>
   );
 }
+

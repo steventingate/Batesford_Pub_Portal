@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { subDays, format, parseISO } from 'date-fns';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabaseClient';
 import { Card } from '../components/ui/Card';
 import { ChartBars } from '../components/ChartBars';
 import { formatDateTime } from '../lib/format';
@@ -156,3 +156,4 @@ export default function Dashboard() {
     </div>
   );
 }
+
