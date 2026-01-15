@@ -463,6 +463,7 @@
         email: form.elements.email.value.trim(),
         mobile: form.elements.phone.value.trim(),
         marketing_opt_in: form.elements.terms.checked,
+        user_agent: navigator.userAgent || '',
         client_mac: unifiState.client_mac,
         ap_mac: unifiState.ap_mac,
         ssid: unifiState.ssid,

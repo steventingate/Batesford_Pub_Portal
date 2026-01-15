@@ -5,12 +5,14 @@ import { Card } from '../components/ui/Card';
 import { ChartBars } from '../components/ChartBars';
 import { formatDateTime } from '../lib/format';
 
-type Submission = {
+type ConnectionRow = {
   id: string;
-  full_name: string | null;
-  email: string | null;
-  phone: string | null;
-  created_at: string;
+  connected_at: string;
+  guests: {
+    full_name: string | null;
+    email: string | null;
+    mobile: string | null;
+  } | null;
 };
 
 export default function Dashboard() {
@@ -24,16 +26,16 @@ export default function Dashboard() {
   useEffect(() => {
     const load = async () => {
       const { count } = await supabase
-        .from('contact_submissions')
+        .from('wifi_connections')
         .select('id', { count: 'exact', head: true });
       setTotal(count ?? 0);
 
       const sevenDaysAgo = subDays(new Date(), 6);
       const { data: recentData } = await supabase
-        .from('contact_submissions')
-        .select('id, full_name, email, phone, created_at')
-        .gte('created_at', sevenDaysAgo.toISOString())
-        .order('created_at', { ascending: false });
+        .from('wifi_connections')
+        .select('id, connected_at')
+        .gte('connected_at', sevenDaysAgo.toISOString())
+        .order('connected_at', { ascending: false });
 
       const submissions = recentData ?? [];
       const byDay: Record<string, number> = {};
@@ -47,7 +49,7 @@ export default function Dashboard() {
       }
 
       submissions.forEach((item) => {
-        const key = format(parseISO(item.created_at), 'yyyy-MM-dd');
+        const key = format(parseISO(item.connected_at), 'yyyy-MM-dd');
         if (byDay[key] !== undefined) {
           byDay[key] += 1;
         }
@@ -56,31 +58,24 @@ export default function Dashboard() {
       setChartLabels(labels);
       setChartValues(Object.values(byDay));
 
-      const { data: emailData } = await supabase
-        .from('contact_submissions')
-        .select('email')
-        .not('email', 'is', null);
+      const { count: guestCount } = await supabase
+        .from('guests')
+        .select('id', { count: 'exact', head: true });
+      setUniqueEmails(guestCount ?? 0);
 
-      const emails = (emailData ?? [])
-        .map((row) => row.email?.toLowerCase().trim())
-        .filter(Boolean) as string[];
-      const unique = new Set(emails);
-      setUniqueEmails(unique.size);
-
-      const counts: Record<string, number> = {};
-      emails.forEach((email) => {
-        counts[email] = (counts[email] || 0) + 1;
-      });
-      const returningCount = Object.values(counts).filter((value) => value > 1).length;
-      setReturning(returningCount);
+      const { count: returningCount } = await supabase
+        .from('guest_profiles')
+        .select('guest_id', { count: 'exact', head: true })
+        .gte('visit_count', 2);
+      setReturning(returningCount ?? 0);
 
       const { data: latest } = await supabase
-        .from('contact_submissions')
-        .select('id, full_name, email, phone, created_at')
-        .order('created_at', { ascending: false })
+        .from('wifi_connections')
+        .select('id, connected_at, guests(full_name, email, mobile)')
+        .order('connected_at', { ascending: false })
         .limit(20);
 
-      setRecent(latest ?? []);
+      setRecent((latest as ConnectionRow[]) ?? []);
     };
 
     load();
@@ -143,10 +138,10 @@ export default function Dashboard() {
             <tbody>
               {recent.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
-                  <td className="py-2 font-semibold">{row.full_name || 'Guest'}</td>
-                  <td className="py-2">{row.email || '-'}</td>
-                  <td className="py-2">{row.phone || '-'}</td>
-                  <td className="py-2">{formatDateTime(row.created_at)}</td>
+                  <td className="py-2 font-semibold">{row.guests?.full_name || 'Guest'}</td>
+                  <td className="py-2">{row.guests?.email || '-'}</td>
+                  <td className="py-2">{row.guests?.mobile || '-'}</td>
+                  <td className="py-2">{formatDateTime(row.connected_at)}</td>
                 </tr>
               ))}
             </tbody>
