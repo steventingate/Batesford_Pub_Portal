@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { subDays, format, parseISO } from 'date-fns';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { Card } from '../components/ui/Card';
 import { ChartBars } from '../components/ChartBars';
@@ -88,9 +89,9 @@ export default function Dashboard() {
 
   const tiles = useMemo(
     () => [
-      { label: 'Total connections', value: total },
-      { label: 'Unique emails', value: uniqueEmails },
-      { label: 'Returning guests', value: returning }
+      { label: 'Total connections', value: total, to: '/contacts' },
+      { label: 'Unique emails', value: uniqueEmails, to: '/contacts' },
+      { label: 'Returning guests', value: returning, to: '/contacts?returning=1' }
     ],
     [total, uniqueEmails, returning]
   );
@@ -106,53 +107,59 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {tiles.map((tile) => (
-          <Card key={tile.label}>
-            <p className="text-sm text-muted mb-3">{tile.label}</p>
-            <p className="text-3xl font-semibold text-brand">{tile.value}</p>
-          </Card>
+          <Link key={tile.label} to={tile.to} className="block focus:outline-none focus:ring-2 focus:ring-brand/40 rounded-xl">
+            <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
+              <p className="text-sm text-muted mb-3">{tile.label}</p>
+              <p className="text-3xl font-semibold text-brand">{tile.value}</p>
+            </Card>
+          </Link>
         ))}
       </div>
 
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-semibold">Last 7 days</h3>
-            <p className="text-sm text-muted">Connections per day</p>
+      <Link to="/contacts" className="block focus:outline-none focus:ring-2 focus:ring-brand/40 rounded-xl">
+        <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold">Last 7 days</h3>
+              <p className="text-sm text-muted">Connections per day</p>
+            </div>
           </div>
-        </div>
-        <ChartBars labels={chartLabels} values={chartValues} />
-      </Card>
+          <ChartBars labels={chartLabels} values={chartValues} />
+        </Card>
+      </Link>
 
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-semibold">Recent connections</h3>
-            <p className="text-sm text-muted">Latest 20 submissions</p>
+      <Link to="/contacts" className="block focus:outline-none focus:ring-2 focus:ring-brand/40 rounded-xl">
+        <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold">Recent connections</h3>
+              <p className="text-sm text-muted">Latest 20 submissions</p>
+            </div>
           </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left text-muted">
-                <th className="py-2">Guest</th>
-                <th className="py-2">Email</th>
-                <th className="py-2">Mobile</th>
-                <th className="py-2">Connected</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((row) => (
-                <tr key={row.id} className="border-t border-slate-100">
-                  <td className="py-2 font-semibold">{row.guests?.full_name || 'Guest'}</td>
-                  <td className="py-2">{row.guests?.email || '-'}</td>
-                  <td className="py-2">{row.guests?.mobile || '-'}</td>
-                  <td className="py-2">{formatDateTime(row.connected_at)}</td>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-muted">
+                  <th className="py-2">Guest</th>
+                  <th className="py-2">Email</th>
+                  <th className="py-2">Mobile</th>
+                  <th className="py-2">Connected</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+              </thead>
+              <tbody>
+                {recent.map((row) => (
+                  <tr key={row.id} className="border-t border-slate-100">
+                    <td className="py-2 font-semibold">{row.guests?.full_name || 'Guest'}</td>
+                    <td className="py-2">{row.guests?.email || '-'}</td>
+                    <td className="py-2">{row.guests?.mobile || '-'}</td>
+                    <td className="py-2">{formatDateTime(row.connected_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </Link>
     </div>
   );
 }
