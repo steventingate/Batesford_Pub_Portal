@@ -6,7 +6,7 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { useToast } from '../components/ToastProvider';
-import { useAuth } from '../auth/useAuth';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -15,15 +15,15 @@ export default function Login() {
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
-  const { status } = useAuth();
+  const { user, isAdmin, adminChecked, loading } = useAuth();
   const from = (location.state as { from?: Location })?.from?.pathname || '/';
   const reason = new URLSearchParams(location.search).get('reason');
 
   useEffect(() => {
-    if (status === 'authed') {
+    if (!loading && user && adminChecked && isAdmin) {
       navigate(from, { replace: true });
     }
-  }, [status, navigate, from]);
+  }, [loading, user, adminChecked, isAdmin, navigate, from]);
 
   useEffect(() => {
     if (reason === 'denied') {

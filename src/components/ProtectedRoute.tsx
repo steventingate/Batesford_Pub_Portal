@@ -1,11 +1,11 @@
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { useAuth } from '../auth/useAuth';
+import { useAuth } from '../contexts/AuthContext';
 import { Spinner } from './ui/Spinner';
 import { Button } from './ui/Button';
 
 export function ProtectedRoute() {
-  const { status, signOut } = useAuth();
+  const { loading, user, isAdmin, adminChecked, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [showHint, setShowHint] = useState(false);
@@ -15,7 +15,7 @@ export function ProtectedRoute() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  if (status === 'loading') {
+  if (loading || (user && !adminChecked)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
@@ -31,17 +31,17 @@ export function ProtectedRoute() {
     );
   }
 
-  if (status === 'guest') {
+  if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   useEffect(() => {
-    if (status === 'denied') {
+    if (user && adminChecked && !isAdmin) {
       signOut();
     }
-  }, [status, signOut]);
+  }, [user, adminChecked, isAdmin, signOut]);
 
-  if (status === 'denied') {
+  if (user && adminChecked && !isAdmin) {
     return <Navigate to="/login?reason=denied" replace />;
   }
 

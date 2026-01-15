@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAuth } from '../auth/useAuth';
+import { useAuth } from '../contexts/AuthContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 import { useToast } from '../components/ToastProvider';
 
 export default function Settings() {
-  const { profile, refresh } = useAuth();
+  const { profile, refreshAdmin } = useAuth();
   const [name, setName] = useState('');
   const toast = useToast();
 
@@ -25,7 +25,7 @@ export default function Settings() {
       toast.pushToast(error.message, 'error');
     } else {
       toast.pushToast('Profile updated.', 'success');
-      await refresh();
+      await refreshAdmin();
     }
   };
 

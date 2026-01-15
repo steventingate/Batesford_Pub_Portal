@@ -8,7 +8,7 @@ import { Input } from '../components/ui/Input';
 import { formatDateTime } from '../lib/format';
 import { normalizeTags } from '../lib/segments';
 import { useToast } from '../components/ToastProvider';
-import { useAuth } from '../auth/useAuth';
+import { useAuth } from '../contexts/AuthContext';
 
 type Contact = {
   id: string;
