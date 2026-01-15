@@ -52,12 +52,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let active = true;
 
     const loadSession = async () => {
+      const safetyTimer = window.setTimeout(() => {
+        if (active) {
+          setLoading(false);
+        }
+      }, 2500);
       try {
         const { data } = await supabase.auth.getSession();
         if (!active) return;
         setUser(data.session?.user ?? null);
         await fetchProfile(data.session?.user ?? null);
       } finally {
+        window.clearTimeout(safetyTimer);
         if (active) {
           setLoading(false);
         }

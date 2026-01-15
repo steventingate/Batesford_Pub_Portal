@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { subDays, format } from 'date-fns';
+import { subDays, format, parseISO } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { Card } from '../components/ui/Card';
 import { ChartBars } from '../components/ChartBars';
@@ -47,7 +47,7 @@ export default function Dashboard() {
       }
 
       submissions.forEach((item) => {
-        const key = item.created_at.slice(0, 10);
+        const key = format(parseISO(item.created_at), 'yyyy-MM-dd');
         if (byDay[key] !== undefined) {
           byDay[key] += 1;
         }
