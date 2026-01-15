@@ -9,6 +9,10 @@ const resendKey = process.env.RESEND_API_KEY || '';
 const defaultFromEmail = process.env.DEFAULT_FROM_EMAIL || 'hello@thebatesfordhotel.com.au';
 const defaultFromName = process.env.DEFAULT_FROM_NAME || 'Batesford Pub';
 
+type Smtp2GoResponse = { data?: { failures?: { message?: string }[]; email_id?: string } };
+
+type ResendResponse = { id?: string; message?: string };
+
 const jsonResponse = (statusCode: number, body: Record<string, unknown>) => ({
   statusCode,
   headers: {
@@ -45,7 +49,7 @@ const sendViaSmtp2Go = async (payload: {
     })
   });
 
-  const data = await response.json().catch(() => ({}));
+  const data = (await response.json().catch(() => ({}))) as Smtp2GoResponse;
   if (!response.ok || data?.data?.failures?.length) {
     return { ok: false, messageId: null, error: data?.data?.failures?.[0]?.message || 'SMTP2GO send failed' };
   }
@@ -76,7 +80,7 @@ const sendViaResend = async (payload: {
     })
   });
 
-  const data = await response.json().catch(() => ({}));
+  const data = (await response.json().catch(() => ({}))) as ResendResponse;
   if (!response.ok) {
     return { ok: false, messageId: null, error: data?.message || 'Resend send failed' };
   }
@@ -320,3 +324,5 @@ export const handler: Handler = async (event) => {
 
   return jsonResponse(200, { ok: true, sent: sentCount, failed: failedCount });
 };
+
+

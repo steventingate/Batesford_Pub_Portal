@@ -188,7 +188,7 @@ export default function CampaignNew() {
               </div>
             </div>
           </div>
-          <p className="text-xs text-muted mt-3">Merge tags: {{first_name}}, {{email}}, {{venue_name}}</p>
+          <p className="text-xs text-muted mt-3">Merge tags: {'{{first_name}}'}, {'{{email}}'}, {'{{venue_name}}'}</p>
         </Card>
       )}
 
@@ -216,3 +216,5 @@ export default function CampaignNew() {
     </div>
   );
 }
+
+
