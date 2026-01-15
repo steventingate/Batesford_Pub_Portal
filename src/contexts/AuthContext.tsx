@@ -135,10 +135,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) {
         console.info('[AUTH] admin check error:', error.message);
+        const rpcResult = await withTimeout(supabase.rpc('is_admin'), 3000).catch((err) => {
+          console.info('[AUTH] admin rpc error:', err);
+          return { data: null, error: err };
+        });
+        if (rpcResult && 'data' in rpcResult && rpcResult.data === true) {
+          return { isAdmin: true, profile: null };
+        }
         return { isAdmin: isAllowlisted(user.email), profile: null };
       }
 
       if (!data) {
+        const rpcResult = await withTimeout(supabase.rpc('is_admin'), 3000).catch((err) => {
+          console.info('[AUTH] admin rpc error:', err);
+          return { data: null, error: err };
+        });
+        if (rpcResult && 'data' in rpcResult && rpcResult.data === true) {
+          return { isAdmin: true, profile: null };
+        }
         return { isAdmin: isAllowlisted(user.email), profile: null };
       }
 
@@ -146,6 +160,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { isAdmin: ADMIN_ROLES.has(role), profile: data };
     } catch (err) {
       console.info('[AUTH] admin check error:', err);
+      const rpcResult = await withTimeout(supabase.rpc('is_admin'), 3000).catch((rpcErr) => {
+        console.info('[AUTH] admin rpc error:', rpcErr);
+        return { data: null, error: rpcErr };
+      });
+      if (rpcResult && 'data' in rpcResult && rpcResult.data === true) {
+        return { isAdmin: true, profile: null };
+      }
       return { isAdmin: isAllowlisted(user.email), profile: null };
     }
   }, []);
