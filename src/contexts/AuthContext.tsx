@@ -148,6 +148,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!data) {
+        const allowlistHit = isAllowlisted(user.email);
+        if (allowlistHit) {
+          return { isAdmin: true, profile: null };
+        }
         const rpcResult = await withTimeout(supabase.rpc('is_admin'), 1500).catch((err) => {
           console.info('[AUTH] admin rpc error:', err);
           return { data: null, error: err };
@@ -248,6 +252,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      if (event === 'SIGNED_IN' && stateRef.current.status === 'authed') {
+        safeSetState({
+          ...stateRef.current,
+          session,
+          user: session.user
+        });
+        return;
+      }
+
       if (event === 'TOKEN_REFRESHED' && stateRef.current.status === 'authed') {
         safeSetState({
           ...stateRef.current,
@@ -271,6 +284,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.info('[AUTH] admin check result:', isAdmin);
 
       if (!isAdmin) {
+        if (stateRef.current.status === 'authed') {
+          safeSetState({
+            ...stateRef.current,
+            session,
+            user: session.user
+          });
+          return;
+        }
         resolveDenied(session, session.user);
         return;
       }
