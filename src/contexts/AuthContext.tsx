@@ -49,6 +49,21 @@ const isAllowlisted = (email?: string | null) => {
   return allowlist.includes(email.trim().toLowerCase());
 };
 
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number) => {
+  let timeoutHandle: number | null = null;
+  const timeoutPromise = new Promise<T>((_resolve, reject) => {
+    timeoutHandle = window.setTimeout(() => reject(new Error('timeout')), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      window.clearTimeout(timeoutHandle);
+    }
+  }
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
     status: 'loading',
@@ -109,12 +124,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const { data, error } = await supabase
+      const query = supabase
         .from('admin_profiles')
         .select('user_id, full_name, role')
         .eq('user_id', user.id)
         .in('role', ['admin', 'manager'])
         .maybeSingle();
+      const { data, error } = await withTimeout(query, 4000);
 
       if (error) {
         console.info('[AUTH] admin check error:', error.message);
