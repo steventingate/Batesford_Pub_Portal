@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { subDays, format, parseISO } from 'date-fns';
+import { parseISO } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { Card } from '../components/ui/Card';
@@ -11,6 +11,7 @@ type ConnectionRow = {
   connected_at: string;
   device_type: string | null;
   os_family: string | null;
+  connection_count: number;
   guests: {
     id: string | null;
     full_name: string | null;
@@ -19,48 +20,37 @@ type ConnectionRow = {
   } | null;
 };
 
+const melbourneTimeZone = 'Australia/Melbourne';
+
+const formatDateKey = (date: Date) =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: melbourneTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date);
+
+const formatWeekdayLabel = (date: Date) =>
+  new Intl.DateTimeFormat('en-AU', { timeZone: melbourneTimeZone, weekday: 'short' }).format(date);
+
+const formatWeekdayName = (date: Date) =>
+  new Intl.DateTimeFormat('en-AU', { timeZone: melbourneTimeZone, weekday: 'long' }).format(date);
+
 export default function Dashboard() {
   const [recent, setRecent] = useState<ConnectionRow[]>([]);
   const [total, setTotal] = useState(0);
   const [uniqueEmails, setUniqueEmails] = useState(0);
   const [returning, setReturning] = useState(0);
-  const [chartLabels, setChartLabels] = useState<string[]>([]);
-  const [chartValues, setChartValues] = useState<number[]>([]);
+  const [chartPoints, setChartPoints] = useState<{ label: string; value: number; tooltip: string; isToday?: boolean; date: Date }[]>([]);
+  const [busiestDay, setBusiestDay] = useState<string>('');
+  const [quietestDay, setQuietestDay] = useState<string>('');
 
   useEffect(() => {
     const load = async () => {
-      const { count } = await supabase
+      const { count: totalCount } = await supabase
         .from('wifi_connections')
         .select('id', { count: 'exact', head: true });
-      setTotal(count ?? 0);
-
-      const sevenDaysAgo = subDays(new Date(), 6);
-      const { data: recentData } = await supabase
-        .from('wifi_connections')
-        .select('id, connected_at')
-        .gte('connected_at', sevenDaysAgo.toISOString())
-        .order('connected_at', { ascending: false });
-
-      const submissions = recentData ?? [];
-      const byDay: Record<string, number> = {};
-      const labels: string[] = [];
-
-      for (let i = 6; i >= 0; i -= 1) {
-        const day = subDays(new Date(), i);
-        const key = format(day, 'yyyy-MM-dd');
-        labels.push(format(day, 'EEE'));
-        byDay[key] = 0;
-      }
-
-      submissions.forEach((item) => {
-        const key = format(parseISO(item.connected_at), 'yyyy-MM-dd');
-        if (byDay[key] !== undefined) {
-          byDay[key] += 1;
-        }
-      });
-
-      setChartLabels(labels);
-      setChartValues(Object.values(byDay));
+      setTotal(totalCount ?? 0);
 
       const { count: guestCount } = await supabase
         .from('guests')
@@ -73,6 +63,44 @@ export default function Dashboard() {
         .gte('visit_count', 2);
       setReturning(returningCount ?? 0);
 
+      const now = new Date();
+      const startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - 6);
+      const { data: recentData } = await supabase
+        .from('wifi_connections')
+        .select('id, connected_at')
+        .gte('connected_at', startDate.toISOString())
+        .order('connected_at', { ascending: false });
+
+      const submissions = recentData ?? [];
+      const byDay: Record<string, number> = {};
+      submissions.forEach((item) => {
+        const key = formatDateKey(parseISO(item.connected_at));
+        byDay[key] = (byDay[key] ?? 0) + 1;
+      });
+
+      const todayKey = formatDateKey(now);
+      const points = Array.from({ length: 7 }, (_, index) => {
+        const date = new Date(now);
+        date.setDate(date.getDate() - (6 - index));
+        const key = formatDateKey(date);
+        const value = byDay[key] ?? 0;
+        return {
+          label: formatWeekdayLabel(date),
+          value,
+          tooltip: `${formatWeekdayLabel(date)} · ${value} connections`,
+          isToday: key === todayKey,
+          date
+        };
+      });
+      setChartPoints(points);
+
+      const sorted = [...points].sort((a, b) => b.value - a.value);
+      const busiest = sorted[0] ?? null;
+      const quietest = [...points].sort((a, b) => a.value - b.value)[0] ?? null;
+      setBusiestDay(busiest ? formatWeekdayName(busiest.date) : '');
+      setQuietestDay(quietest ? formatWeekdayName(quietest.date) : '');
+
       const { data: latest } = await supabase
         .from('wifi_connections')
         .select('id, connected_at, device_type, os_family, guests(id, full_name, email, mobile)')
@@ -84,9 +112,24 @@ export default function Dashboard() {
         connected_at: row.connected_at,
         device_type: row.device_type ?? null,
         os_family: row.os_family ?? null,
+        connection_count: 1,
         guests: Array.isArray(row.guests) ? row.guests[0] ?? null : row.guests ?? null
       }));
-      setRecent(mapped);
+
+      const grouped: ConnectionRow[] = [];
+      mapped.forEach((row) => {
+        const last = grouped[grouped.length - 1];
+        if (last?.guests?.id && row.guests?.id && last.guests.id === row.guests.id) {
+          const lastTime = parseISO(last.connected_at).getTime();
+          const currentTime = parseISO(row.connected_at).getTime();
+          if (Math.abs(lastTime - currentTime) <= 2 * 60 * 1000) {
+            last.connection_count += 1;
+            return;
+          }
+        }
+        grouped.push(row);
+      });
+      setRecent(grouped);
     };
 
     load();
@@ -129,7 +172,11 @@ export default function Dashboard() {
               <p className="text-sm text-muted">Connections per day</p>
             </div>
           </div>
-          <ChartBars labels={chartLabels} values={chartValues} />
+          <ChartBars points={chartPoints} />
+          <div className="mt-4 flex flex-wrap gap-4 text-sm text-muted">
+            {busiestDay && <span>Busiest day: <strong className="text-brand">{busiestDay}</strong></span>}
+            {quietestDay && <span>Quietest day: <strong className="text-brand">{quietestDay}</strong></span>}
+          </div>
         </Card>
       </Link>
 
@@ -150,6 +197,7 @@ export default function Dashboard() {
                   <th className="py-2">Mobile</th>
                   <th className="py-2">Connected</th>
                   <th className="py-2">Device</th>
+                  <th className="py-2">Visits</th>
                   <th className="py-2">Profile</th>
                 </tr>
               </thead>
@@ -162,6 +210,15 @@ export default function Dashboard() {
                     <td className="py-2">{formatDateTime(row.connected_at)}</td>
                     <td className="py-2 text-sm">
                       {(row.device_type || 'unknown').toUpperCase()} / {(row.os_family || 'unknown').toUpperCase()}
+                    </td>
+                    <td className="py-2">
+                      {row.connection_count > 1 ? (
+                        <span className="inline-flex items-center rounded-full bg-brand/10 px-2 py-1 text-xs font-semibold text-brand">
+                          ×{row.connection_count} connections
+                        </span>
+                      ) : (
+                        <span className="text-sm text-muted">1</span>
+                      )}
                     </td>
                     <td className="py-2">
                       {row.guests?.id ? (
