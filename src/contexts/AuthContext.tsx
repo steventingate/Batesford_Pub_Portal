@@ -12,6 +12,7 @@ type AuthState = {
   user: User | null;
   profile: AdminProfile | null;
   loading: boolean;
+  adminChecked: boolean;
   isAdmin: boolean;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -23,11 +24,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AdminProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminChecked, setAdminChecked] = useState(false);
 
   const fetchProfile = async (currentUser: User | null) => {
     if (!currentUser) {
       setProfile(null);
+      setAdminChecked(true);
       return;
     }
 
@@ -40,30 +42,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) {
         setProfile(null);
+        setAdminChecked(true);
         return;
       }
 
       setProfile(data ?? null);
+      setAdminChecked(true);
     } catch {
       setProfile(null);
-    }
-  };
-
-  const checkAdmin = async (currentUser: User | null) => {
-    if (!currentUser) {
-      setIsAdmin(false);
-      return;
-    }
-
-    try {
-      const { data, error } = await supabase.rpc('is_admin');
-      if (error) {
-        setIsAdmin(false);
-        return;
-      }
-      setIsAdmin(Boolean(data));
-    } catch {
-      setIsAdmin(false);
+      setAdminChecked(true);
     }
   };
 
@@ -80,8 +67,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data } = await supabase.auth.getSession();
         if (!active) return;
         setUser(data.session?.user ?? null);
+        setAdminChecked(false);
         await fetchProfile(data.session?.user ?? null);
-        await checkAdmin(data.session?.user ?? null);
       } finally {
         window.clearTimeout(safetyTimer);
         if (active) {
@@ -95,8 +82,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
       try {
         setUser(session?.user ?? null);
+        setAdminChecked(false);
         await fetchProfile(session?.user ?? null);
-        await checkAdmin(session?.user ?? null);
       } finally {
         setLoading(false);
       }
@@ -113,13 +100,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       profile,
       loading,
-      isAdmin,
+      adminChecked,
+      isAdmin: Boolean(profile?.user_id),
       refreshProfile: async () => fetchProfile(user),
       signOut: async () => {
         await supabase.auth.signOut();
       }
     };
-  }, [user, profile, loading, isAdmin]);
+  }, [user, profile, loading, adminChecked]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

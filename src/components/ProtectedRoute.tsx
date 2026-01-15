@@ -3,10 +3,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { Spinner } from './ui/Spinner';
 
 export function ProtectedRoute() {
-  const { user, isAdmin, loading } = useAuth();
+  const { user, isAdmin, loading, adminChecked } = useAuth();
   const location = useLocation();
 
-  if (loading) {
+  if (loading || (user && !adminChecked)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Spinner label="Checking session" />
