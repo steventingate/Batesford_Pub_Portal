@@ -49,7 +49,7 @@ const isAllowlisted = (email?: string | null) => {
   return allowlist.includes(email.trim().toLowerCase());
 };
 
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number) => {
+const withTimeout = async <T,>(promise: Promise<T> | PromiseLike<T>, timeoutMs: number) => {
   let timeoutHandle: number | null = null;
   const timeoutPromise = new Promise<T>((_resolve, reject) => {
     timeoutHandle = window.setTimeout(() => reject(new Error('timeout')), timeoutMs);
