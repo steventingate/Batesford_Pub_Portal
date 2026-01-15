@@ -78,7 +78,7 @@ const restUrl = (path: string, params?: Record<string, string> | Array<[string, 
 
 const fetchJson = async <T>(url: string, init: RequestInit) => {
   const response = await fetch(url, init);
-  const data = await response.json().catch(() => null);
+  const data = (await response.json().catch(() => null)) as { message?: string } | null;
   if (!response.ok) {
     return { ok: false, data: null as T | null, error: data?.message || 'Request failed.' };
   }
@@ -93,7 +93,7 @@ const fetchAuthUser = async (token: string) => {
     }
   });
 
-  const data = await response.json().catch(() => null);
+  const data = (await response.json().catch(() => null)) as { message?: string; id?: string } | null;
   if (!response.ok) {
     return { ok: false, data: null, error: data?.message || 'Invalid token.' };
   }
