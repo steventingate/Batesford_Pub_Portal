@@ -14,15 +14,15 @@ export default function Login() {
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isAdmin, adminChecked, loading: authLoading } = useAuth();
+  const { status, user, isAdmin, adminChecked, loading: authLoading } = useAuth();
   const from = (location.state as { from?: Location })?.from?.pathname || '/';
   const reason = new URLSearchParams(location.search).get('reason');
 
   useEffect(() => {
-    if (!authLoading && user && adminChecked && isAdmin) {
+    if (status === 'authed' || (!authLoading && user && adminChecked && isAdmin)) {
       navigate(from, { replace: true });
     }
-  }, [authLoading, user, adminChecked, isAdmin, navigate, from]);
+  }, [status, authLoading, user, adminChecked, isAdmin, navigate, from]);
 
   useEffect(() => {
     if (reason === 'denied') {
@@ -41,7 +41,14 @@ export default function Login() {
       return;
     }
 
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      toast.pushToast('Signed in, but no session found. Please retry.', 'error');
+      return;
+    }
+
     toast.pushToast('Welcome back.', 'success');
+    navigate(from, { replace: true });
   };
 
   return (

@@ -1,4 +1,3 @@
 /connect /connect.html 200
 /guest/* /connect.html 200
 /admin/* /admin/index.html 200
-/admin/* /admin/index.html 200

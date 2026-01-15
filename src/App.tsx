@@ -9,10 +9,12 @@ import Campaigns from './pages/Campaigns';
 import CampaignNew from './pages/CampaignNew';
 import CampaignDetail from './pages/CampaignDetail';
 import Settings from './pages/Settings';
+import Debug from './pages/Debug';
 
 export default function App() {
   return (
     <Routes>
+      <Route path="/debug" element={<Debug />} />
       <Route path="/login" element={<Login />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>

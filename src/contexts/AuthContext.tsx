@@ -249,6 +249,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     safeSetState({
       ...state,
+      status: 'loading',
       adminChecked: false
     });
 
@@ -256,19 +257,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { isAdmin, profile } = await checkAdmin(state.user);
       if (!mountedRef.current) return;
       if (!isAdmin) {
-        await supabase.auth.signOut();
-        resolveDenied();
+        resolveDenied(state.session, state.user);
         return;
       }
 
       safeSetState({
         ...state,
+        status: 'authed',
         isAdmin: true,
         adminChecked: true,
         profile
       });
     } catch {
-      resolveGuest();
+      resolveGuest(state.session, state.user);
     }
   }, [checkAdmin, resolveDenied, resolveGuest, safeSetState, state]);
 
