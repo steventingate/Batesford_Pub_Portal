@@ -5,7 +5,7 @@ import { Spinner } from './ui/Spinner';
 import { Button } from './ui/Button';
 
 export function ProtectedRoute() {
-  const { loading, user, isAdmin, adminChecked, signOut } = useAuth();
+  const { status, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [showHint, setShowHint] = useState(false);
@@ -15,7 +15,7 @@ export function ProtectedRoute() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  if (loading || (user && !adminChecked)) {
+  if (status === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
@@ -31,18 +31,20 @@ export function ProtectedRoute() {
     );
   }
 
-  if (!user) {
+  if (status === 'guest') {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  useEffect(() => {
-    if (user && adminChecked && !isAdmin) {
-      signOut();
-    }
-  }, [user, adminChecked, isAdmin, signOut]);
-
-  if (user && adminChecked && !isAdmin) {
-    return <Navigate to="/login?reason=denied" replace />;
+  if (status === 'denied') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="card p-8 max-w-lg text-center">
+          <h2 className="text-2xl font-semibold mb-3">Access restricted</h2>
+          <p className="text-muted mb-4">Your account is not on the admin list. Ask a manager to grant access.</p>
+          <Button variant="outline" onClick={signOut}>Sign out</Button>
+        </div>
+      </div>
+    );
   }
 
   return <Outlet />;

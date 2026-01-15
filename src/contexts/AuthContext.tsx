@@ -18,7 +18,7 @@ export type AdminProfile = {
 };
 
 type AuthState = {
-  loading: boolean;
+  status: 'loading' | 'guest' | 'authed' | 'denied';
   user: User | null;
   session: Session | null;
   isAdmin: boolean;
@@ -51,7 +51,7 @@ const isAllowlisted = (email?: string | null) => {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
-    loading: true,
+    status: 'loading',
     user: null,
     session: null,
     isAdmin: false,
@@ -70,22 +70,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState(next);
   }, []);
 
-  const resolveGuest = useCallback(() => {
+  const resolveGuest = useCallback((session: Session | null = null, user: User | null = null) => {
     safeSetState({
-      loading: false,
-      user: null,
-      session: null,
+      status: 'guest',
+      user,
+      session,
       isAdmin: false,
       adminChecked: true,
       profile: null
     });
   }, [safeSetState]);
 
-  const resolveDenied = useCallback(() => {
+  const resolveDenied = useCallback((session: Session | null, user: User | null) => {
     safeSetState({
-      loading: false,
-      user: null,
-      session: null,
+      status: 'denied',
+      user,
+      session,
       isAdmin: false,
       adminChecked: true,
       profile: null
@@ -94,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const resolveAuthed = useCallback((session: Session, user: User, profile: AdminProfile | null) => {
     safeSetState({
-      loading: false,
+      status: 'authed',
       user,
       session,
       isAdmin: true,
@@ -117,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
 
       if (error) {
+        console.info('[AUTH] admin check error:', error.message);
         return { isAdmin: isAllowlisted(user.email), profile: null };
       }
 
@@ -126,7 +127,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const role = data.role?.toLowerCase() || '';
       return { isAdmin: ADMIN_ROLES.has(role), profile: data };
-    } catch {
+    } catch (err) {
+      console.info('[AUTH] admin check error:', err);
       return { isAdmin: isAllowlisted(user.email), profile: null };
     }
   }, []);
@@ -158,6 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data, error } = await supabase.auth.getSession();
       if (!mountedRef.current || bootIdRef.current !== bootId) return;
+      console.info('[AUTH] boot getSession result:', Boolean(data.session));
       if (error || !data.session?.user) {
         resolveGuest();
         return;
@@ -165,12 +168,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const session = data.session;
       const user = session.user;
+      safeSetState({
+        status: 'loading',
+        user,
+        session,
+        isAdmin: false,
+        adminChecked: false,
+        profile: null
+      });
+
       const { isAdmin, profile } = await checkAdmin(user);
       if (!mountedRef.current || bootIdRef.current !== bootId) return;
+      console.info('[AUTH] admin check result:', isAdmin);
 
       if (!isAdmin) {
-        await supabase.auth.signOut();
-        resolveDenied();
+        resolveDenied(session, user);
         return;
       }
 
@@ -187,7 +199,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mountedRef.current = true;
     bootstrap();
 
-    const { data: subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: subscription } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.info('[AUTH] event:', event);
       if (!mountedRef.current) return;
 
       if (!session?.user) {
@@ -195,12 +208,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      safeSetState({
+        status: 'loading',
+        user: session.user,
+        session,
+        isAdmin: false,
+        adminChecked: false,
+        profile: null
+      });
+
       const { isAdmin, profile } = await checkAdmin(session.user);
       if (!mountedRef.current) return;
+      console.info('[AUTH] admin check result:', isAdmin);
 
       if (!isAdmin) {
-        await supabase.auth.signOut();
-        resolveDenied();
+        resolveDenied(session, session.user);
         return;
       }
 
