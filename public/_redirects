@@ -1,5 +1,5 @@
-/admin/*    /admin/index.html   200
-/admin      /admin/index.html   200
+/admin/*    /index.html         200
+/admin      /index.html         200
 /guest/*    /connect.html       200
 /connect    /connect.html       200
-/*          /index.html         200
+/           /connect.html       200
