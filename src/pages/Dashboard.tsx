@@ -231,107 +231,105 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <Link to="/contacts" className="block focus:outline-none focus:ring-2 focus:ring-brand/40 rounded-xl">
-        <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-semibold">Last 7 days</h3>
-              <p className="text-sm text-muted">Connections per day</p>
-            </div>
+      <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold">Last 7 days</h3>
+            <p className="text-sm text-muted">Connections per day</p>
           </div>
-          <ChartBars
-            points={chartPoints}
-            selectedKey={selectedDay?.dateKey ?? null}
-            onSelect={(point) => {
-              setSelectedDay((prev) => (prev?.dateKey === point.dateKey
-                ? null
-                : {
-                    dateKey: point.dateKey,
-                    startISO: point.startISO,
-                    endISO: point.endISO,
-                    label: point.label,
-                    displayLabel: point.displayLabel
-                  }));
-            }}
-          />
-          <div className="mt-4 flex flex-wrap gap-4 text-sm text-muted">
-            {busiestDay && <span>Busiest day: <strong className="text-brand">{busiestDay}</strong></span>}
-            {quietestDay && <span>Quietest day: <strong className="text-brand">{quietestDay}</strong></span>}
-          </div>
-        </Card>
-      </Link>
+          <Link className="text-sm font-semibold text-brand" to="/contacts">View contacts</Link>
+        </div>
+        <ChartBars
+          points={chartPoints}
+          selectedKey={selectedDay?.dateKey ?? null}
+          onSelect={(point) => {
+            setSelectedDay((prev) => (prev?.dateKey === point.dateKey
+              ? null
+              : {
+                  dateKey: point.dateKey,
+                  startISO: point.startISO,
+                  endISO: point.endISO,
+                  label: point.label,
+                  displayLabel: point.displayLabel
+                }));
+          }}
+        />
+        <div className="mt-4 flex flex-wrap gap-4 text-sm text-muted">
+          {busiestDay && <span>Busiest day: <strong className="text-brand">{busiestDay}</strong></span>}
+          {quietestDay && <span>Quietest day: <strong className="text-brand">{quietestDay}</strong></span>}
+        </div>
+      </Card>
 
-      <Link to="/contacts" className="block focus:outline-none focus:ring-2 focus:ring-brand/40 rounded-xl">
-        <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-semibold">Recent connections</h3>
-              <p className="text-sm text-muted">Each row represents a Wi-Fi connection</p>
-            </div>
+      <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold">Recent connections</h3>
+            <p className="text-sm text-muted">Each row represents a Wi-Fi connection</p>
           </div>
-          {selectedDay && (
-            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2 text-sm text-brand mb-4">
-              <span>Filter: {selectedDay.displayLabel}</span>
-              <button
-                type="button"
-                className="ml-auto text-xs font-semibold uppercase tracking-wide text-brand underline"
-                onClick={() => setSelectedDay(null)}
-              >
-                Clear filter
-              </button>
-            </div>
-          )}
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-muted">
-                  <th className="py-2">Guest</th>
-                  <th className="py-2">Email</th>
-                  <th className="py-2">Mobile</th>
-                  <th className="py-2">Connected</th>
-                  <th className="py-2">Device</th>
-                  <th className="py-2">Visits</th>
-                  <th className="py-2">Profile</th>
+          <Link className="text-sm font-semibold text-brand" to="/contacts">View contacts</Link>
+        </div>
+        {selectedDay && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2 text-sm text-brand mb-4">
+            <span>Filter: {selectedDay.displayLabel}</span>
+            <button
+              type="button"
+              className="ml-auto text-xs font-semibold uppercase tracking-wide text-brand underline"
+              onClick={() => setSelectedDay(null)}
+            >
+              Clear filter
+            </button>
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-muted">
+                <th className="py-2">Guest</th>
+                <th className="py-2">Email</th>
+                <th className="py-2">Mobile</th>
+                <th className="py-2">Connected</th>
+                <th className="py-2">Device</th>
+                <th className="py-2">Visits</th>
+                <th className="py-2">Profile</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map((row) => (
+                <tr key={row.id} className="border-t border-slate-100">
+                  <td className="py-2 font-semibold">{row.guests?.full_name || 'Guest'}</td>
+                  <td className="py-2">{row.guests?.email || '-'}</td>
+                  <td className="py-2">{row.guests?.mobile || '-'}</td>
+                  <td className="py-2">{formatDateTime(row.connected_at)}</td>
+                  <td className="py-2 text-sm">
+                    {(row.device_type || 'unknown').toUpperCase()} / {(row.os_family || 'unknown').toUpperCase()}
+                  </td>
+                  <td className="py-2">
+                    {row.connection_count > 1 ? (
+                      <span className="inline-flex items-center rounded-full bg-brand/10 px-2 py-1 text-xs font-semibold text-brand">
+                        ×{row.connection_count} connections
+                      </span>
+                    ) : (
+                      <span className="text-sm text-muted">1</span>
+                    )}
+                  </td>
+                  <td className="py-2">
+                    {row.guests?.id ? (
+                      <Link className="text-sm font-semibold text-brand" to={`/contacts/${row.guests.id}`}>
+                        Visitor profile
+                      </Link>
+                    ) : (
+                      <span className="text-sm text-muted">-</span>
+                    )}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {recent.map((row) => (
-                  <tr key={row.id} className="border-t border-slate-100">
-                    <td className="py-2 font-semibold">{row.guests?.full_name || 'Guest'}</td>
-                    <td className="py-2">{row.guests?.email || '-'}</td>
-                    <td className="py-2">{row.guests?.mobile || '-'}</td>
-                    <td className="py-2">{formatDateTime(row.connected_at)}</td>
-                    <td className="py-2 text-sm">
-                      {(row.device_type || 'unknown').toUpperCase()} / {(row.os_family || 'unknown').toUpperCase()}
-                    </td>
-                    <td className="py-2">
-                      {row.connection_count > 1 ? (
-                        <span className="inline-flex items-center rounded-full bg-brand/10 px-2 py-1 text-xs font-semibold text-brand">
-                          ×{row.connection_count} connections
-                        </span>
-                      ) : (
-                        <span className="text-sm text-muted">1</span>
-                      )}
-                    </td>
-                    <td className="py-2">
-                      {row.guests?.id ? (
-                        <Link className="text-sm font-semibold text-brand" to={`/contacts/${row.guests.id}`}>
-                          Visitor profile
-                        </Link>
-                      ) : (
-                        <span className="text-sm text-muted">-</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!recent.length && selectedDay && (
-              <p className="text-center text-sm text-muted py-6">No connections on {selectedDay.label}.</p>
-            )}
-          </div>
-        </Card>
-      </Link>
+              ))}
+            </tbody>
+          </table>
+          {!recent.length && selectedDay && (
+            <p className="text-center text-sm text-muted py-6">No connections on {selectedDay.label}.</p>
+          )}
+        </div>
+      </Card>
     </div>
   );
 }
