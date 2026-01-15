@@ -131,11 +131,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .in('role', ['admin', 'manager'])
         .maybeSingle()
         .then((result) => result);
-      const { data, error } = await withTimeout(query, 4000);
+      const { data, error } = await withTimeout(query, 1500);
 
       if (error) {
         console.info('[AUTH] admin check error:', error.message);
-        const rpcResult = await withTimeout(supabase.rpc('is_admin'), 3000).catch((err) => {
+        const rpcResult = await withTimeout(supabase.rpc('is_admin'), 1500).catch((err) => {
           console.info('[AUTH] admin rpc error:', err);
           return { data: null, error: err };
         });
@@ -146,7 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!data) {
-        const rpcResult = await withTimeout(supabase.rpc('is_admin'), 3000).catch((err) => {
+        const rpcResult = await withTimeout(supabase.rpc('is_admin'), 1500).catch((err) => {
           console.info('[AUTH] admin rpc error:', err);
           return { data: null, error: err };
         });
@@ -160,7 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { isAdmin: ADMIN_ROLES.has(role), profile: data };
     } catch (err) {
       console.info('[AUTH] admin check error:', err);
-      const rpcResult = await withTimeout(supabase.rpc('is_admin'), 3000).catch((rpcErr) => {
+      const rpcResult = await withTimeout(supabase.rpc('is_admin'), 1500).catch((rpcErr) => {
         console.info('[AUTH] admin rpc error:', rpcErr);
         return { data: null, error: rpcErr };
       });
@@ -188,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!mountedRef.current) return;
       if (bootIdRef.current !== bootId) return;
       resolveGuest();
-    }, 6000);
+    }, 3000);
 
     try {
       if (!legacyClearedRef.current) {

@@ -11,7 +11,7 @@ export function ProtectedRoute() {
   const [showHint, setShowHint] = useState(false);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setShowHint(true), 3000);
+    const timer = window.setTimeout(() => setShowHint(true), 1500);
     return () => window.clearTimeout(timer);
   }, []);
 
