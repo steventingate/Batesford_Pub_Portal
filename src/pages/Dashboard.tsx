@@ -36,14 +36,63 @@ const formatWeekdayLabel = (date: Date) =>
 const formatWeekdayName = (date: Date) =>
   new Intl.DateTimeFormat('en-AU', { timeZone: melbourneTimeZone, weekday: 'long' }).format(date);
 
+const formatShortDate = (date: Date) =>
+  new Intl.DateTimeFormat('en-AU', { timeZone: melbourneTimeZone, day: '2-digit', month: 'short' }).format(date);
+
+const getZonedParts = (date: Date) => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: melbourneTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  });
+  const parts = formatter.formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '0';
+  return {
+    year: Number(get('year')),
+    month: Number(get('month')),
+    day: Number(get('day')),
+    hour: Number(get('hour')),
+    minute: Number(get('minute')),
+    second: Number(get('second'))
+  };
+};
+
+const getMelbourneDayBounds = (date: Date) => {
+  const { year, month, day } = getZonedParts(date);
+  const targetLocalMs = Date.UTC(year, month - 1, day, 0, 0, 0);
+  let guess = new Date(targetLocalMs);
+
+  for (let i = 0; i < 3; i += 1) {
+    const parts = getZonedParts(guess);
+    const localMs = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    const diff = targetLocalMs - localMs;
+    if (diff === 0) break;
+    guess = new Date(guess.getTime() + diff);
+  }
+
+  const start = guess;
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return {
+    dateKey: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    startISO: start.toISOString(),
+    endISO: end.toISOString()
+  };
+};
+
 export default function Dashboard() {
   const [recent, setRecent] = useState<ConnectionRow[]>([]);
   const [total, setTotal] = useState(0);
   const [uniqueEmails, setUniqueEmails] = useState(0);
   const [returning, setReturning] = useState(0);
-  const [chartPoints, setChartPoints] = useState<{ label: string; value: number; tooltip: string; isToday?: boolean; date: Date }[]>([]);
+  const [chartPoints, setChartPoints] = useState<{ label: string; value: number; tooltip: string; isToday?: boolean; date: Date; dateKey: string; startISO: string; endISO: string; displayLabel: string }[]>([]);
   const [busiestDay, setBusiestDay] = useState<string>('');
   const [quietestDay, setQuietestDay] = useState<string>('');
+  const [selectedDay, setSelectedDay] = useState<{ dateKey: string; startISO: string; endISO: string; label: string; displayLabel: string } | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -84,13 +133,18 @@ export default function Dashboard() {
         const date = new Date(now);
         date.setDate(date.getDate() - (6 - index));
         const key = formatDateKey(date);
+        const bounds = getMelbourneDayBounds(date);
         const value = byDay[key] ?? 0;
         return {
           label: formatWeekdayLabel(date),
           value,
           tooltip: `${formatWeekdayLabel(date)} · ${value} connections`,
           isToday: key === todayKey,
-          date
+          date,
+          dateKey: bounds.dateKey,
+          startISO: bounds.startISO,
+          endISO: bounds.endISO,
+          displayLabel: `${formatWeekdayLabel(date)} (${formatShortDate(date)})`
         };
       });
       setChartPoints(points);
@@ -101,12 +155,25 @@ export default function Dashboard() {
       setBusiestDay(busiest ? formatWeekdayName(busiest.date) : '');
       setQuietestDay(quietest ? formatWeekdayName(quietest.date) : '');
 
-      const { data: latest } = await supabase
+    };
+
+    load();
+  }, []);
+
+  useEffect(() => {
+    const loadRecent = async () => {
+      let query = supabase
         .from('wifi_connections')
         .select('id, connected_at, device_type, os_family, guests(id, full_name, email, mobile)')
-        .order('connected_at', { ascending: false })
-        .limit(20);
+        .order('connected_at', { ascending: false });
 
+      if (selectedDay) {
+        query = query.gte('connected_at', selectedDay.startISO).lt('connected_at', selectedDay.endISO).limit(100);
+      } else {
+        query = query.limit(20);
+      }
+
+      const { data: latest } = await query;
       const mapped = (latest ?? []).map((row) => ({
         id: row.id,
         connected_at: row.connected_at,
@@ -132,8 +199,8 @@ export default function Dashboard() {
       setRecent(grouped);
     };
 
-    load();
-  }, []);
+    loadRecent();
+  }, [selectedDay]);
 
   const tiles = useMemo(
     () => [
@@ -172,7 +239,21 @@ export default function Dashboard() {
               <p className="text-sm text-muted">Connections per day</p>
             </div>
           </div>
-          <ChartBars points={chartPoints} />
+          <ChartBars
+            points={chartPoints}
+            selectedKey={selectedDay?.dateKey ?? null}
+            onSelect={(point) => {
+              setSelectedDay((prev) => (prev?.dateKey === point.dateKey
+                ? null
+                : {
+                    dateKey: point.dateKey,
+                    startISO: point.startISO,
+                    endISO: point.endISO,
+                    label: point.label,
+                    displayLabel: point.displayLabel
+                  }));
+            }}
+          />
           <div className="mt-4 flex flex-wrap gap-4 text-sm text-muted">
             {busiestDay && <span>Busiest day: <strong className="text-brand">{busiestDay}</strong></span>}
             {quietestDay && <span>Quietest day: <strong className="text-brand">{quietestDay}</strong></span>}
@@ -185,9 +266,21 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-lg font-semibold">Recent connections</h3>
-              <p className="text-sm text-muted">Latest 20 submissions</p>
+              <p className="text-sm text-muted">Each row represents a Wi-Fi connection</p>
             </div>
           </div>
+          {selectedDay && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2 text-sm text-brand mb-4">
+              <span>Filter: {selectedDay.displayLabel}</span>
+              <button
+                type="button"
+                className="ml-auto text-xs font-semibold uppercase tracking-wide text-brand underline"
+                onClick={() => setSelectedDay(null)}
+              >
+                Clear filter
+              </button>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
@@ -233,6 +326,9 @@ export default function Dashboard() {
                 ))}
               </tbody>
             </table>
+            {!recent.length && selectedDay && (
+              <p className="text-center text-sm text-muted py-6">No connections on {selectedDay.label}.</p>
+            )}
           </div>
         </Card>
       </Link>
