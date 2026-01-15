@@ -23,6 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AdminProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const fetchProfile = async (currentUser: User | null) => {
     if (!currentUser) {
@@ -48,6 +49,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const checkAdmin = async (currentUser: User | null) => {
+    if (!currentUser) {
+      setIsAdmin(false);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('is_admin');
+      if (error) {
+        setIsAdmin(false);
+        return;
+      }
+      setIsAdmin(Boolean(data));
+    } catch {
+      setIsAdmin(false);
+    }
+  };
+
   useEffect(() => {
     let active = true;
 
@@ -62,6 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!active) return;
         setUser(data.session?.user ?? null);
         await fetchProfile(data.session?.user ?? null);
+        await checkAdmin(data.session?.user ?? null);
       } finally {
         window.clearTimeout(safetyTimer);
         if (active) {
@@ -76,6 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         setUser(session?.user ?? null);
         await fetchProfile(session?.user ?? null);
+        await checkAdmin(session?.user ?? null);
       } finally {
         setLoading(false);
       }
@@ -92,13 +113,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       profile,
       loading,
-      isAdmin: Boolean(profile?.user_id),
+      isAdmin,
       refreshProfile: async () => fetchProfile(user),
       signOut: async () => {
         await supabase.auth.signOut();
       }
     };
-  }, [user, profile, loading]);
+  }, [user, profile, loading, isAdmin]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
