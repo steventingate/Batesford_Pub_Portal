@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { parseISO } from 'date-fns';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { Card } from '../components/ui/Card';
 import { ChartBars } from '../components/ChartBars';
@@ -85,6 +85,7 @@ const getMelbourneDayBounds = (date: Date) => {
 };
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [recent, setRecent] = useState<ConnectionRow[]>([]);
   const [total, setTotal] = useState(0);
   const [uniqueEmails, setUniqueEmails] = useState(0);
@@ -294,12 +295,29 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {recent.map((row) => (
-                <tr key={row.id} className="border-t border-slate-100">
-                  <td className="py-2 font-semibold">{row.guests?.full_name || 'Guest'}</td>
-                  <td className="py-2">{row.guests?.email || '-'}</td>
-                  <td className="py-2">{row.guests?.mobile || '-'}</td>
-                  <td className="py-2">{formatDateTime(row.connected_at)}</td>
+                {recent.map((row) => (
+                  <tr
+                    key={row.id}
+                    className={row.guests?.id ? 'border-t border-slate-100 cursor-pointer hover:bg-slate-50' : 'border-t border-slate-100'}
+                    role={row.guests?.id ? 'button' : undefined}
+                    tabIndex={row.guests?.id ? 0 : undefined}
+                    onClick={() => {
+                      if (row.guests?.id) {
+                        navigate(`/contacts/${row.guests.id}`);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (!row.guests?.id) return;
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        navigate(`/contacts/${row.guests.id}`);
+                      }
+                    }}
+                  >
+                    <td className="py-2 font-semibold">{row.guests?.full_name || 'Guest'}</td>
+                    <td className="py-2">{row.guests?.email || '-'}</td>
+                    <td className="py-2">{row.guests?.mobile || '-'}</td>
+                    <td className="py-2">{formatDateTime(row.connected_at)}</td>
                   <td className="py-2 text-sm">
                     {(row.device_type || 'unknown').toUpperCase()} / {(row.os_family || 'unknown').toUpperCase()}
                   </td>
