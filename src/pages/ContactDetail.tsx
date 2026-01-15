@@ -12,9 +12,9 @@ import { useAuth } from '../contexts/AuthContext';
 
 type Contact = {
   id: string;
-  name: string | null;
+  full_name: string | null;
   email: string | null;
-  mobile: string | null;
+  phone: string | null;
   created_at: string;
   payload?: Record<string, unknown> | null;
 };
@@ -50,9 +50,9 @@ export default function ContactDetail() {
       if (data) {
         setContact({
           id: data.id,
-          name: data.name ?? null,
+          full_name: data.full_name ?? null,
           email: data.email ?? null,
-          mobile: data.mobile ?? null,
+          phone: data.phone ?? null,
           created_at: data.created_at,
           payload: data
         });
@@ -77,9 +77,9 @@ export default function ContactDetail() {
       if (data?.email) {
         const { data: history } = await supabase
           .from('contact_submissions')
-          .select('id, name, email, mobile, created_at')
-          .eq('email', data.email)
-          .order('created_at', { ascending: false });
+        .select('id, full_name, email, phone, created_at')
+        .eq('email', data.email)
+        .order('created_at', { ascending: false });
         setVisits(history ?? []);
       }
     };
@@ -139,8 +139,8 @@ export default function ContactDetail() {
       <div className="page-header">
         <div>
           <Link to="/contacts" className="text-sm text-muted">Back to contacts</Link>
-          <h2 className="text-3xl font-display text-brand">{contact.name || 'Guest'}</h2>
-          <p className="text-muted">{contact.email || contact.mobile || 'No contact details'} · Connected {formatDateTime(contact.created_at)}</p>
+          <h2 className="text-3xl font-display text-brand">{contact.full_name || 'Guest'}</h2>
+          <p className="text-muted">{contact.email || contact.phone || 'No contact details'} · Connected {formatDateTime(contact.created_at)}</p>
         </div>
         <Link to="/campaigns/new" className="btn btn-outline">Create campaign</Link>
       </div>
@@ -153,7 +153,7 @@ export default function ContactDetail() {
               <div key={visit.id} className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div>
                   <p className="font-semibold">{formatDateTime(visit.created_at)}</p>
-                  <p className="text-sm text-muted">{visit.mobile || 'No mobile recorded'}</p>
+                  <p className="text-sm text-muted">{visit.phone || 'No mobile recorded'}</p>
                 </div>
                 <Badge tone="dark">{visit.email || 'No email'}</Badge>
               </div>

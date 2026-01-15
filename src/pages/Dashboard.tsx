@@ -7,9 +7,9 @@ import { formatDateTime } from '../lib/format';
 
 type Submission = {
   id: string;
-  name: string | null;
+  full_name: string | null;
   email: string | null;
-  mobile: string | null;
+  phone: string | null;
   created_at: string;
 };
 
@@ -31,7 +31,7 @@ export default function Dashboard() {
       const sevenDaysAgo = subDays(new Date(), 6);
       const { data: recentData } = await supabase
         .from('contact_submissions')
-        .select('id, name, email, mobile, created_at')
+        .select('id, full_name, email, phone, created_at')
         .gte('created_at', sevenDaysAgo.toISOString())
         .order('created_at', { ascending: false });
 
@@ -76,7 +76,7 @@ export default function Dashboard() {
 
       const { data: latest } = await supabase
         .from('contact_submissions')
-        .select('id, name, email, mobile, created_at')
+        .select('id, full_name, email, phone, created_at')
         .order('created_at', { ascending: false })
         .limit(20);
 
@@ -143,9 +143,9 @@ export default function Dashboard() {
             <tbody>
               {recent.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
-                  <td className="py-2 font-semibold">{row.name || 'Guest'}</td>
+                  <td className="py-2 font-semibold">{row.full_name || 'Guest'}</td>
                   <td className="py-2">{row.email || '-'}</td>
-                  <td className="py-2">{row.mobile || '-'}</td>
+                  <td className="py-2">{row.phone || '-'}</td>
                   <td className="py-2">{formatDateTime(row.created_at)}</td>
                 </tr>
               ))}

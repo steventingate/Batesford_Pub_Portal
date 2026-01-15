@@ -189,7 +189,7 @@ export const handler: Handler = async (event) => {
 
   let query = supabase
     .from('contact_submissions')
-    .select('id, name, email, mobile, created_at');
+    .select('id, full_name, email, phone, created_at');
 
   if (segment.lastSeenDays) {
     const since = new Date();
@@ -200,7 +200,7 @@ export const handler: Handler = async (event) => {
     query = query.not('email', 'is', null).neq('email', '');
   }
   if (segment.hasMobile) {
-    query = query.not('mobile', 'is', null).neq('mobile', '');
+    query = query.not('phone', 'is', null).neq('phone', '');
   }
 
   const { data: contacts, error: contactError } = await query;
@@ -278,7 +278,7 @@ export const handler: Handler = async (event) => {
 
   for (const record of sendRecords || []) {
     const contact = eligible.find((item) => item.id === record.contact_id);
-    const firstName = contact?.name?.split(' ')[0] || 'there';
+    const firstName = contact?.full_name?.split(' ')[0] || 'there';
     const html = applyMergeTags(campaign.html_body, {
       first_name: firstName,
       email: record.to_email || '',

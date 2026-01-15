@@ -12,9 +12,9 @@ import { normalizeTags } from '../lib/segments';
 
 type ContactRow = {
   id: string;
-  name: string | null;
+  full_name: string | null;
   email: string | null;
-  mobile: string | null;
+  phone: string | null;
   created_at: string;
   marketing_opt_in?: boolean | null;
 };
@@ -39,7 +39,7 @@ export default function Contacts() {
     const load = async () => {
       const { data } = await supabase
         .from('contact_submissions')
-        .select('id, name, email, mobile, created_at, marketing_opt_in')
+        .select('id, full_name, email, phone, created_at, marketing_opt_in')
         .order('created_at', { ascending: false })
         .limit(500);
 
@@ -79,7 +79,7 @@ export default function Contacts() {
     return contacts.filter((contact) => {
       const matchesSearch =
         !searchLower ||
-        [contact.name, contact.email, contact.mobile]
+        [contact.full_name, contact.email, contact.phone]
           .filter(Boolean)
           .some((value) => value!.toLowerCase().includes(searchLower));
 
@@ -118,9 +118,9 @@ export default function Contacts() {
 
   const handleExport = () => {
     const rows = filtered.map((contact) => ({
-      name: contact.name ?? '',
+      name: contact.full_name ?? '',
       email: contact.email ?? '',
-      mobile: contact.mobile ?? '',
+      mobile: contact.phone ?? '',
       connected_at: contact.created_at,
       marketing_opt_in: contact.marketing_opt_in ?? false
     }));
@@ -253,11 +253,11 @@ export default function Contacts() {
                   </td>
                   <td className="py-3 font-semibold">
                     <Link to={`/contacts/${contact.id}`} className="text-brand">
-                      {contact.name || 'Guest'}
+                      {contact.full_name || 'Guest'}
                     </Link>
                   </td>
                   <td className="py-3">{contact.email || '-'}</td>
-                  <td className="py-3">{contact.mobile || '-'}</td>
+                  <td className="py-3">{contact.phone || '-'}</td>
                   <td className="py-3">
                     <div className="flex flex-wrap gap-2">
                       {(contactTags[contact.id] || []).map((tag) => (
