@@ -16,15 +16,15 @@ export default function App() {
     <Routes>
       <Route path="/debug" element={<Debug />} />
       <Route path="/login" element={<Login />} />
-      <Route element={<ProtectedRoute />}>
+      <Route path="/" element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route index element={<Dashboard />} />
-          <Route path="/contacts" element={<Contacts />} />
-          <Route path="/contacts/:id" element={<ContactDetail />} />
-          <Route path="/campaigns" element={<Campaigns />} />
-          <Route path="/campaigns/new" element={<CampaignNew />} />
-          <Route path="/campaigns/:id" element={<CampaignDetail />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="contacts" element={<Contacts />} />
+          <Route path="contacts/:id" element={<ContactDetail />} />
+          <Route path="campaigns" element={<Campaigns />} />
+          <Route path="campaigns/new" element={<CampaignNew />} />
+          <Route path="campaigns/:id" element={<CampaignDetail />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
