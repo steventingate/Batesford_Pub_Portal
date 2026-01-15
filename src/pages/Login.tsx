@@ -14,15 +14,15 @@ export default function Login() {
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
-  const { status, user, isAdmin, adminChecked, loading: authLoading } = useAuth();
+  const { status, user, isAdmin, adminChecked } = useAuth();
   const from = (location.state as { from?: Location })?.from?.pathname || '/';
   const reason = new URLSearchParams(location.search).get('reason');
 
   useEffect(() => {
-    if (status === 'authed' || (!authLoading && user && adminChecked && isAdmin)) {
+    if (status === 'authed' || (user && adminChecked && isAdmin)) {
       navigate(from, { replace: true });
     }
-  }, [status, authLoading, user, adminChecked, isAdmin, navigate, from]);
+  }, [status, user, adminChecked, isAdmin, navigate, from]);
 
   useEffect(() => {
     if (reason === 'denied') {
