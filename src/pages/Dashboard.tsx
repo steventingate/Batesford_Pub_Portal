@@ -9,7 +9,10 @@ import { formatDateTime } from '../lib/format';
 type ConnectionRow = {
   id: string;
   connected_at: string;
+  device_type: string | null;
+  os_family: string | null;
   guests: {
+    id: string | null;
     full_name: string | null;
     email: string | null;
     mobile: string | null;
@@ -72,13 +75,15 @@ export default function Dashboard() {
 
       const { data: latest } = await supabase
         .from('wifi_connections')
-        .select('id, connected_at, guests(full_name, email, mobile)')
+        .select('id, connected_at, device_type, os_family, guests(id, full_name, email, mobile)')
         .order('connected_at', { ascending: false })
         .limit(20);
 
       const mapped = (latest ?? []).map((row) => ({
         id: row.id,
         connected_at: row.connected_at,
+        device_type: row.device_type ?? null,
+        os_family: row.os_family ?? null,
         guests: Array.isArray(row.guests) ? row.guests[0] ?? null : row.guests ?? null
       }));
       setRecent(mapped);
@@ -144,6 +149,8 @@ export default function Dashboard() {
                   <th className="py-2">Email</th>
                   <th className="py-2">Mobile</th>
                   <th className="py-2">Connected</th>
+                  <th className="py-2">Device</th>
+                  <th className="py-2">Profile</th>
                 </tr>
               </thead>
               <tbody>
@@ -153,6 +160,18 @@ export default function Dashboard() {
                     <td className="py-2">{row.guests?.email || '-'}</td>
                     <td className="py-2">{row.guests?.mobile || '-'}</td>
                     <td className="py-2">{formatDateTime(row.connected_at)}</td>
+                    <td className="py-2 text-sm">
+                      {(row.device_type || 'unknown').toUpperCase()} / {(row.os_family || 'unknown').toUpperCase()}
+                    </td>
+                    <td className="py-2">
+                      {row.guests?.id ? (
+                        <Link className="text-sm font-semibold text-brand" to={`/contacts/${row.guests.id}`}>
+                          Visitor profile
+                        </Link>
+                      ) : (
+                        <span className="text-sm text-muted">-</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

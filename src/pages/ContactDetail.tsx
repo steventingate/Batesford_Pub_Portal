@@ -5,6 +5,11 @@ import { Card } from '../components/ui/Card';
 import { formatDateTime } from '../lib/format';
 
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const formatDeviceLabel = (device: string | null, os: string | null) => {
+  const deviceLabel = (device || 'unknown').toUpperCase();
+  const osLabel = (os || 'unknown').toUpperCase();
+  return `${deviceLabel} / ${osLabel}`;
+};
 
 const buildSeries = (data: Record<string, number> | null, size: number) => {
   return Array.from({ length: size }, (_, index) => {
@@ -102,7 +107,7 @@ export default function ContactDetail() {
         <Link to="/campaigns/new" className="btn btn-outline">Create campaign</Link>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <p className="text-sm text-muted">Visit count</p>
           <p className="text-2xl font-semibold text-brand">{Number(guest.visit_count ?? 0)}</p>
@@ -114,6 +119,12 @@ export default function ContactDetail() {
         <Card>
           <p className="text-sm text-muted">Last seen</p>
           <p className="text-sm font-semibold">{guest.last_seen_at ? formatDateTime(guest.last_seen_at) : '-'}</p>
+        </Card>
+        <Card>
+          <p className="text-sm text-muted">Last device</p>
+          <p className="text-sm font-semibold text-brand">
+            {formatDeviceLabel(guest.last_device_type, guest.last_os_family)}
+          </p>
         </Card>
       </div>
 
@@ -137,7 +148,9 @@ export default function ContactDetail() {
                 <p className="font-semibold">{formatDateTime(connection.connected_at)}</p>
                 <p className="text-xs text-muted">{connection.user_agent || 'Unknown user agent'}</p>
               </div>
-              <span className="text-xs text-muted">{connection.device_type} · {connection.os_family}</span>
+              <span className="text-sm font-semibold text-brand">
+                {formatDeviceLabel(connection.device_type, connection.os_family)}
+              </span>
             </div>
           ))}
           {!recentConnections.length && <p className="text-sm text-muted">No recent connections.</p>}
@@ -146,3 +159,4 @@ export default function ContactDetail() {
     </div>
   );
 }
+

@@ -7,6 +7,11 @@ import { Button } from '../components/ui/Button';
 import { formatDateTime, toCsv } from '../lib/format';
 
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const formatDeviceLabel = (device: string | null, os: string | null) => {
+  const deviceLabel = (device || 'unknown').toUpperCase();
+  const osLabel = (os || 'unknown').toUpperCase();
+  return `${deviceLabel} / ${osLabel}`;
+};
 
 const buildSeries = (data: Record<string, number> | null, size: number) => {
   return Array.from({ length: size }, (_, index) => {
@@ -207,8 +212,8 @@ export default function Contacts() {
                   <td className="py-3">{guest.mobile || '-'}</td>
                   <td className="py-3">{Number(guest.visit_count ?? 0)}</td>
                   <td className="py-3">{guest.last_seen_at ? formatDateTime(guest.last_seen_at) : '-'}</td>
-                  <td className="py-3 text-xs text-muted">
-                    {(guest.last_device_type || 'unknown').toUpperCase()} · {(guest.last_os_family || 'unknown').toUpperCase()}
+                  <td className="py-3 text-sm font-semibold text-brand">
+                    {formatDeviceLabel(guest.last_device_type, guest.last_os_family)}
                   </td>
                 </tr>
               ))}
@@ -224,12 +229,12 @@ export default function Contacts() {
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="text-2xl font-display text-brand">{selectedGuest.full_name || 'Guest'}</h3>
-                <p className="text-sm text-muted">{selectedGuest.email || 'No email'} · {selectedGuest.mobile || 'No mobile'}</p>
+                <p className="text-sm text-muted">{selectedGuest.email || 'No email'} / {selectedGuest.mobile || 'No mobile'}</p>
               </div>
               <Button variant="outline" onClick={() => setSelectedGuest(null)}>Close</Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
               <Card>
                 <p className="text-sm text-muted">Visits</p>
                 <p className="text-2xl font-semibold text-brand">{selectedGuest.visit_count}</p>
@@ -241,6 +246,12 @@ export default function Contacts() {
               <Card>
                 <p className="text-sm text-muted">Last seen</p>
                 <p className="text-sm font-semibold">{selectedGuest.last_seen_at ? formatDateTime(selectedGuest.last_seen_at) : '-'}</p>
+              </Card>
+              <Card>
+                <p className="text-sm text-muted">Last device</p>
+                <p className="text-sm font-semibold text-brand">
+                  {formatDeviceLabel(selectedGuest.last_device_type, selectedGuest.last_os_family)}
+                </p>
               </Card>
             </div>
 
@@ -264,7 +275,9 @@ export default function Contacts() {
                       <p className="font-semibold">{formatDateTime(connection.connected_at)}</p>
                       <p className="text-xs text-muted">{connection.user_agent || 'Unknown user agent'}</p>
                     </div>
-                    <span className="text-xs text-muted">{connection.device_type} · {connection.os_family}</span>
+                    <span className="text-sm font-semibold text-brand">
+                      {formatDeviceLabel(connection.device_type, connection.os_family)}
+                    </span>
                   </div>
                 ))}
                 {!recentConnections.length && <p className="text-sm text-muted">No recent connections.</p>}
@@ -276,3 +289,5 @@ export default function Contacts() {
     </div>
   );
 }
+
+
