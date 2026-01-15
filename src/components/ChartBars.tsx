@@ -6,6 +6,9 @@ type ChartPoint = {
   tooltip: string;
   isToday?: boolean;
   dateKey: string;
+  startISO?: string;
+  endISO?: string;
+  displayLabel?: string;
 };
 
 type ChartBarsProps = {
