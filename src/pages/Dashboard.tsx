@@ -16,7 +16,7 @@ type ConnectionRow = {
 };
 
 export default function Dashboard() {
-  const [recent, setRecent] = useState<Submission[]>([]);
+  const [recent, setRecent] = useState<ConnectionRow[]>([]);
   const [total, setTotal] = useState(0);
   const [uniqueEmails, setUniqueEmails] = useState(0);
   const [returning, setReturning] = useState(0);
@@ -75,7 +75,12 @@ export default function Dashboard() {
         .order('connected_at', { ascending: false })
         .limit(20);
 
-      setRecent((latest as ConnectionRow[]) ?? []);
+      const mapped = (latest ?? []).map((row) => ({
+        id: row.id,
+        connected_at: row.connected_at,
+        guests: Array.isArray(row.guests) ? row.guests[0] ?? null : row.guests ?? null
+      }));
+      setRecent(mapped);
     };
 
     load();
