@@ -11,6 +11,10 @@ const formatDeviceLabel = (device: string | null, os: string | null) => {
   return `${deviceLabel} / ${osLabel}`;
 };
 
+const buildPostcodeMapUrl = (postcode: string) => {
+  return `https://www.google.com/maps?q=${encodeURIComponent(`${postcode} VIC Australia`)}&output=embed`;
+};
+
 const buildSeries = (data: Record<string, number> | null, size: number) => {
   return Array.from({ length: size }, (_, index) => {
     const key = String(index);
@@ -50,6 +54,7 @@ export default function ContactDetail() {
   const { id } = useParams();
   const [guest, setGuest] = useState<GuestProfile | null>(null);
   const [recentConnections, setRecentConnections] = useState<ConnectionRow[]>([]);
+  const [showPostcodeMap, setShowPostcodeMap] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -147,7 +152,28 @@ export default function ContactDetail() {
       </div>
 
       <Card>
-        <h3 className="text-lg font-semibold mb-4">Recent connections</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Recent connections</h3>
+          {guest.postcode && (
+            <button
+              type="button"
+              className="text-xs font-semibold text-brand underline"
+              onClick={() => setShowPostcodeMap((prev) => !prev)}
+            >
+              {showPostcodeMap ? 'Hide postcode map' : 'Show postcode map'}
+            </button>
+          )}
+        </div>
+        {showPostcodeMap && guest.postcode && (
+          <div className="mb-4 overflow-hidden rounded-xl border border-slate-200">
+            <iframe
+              title={`Postcode ${guest.postcode} map`}
+              src={buildPostcodeMapUrl(guest.postcode)}
+              className="h-64 w-full"
+              loading="lazy"
+            />
+          </div>
+        )}
         <div className="space-y-3">
           {recentConnections.map((connection) => (
             <div key={connection.id} className="flex items-center justify-between border-b border-slate-100 pb-2">

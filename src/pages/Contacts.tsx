@@ -14,6 +14,10 @@ const formatDeviceLabel = (device: string | null, os: string | null) => {
   return `${deviceLabel} / ${osLabel}`;
 };
 
+const buildPostcodeMapUrl = (postcode: string) => {
+  return `https://www.google.com/maps?q=${encodeURIComponent(`${postcode} VIC Australia`)}&output=embed`;
+};
+
 const buildSeries = (data: Record<string, number> | null, size: number) => {
   return Array.from({ length: size }, (_, index) => {
     const key = String(index);
@@ -69,6 +73,7 @@ export default function Contacts() {
   const [sendGuest, setSendGuest] = useState<GuestProfile | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [sending, setSending] = useState(false);
+  const [showPostcodeMap, setShowPostcodeMap] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -116,6 +121,10 @@ export default function Contacts() {
     };
 
     loadRecent();
+  }, [selectedGuest?.guest_id]);
+
+  useEffect(() => {
+    setShowPostcodeMap(false);
   }, [selectedGuest?.guest_id]);
 
   const filtered = useMemo(() => {
@@ -397,7 +406,28 @@ export default function Contacts() {
             </div>
 
             <div className="mt-6">
-              <h4 className="text-sm font-semibold text-muted mb-2">Recent connections</h4>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-muted">Recent connections</h4>
+                {selectedGuest.postcode && (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-brand underline"
+                    onClick={() => setShowPostcodeMap((prev) => !prev)}
+                  >
+                    {showPostcodeMap ? 'Hide postcode map' : 'Show postcode map'}
+                  </button>
+                )}
+              </div>
+              {showPostcodeMap && selectedGuest.postcode && (
+                <div className="mb-3 overflow-hidden rounded-xl border border-slate-200">
+                  <iframe
+                    title={`Postcode ${selectedGuest.postcode} map`}
+                    src={buildPostcodeMapUrl(selectedGuest.postcode)}
+                    className="h-64 w-full"
+                    loading="lazy"
+                  />
+                </div>
+              )}
               <div className="space-y-2 text-sm">
                 {recentConnections.map((connection) => (
                   <div key={connection.id} className="flex items-center justify-between border-b border-slate-100 pb-2">

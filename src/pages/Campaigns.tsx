@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -74,6 +74,17 @@ type CampaignRunRow = {
   scheduled_for: string | null;
   recipient_count: number;
   campaigns: { name: string }[] | { name: string } | null;
+};
+
+type DefaultTemplate = {
+  name: string;
+  type: string;
+  subject: string;
+  body_html: string;
+  body_text: string;
+  hero_image_path?: string | null;
+  footer_image_path?: string | null;
+  inline_images?: InlineImage[] | null;
 };
 
 const defaultEditorState: EditorState = {
@@ -171,6 +182,8 @@ const seedTemplates = [
   }
 ];
 
+const seedTemplateNames = new Set(seedTemplates.map((template) => template.name));
+
 const sampleData = {
   first_name: 'Sam',
   visit_count: '3',
@@ -256,6 +269,9 @@ export default function Campaigns() {
   const [venueAddress, setVenueAddress] = useState(defaultVenueAddress);
   const [websiteLink, setWebsiteLink] = useState(defaultWebsiteLink);
   const [showPreviewDebug, setShowPreviewDebug] = useState(false);
+  const [defaultTemplateNames, setDefaultTemplateNames] = useState<string[]>([]);
+
+  const defaultTemplateNameSet = useMemo(() => new Set(defaultTemplateNames), [defaultTemplateNames]);
 
   const loadTemplates = useCallback(async () => {
     const { data, error } = await supabase
@@ -269,6 +285,17 @@ export default function Campaigns() {
     }
     setTemplates((data as Template[]) ?? []);
   }, [pushToast]);
+
+  const loadDefaultTemplates = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('campaign_template_defaults')
+      .select('name');
+    if (error) {
+      return;
+    }
+    const names = (data ?? []).map((row) => row.name).filter(Boolean);
+    setDefaultTemplateNames(names);
+  }, []);
 
   const loadBrandAssets = useCallback(async () => {
     const { data, error } = await supabase
@@ -363,7 +390,8 @@ export default function Campaigns() {
   useEffect(() => {
     loadTemplates();
     loadAppSettings();
-  }, [loadTemplates, loadAppSettings]);
+    loadDefaultTemplates();
+  }, [loadTemplates, loadAppSettings, loadDefaultTemplates]);
 
   useEffect(() => {
     loadBrandAssets();
@@ -497,6 +525,38 @@ export default function Campaigns() {
     return path;
   };
 
+  const shouldSyncDefaults = (templateName: string) => {
+    return seedTemplateNames.has(templateName) || defaultTemplateNameSet.has(templateName);
+  };
+
+  const getTemplatePayload = (overrides?: Partial<DefaultTemplate>) => {
+    const bodyHtml = editorRef.current?.innerHTML ?? editor.bodyHtml;
+    const normalizedBodyHtml = normalizeInlineTokenHtml(bodyHtml);
+    return {
+      name: editor.name.trim(),
+      type: editor.type,
+      subject: editor.subject.trim(),
+      body_html: normalizedBodyHtml,
+      body_text: stripHtml(normalizedBodyHtml),
+      hero_image_path: editor.heroImagePath,
+      footer_image_path: editor.footerImagePath,
+      inline_images: editor.inlineImages,
+      ...overrides
+    };
+  };
+
+  const syncDefaultTemplate = async (payload: DefaultTemplate) => {
+    if (!shouldSyncDefaults(payload.name)) {
+      return;
+    }
+    const { error } = await supabase
+      .from('campaign_template_defaults')
+      .upsert(payload, { onConflict: 'name' });
+    if (!error && !defaultTemplateNameSet.has(payload.name)) {
+      setDefaultTemplateNames((prev) => [...prev, payload.name]);
+    }
+  };
+
   const handleHeroUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !ensureTemplateReady(event.target)) return;
@@ -512,6 +572,7 @@ export default function Campaigns() {
       pushToast('Unable to save hero image.', 'error');
       return;
     }
+    await syncDefaultTemplate(getTemplatePayload({ hero_image_path: path }));
     setEditor((prev) => ({ ...prev, heroImagePath: path }));
     setStatus('Hero image updated.');
     pushToast('Hero image updated.', 'success');
@@ -534,6 +595,7 @@ export default function Campaigns() {
       pushToast('Unable to save footer banner.', 'error');
       return;
     }
+    await syncDefaultTemplate(getTemplatePayload({ footer_image_path: path }));
     setEditor((prev) => ({ ...prev, footerImagePath: path }));
     setStatus('Footer banner updated.');
     pushToast('Footer banner updated.', 'success');
@@ -566,6 +628,7 @@ export default function Campaigns() {
       : `[[image:path="${path}"]]`;
     insertBodyToken(token);
     setEditor((prev) => ({ ...prev, inlineImages: nextInline }));
+    await syncDefaultTemplate(getTemplatePayload({ inline_images: nextInline }));
     setStatus('Inline image inserted.');
     pushToast('Inline image inserted.', 'success');
     loadTemplates();
@@ -583,6 +646,7 @@ export default function Campaigns() {
       pushToast('Unable to remove hero image.', 'error');
       return;
     }
+    await syncDefaultTemplate(getTemplatePayload({ hero_image_path: null }));
     setEditor((prev) => ({ ...prev, heroImagePath: null }));
     setStatus('Hero image removed.');
     loadTemplates();
@@ -599,6 +663,7 @@ export default function Campaigns() {
       pushToast('Unable to remove footer banner.', 'error');
       return;
     }
+    await syncDefaultTemplate(getTemplatePayload({ footer_image_path: null }));
     setEditor((prev) => ({ ...prev, footerImagePath: null }));
     setStatus('Footer banner removed.');
     loadTemplates();
@@ -611,18 +676,7 @@ export default function Campaigns() {
     }
     setSaving(true);
     setStatus('');
-    const bodyHtml = editorRef.current?.innerHTML ?? editor.bodyHtml;
-    const normalizedBodyHtml = normalizeInlineTokenHtml(bodyHtml);
-    const payload = {
-      name: editor.name.trim(),
-      type: editor.type,
-      subject: editor.subject.trim(),
-      body_html: normalizedBodyHtml,
-      body_text: stripHtml(normalizedBodyHtml),
-      hero_image_path: editor.heroImagePath,
-      footer_image_path: editor.footerImagePath,
-      inline_images: editor.inlineImages
-    };
+    const payload = getTemplatePayload();
 
     if (editor.id) {
       const { error } = await supabase
@@ -633,6 +687,7 @@ export default function Campaigns() {
         setStatus(`Save failed: ${error.message}`);
         pushToast('You do not have access to update templates.', 'error');
       } else {
+        await syncDefaultTemplate(payload);
         setStatus('Template updated.');
         pushToast('Template updated.', 'success');
         loadTemplates();
@@ -647,6 +702,7 @@ export default function Campaigns() {
         setStatus(`Save failed: ${error.message}`);
         pushToast('You do not have access to create templates.', 'error');
       } else {
+        await syncDefaultTemplate(payload);
         setStatus('Template created.');
         pushToast('Template created.', 'success');
         setEditor((prev) => ({ ...prev, id: data.id }));
@@ -699,6 +755,37 @@ export default function Campaigns() {
   };
 
   const handleSeedTemplates = useCallback(async () => {
+    const seedFallback = seedTemplates.map((template) => ({
+      ...template,
+      hero_image_path: null,
+      footer_image_path: null,
+      inline_images: []
+    }));
+
+    const { data: defaults, error: defaultError } = await supabase
+      .from('campaign_template_defaults')
+      .select('name, type, subject, body_html, body_text, hero_image_path, footer_image_path, inline_images');
+
+    if (defaultError) {
+      pushToast('Unable to load template defaults.', 'error');
+      return;
+    }
+
+    let templatesToSeed = (defaults as DefaultTemplate[]) ?? [];
+    if (!templatesToSeed.length) {
+      const { error: insertDefaultError } = await supabase
+        .from('campaign_template_defaults')
+        .upsert(seedFallback, { onConflict: 'name' });
+      if (insertDefaultError) {
+        pushToast(`Default seed failed: ${insertDefaultError.message}`, 'error');
+        return;
+      }
+      templatesToSeed = seedFallback;
+      setDefaultTemplateNames(seedFallback.map((template) => template.name));
+    } else {
+      setDefaultTemplateNames(templatesToSeed.map((template) => template.name));
+    }
+
     const { data: existing, error } = await supabase
       .from('campaign_templates')
       .select('id, name');
@@ -709,12 +796,12 @@ export default function Campaigns() {
     }
 
     const existingMap = new Map((existing ?? []).map((row) => [row.name, row.id]));
-    for (const template of seedTemplates) {
+    for (const template of templatesToSeed) {
       const payload = {
         ...template,
-        hero_image_path: null,
-        footer_image_path: null,
-        inline_images: []
+        hero_image_path: template.hero_image_path ?? null,
+        footer_image_path: template.footer_image_path ?? null,
+        inline_images: template.inline_images ?? []
       };
       const existingId = existingMap.get(template.name);
       if (existingId) {
