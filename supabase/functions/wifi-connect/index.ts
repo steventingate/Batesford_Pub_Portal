@@ -5,6 +5,7 @@ type Payload = {
   name?: string;
   email?: string;
   mobile?: string;
+  postcode?: string;
   marketing_opt_in?: boolean;
   client_mac: string;
   ap_mac?: string;
@@ -401,6 +402,13 @@ Deno.serve(async (req: Request) => {
   const hour = now.getHours();
   const { device_type, os_family } = parseDevice(userAgent);
   const normalizedEmail = payload.email?.trim().toLowerCase() || null;
+  const rawPostcode = payload.postcode?.trim() ?? "";
+  const normalizedPostcode = rawPostcode ? rawPostcode : null;
+  const postcodeValid = normalizedPostcode ? /^\d{4}$/.test(normalizedPostcode) : false;
+
+  if (normalizedPostcode && !postcodeValid) {
+    console.log("Postcode ignored (invalid format)", normalizedPostcode);
+  }
 
   const insertData = {
     full_name: payload.name ?? null,
@@ -439,7 +447,7 @@ Deno.serve(async (req: Request) => {
     try {
       const { data: existingGuest, error: existingError } = await supabase
         .from("guests")
-        .select("id, full_name, mobile")
+        .select("id, full_name, mobile, postcode")
         .eq("email", normalizedEmail)
         .maybeSingle();
 
@@ -453,6 +461,10 @@ Deno.serve(async (req: Request) => {
         }
         if (payload.mobile && payload.mobile.trim()) {
           updates.mobile = payload.mobile.trim();
+        }
+        if (postcodeValid && normalizedPostcode && normalizedPostcode !== existingGuest.postcode) {
+          updates.postcode = normalizedPostcode;
+          updates.postcode_updated_at = now.toISOString();
         }
         if (Object.keys(updates).length > 0) {
           const { error: updateError } = await supabase
@@ -470,6 +482,8 @@ Deno.serve(async (req: Request) => {
             email: normalizedEmail,
             full_name: payload.name?.trim() || null,
             mobile: payload.mobile?.trim() || null,
+            postcode: postcodeValid ? normalizedPostcode : null,
+            postcode_updated_at: postcodeValid ? now.toISOString() : null,
             created_at: now.toISOString(),
             updated_at: now.toISOString(),
           });

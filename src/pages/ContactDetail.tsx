@@ -26,6 +26,8 @@ type GuestProfile = {
   email: string;
   full_name: string | null;
   mobile: string | null;
+  postcode: string | null;
+  segment: string | null;
   visit_count: number;
   first_seen_at: string | null;
   last_seen_at: string | null;
@@ -53,8 +55,8 @@ export default function ContactDetail() {
     const load = async () => {
       if (!id) return;
       const { data } = await supabase
-        .from('guest_profiles')
-        .select('guest_id, email, full_name, mobile, visit_count, first_seen_at, last_seen_at, visits_by_weekday, visits_by_hour, last_device_type, last_os_family, last_user_agent')
+        .from('guest_segments')
+        .select('guest_id, email, full_name, mobile, postcode, segment, visit_count, first_seen_at, last_seen_at, visits_by_weekday, visits_by_hour, last_device_type, last_os_family, last_user_agent')
         .eq('guest_id', id)
         .maybeSingle();
 
@@ -103,6 +105,11 @@ export default function ContactDetail() {
           <Link to="/contacts" className="text-sm text-muted">Back to contacts</Link>
           <h2 className="text-3xl font-display text-brand">{guest.full_name || 'Guest'}</h2>
           <p className="text-muted">{guest.email || guest.mobile || 'No contact details'}</p>
+          <p className="text-sm text-muted">
+            {guest.postcode
+              ? `Postcode: ${guest.postcode} (${(guest.segment || 'unknown').charAt(0).toUpperCase() + (guest.segment || 'unknown').slice(1)})`
+              : 'Postcode: Not provided'}
+          </p>
         </div>
         <Link to="/campaigns/new" className="btn btn-outline">Create campaign</Link>
       </div>

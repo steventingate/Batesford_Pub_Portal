@@ -13,6 +13,11 @@ type BrandAsset = {
   url: string;
 };
 
+type AppSetting = {
+  key: string;
+  value: string;
+};
+
 export default function Settings() {
   const { profile, refreshAdmin } = useAuth();
   const [name, setName] = useState('');
@@ -20,6 +25,7 @@ export default function Settings() {
   const [brandAssets, setBrandAssets] = useState<Record<string, BrandAsset | null>>({});
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [localPostcodes, setLocalPostcodes] = useState('3213,3220,3218,3216,3214,3228');
 
   const loadBrandAssets = useCallback(async () => {
     const { data, error } = await supabase
@@ -36,13 +42,29 @@ export default function Settings() {
     setBrandAssets(map);
   }, [toast]);
 
+  const loadSettings = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('key, value')
+      .eq('key', 'local_postcodes')
+      .maybeSingle();
+    if (error) {
+      toast.pushToast('Unable to load local postcodes.', 'error');
+      return;
+    }
+    if (data?.value) {
+      setLocalPostcodes(data.value);
+    }
+  }, [toast]);
+
   useEffect(() => {
     setName(profile?.full_name || '');
   }, [profile]);
 
   useEffect(() => {
     loadBrandAssets();
-  }, [loadBrandAssets]);
+    loadSettings();
+  }, [loadBrandAssets, loadSettings]);
 
   const saveProfile = async () => {
     if (!profile) return;
@@ -56,6 +78,23 @@ export default function Settings() {
       toast.pushToast('Profile updated.', 'success');
       await refreshAdmin();
     }
+  };
+
+  const saveLocalPostcodes = async () => {
+    const cleaned = localPostcodes
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join(',');
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert({ key: 'local_postcodes', value: cleaned } as AppSetting, { onConflict: 'key' });
+    if (error) {
+      toast.pushToast(error.message, 'error');
+      return;
+    }
+    setLocalPostcodes(cleaned);
+    toast.pushToast('Local postcodes saved.', 'success');
   };
 
   const triggerUpload = (key: string) => {
@@ -125,6 +164,20 @@ export default function Settings() {
         <h3 className="text-lg font-semibold mb-2">Access</h3>
         <p className="text-sm text-muted">To grant access, insert a row into admin_profiles with the user's auth uid.</p>
       </Card>
+
+      <div className="space-y-4">
+        <h3 className="text-2xl font-display text-brand">Local audience</h3>
+        <p className="text-sm text-muted">Set the postcodes that define locals for segmentation.</p>
+        <Card className="max-w-xl">
+          <Input
+            label="Local postcodes (comma-separated)"
+            value={localPostcodes}
+            onChange={(event) => setLocalPostcodes(event.target.value)}
+            placeholder="3213,3220,3218,3216,3214,3228"
+          />
+          <Button className="mt-4" onClick={saveLocalPostcodes}>Save postcodes</Button>
+        </Card>
+      </div>
 
       <div className="space-y-4">
         <h3 className="text-2xl font-display text-brand">Branding</h3>

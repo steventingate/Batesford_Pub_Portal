@@ -90,6 +90,11 @@ export default function Dashboard() {
   const [total, setTotal] = useState(0);
   const [uniqueEmails, setUniqueEmails] = useState(0);
   const [returning, setReturning] = useState(0);
+  const [segmentCounts, setSegmentCounts] = useState<{ local: number; visitor: number; unknown: number }>({
+    local: 0,
+    visitor: 0,
+    unknown: 0
+  });
   const [chartPoints, setChartPoints] = useState<{ label: string; value: number; tooltip: string; isToday?: boolean; date: Date; dateKey: string; startISO: string; endISO: string; displayLabel: string }[]>([]);
   const [busiestDay, setBusiestDay] = useState<string>('');
   const [quietestDay, setQuietestDay] = useState<string>('');
@@ -112,6 +117,20 @@ export default function Dashboard() {
         .select('guest_id', { count: 'exact', head: true })
         .gte('visit_count', 2);
       setReturning(returningCount ?? 0);
+
+      const { data: segmentData } = await supabase
+        .from('guest_segment_counts')
+        .select('segment, total');
+      if (segmentData) {
+        const nextCounts = { local: 0, visitor: 0, unknown: 0 };
+        segmentData.forEach((row) => {
+          const key = row.segment as 'local' | 'visitor' | 'unknown';
+          if (key in nextCounts) {
+            nextCounts[key] = row.total ?? 0;
+          }
+        });
+        setSegmentCounts(nextCounts);
+      }
 
       const now = new Date();
       const startDate = new Date(now);
@@ -260,6 +279,21 @@ export default function Dashboard() {
           {quietestDay && <span>Quietest day: <strong className="text-brand">{quietestDay}</strong></span>}
         </div>
       </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <p className="text-sm text-muted mb-2">Local guests</p>
+          <p className="text-2xl font-semibold text-brand">{segmentCounts.local}</p>
+        </Card>
+        <Card>
+          <p className="text-sm text-muted mb-2">Visitor guests</p>
+          <p className="text-2xl font-semibold text-brand">{segmentCounts.visitor}</p>
+        </Card>
+        <Card>
+          <p className="text-sm text-muted mb-2">Unknown</p>
+          <p className="text-2xl font-semibold text-brand">{segmentCounts.unknown}</p>
+        </Card>
+      </div>
 
       <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
         <div className="flex items-center justify-between mb-4">

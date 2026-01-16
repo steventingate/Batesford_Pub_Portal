@@ -5,6 +5,7 @@ import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
 import { formatDateTime, toCsv } from '../lib/format';
+import { useToast } from '../components/ToastProvider';
 
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const formatDeviceLabel = (device: string | null, os: string | null) => {
@@ -28,6 +29,8 @@ type GuestProfile = {
   email: string;
   full_name: string | null;
   mobile: string | null;
+  postcode: string | null;
+  segment: string | null;
   visit_count: number;
   first_seen_at: string | null;
   last_seen_at: string | null;
@@ -46,7 +49,14 @@ type ConnectionRow = {
   user_agent: string | null;
 };
 
+type TemplateOption = {
+  id: string;
+  name: string;
+  subject: string;
+};
+
 export default function Contacts() {
+  const { pushToast } = useToast();
   const [profiles, setProfiles] = useState<GuestProfile[]>([]);
   const [search, setSearch] = useState('');
   const [dateRange, setDateRange] = useState('30');
@@ -54,12 +64,17 @@ export default function Contacts() {
   const [returningOnly, setReturningOnly] = useState(false);
   const [selectedGuest, setSelectedGuest] = useState<GuestProfile | null>(null);
   const [recentConnections, setRecentConnections] = useState<ConnectionRow[]>([]);
+  const [templates, setTemplates] = useState<TemplateOption[]>([]);
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [sendGuest, setSendGuest] = useState<GuestProfile | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase
-        .from('guest_profiles')
-        .select('guest_id, email, full_name, mobile, visit_count, first_seen_at, last_seen_at, visits_by_weekday, visits_by_hour, last_device_type, last_os_family, last_user_agent')
+        .from('guest_segments')
+        .select('guest_id, email, full_name, mobile, postcode, segment, visit_count, first_seen_at, last_seen_at, visits_by_weekday, visits_by_hour, last_device_type, last_os_family, last_user_agent')
         .order('last_seen_at', { ascending: false });
 
       setProfiles((data as GuestProfile[]) ?? []);
@@ -67,6 +82,21 @@ export default function Contacts() {
 
     load();
   }, []);
+
+  useEffect(() => {
+    const loadTemplates = async () => {
+      const { data, error } = await supabase
+        .from('campaign_templates')
+        .select('id, name, subject')
+        .order('created_at', { ascending: false });
+      if (error) {
+        pushToast('Unable to load templates.', 'error');
+        return;
+      }
+      setTemplates((data as TemplateOption[]) ?? []);
+    };
+    loadTemplates();
+  }, [pushToast]);
 
   useEffect(() => {
     const loadRecent = async () => {
@@ -139,6 +169,42 @@ export default function Contacts() {
     document.body.removeChild(link);
   };
 
+  const handleSendEmail = async () => {
+    if (!sendGuest?.email) {
+      pushToast('Guest has no email address.', 'error');
+      return;
+    }
+    if (!selectedTemplateId) {
+      pushToast('Select a template.', 'error');
+      return;
+    }
+    setSending(true);
+    try {
+      const { error } = await supabase.functions.invoke('send-campaign-email', {
+        body: {
+          template_id: selectedTemplateId,
+          mode: 'single',
+          guest_id: sendGuest.guest_id
+        }
+      });
+      if (error) throw error;
+      pushToast(`Sent to ${sendGuest.email}`, 'success');
+      setSendModalOpen(false);
+      setSendGuest(null);
+      setSelectedTemplateId('');
+    } catch (err) {
+      pushToast(`Send failed: ${(err as Error).message}`, 'error');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const closeSendModal = () => {
+    setSendModalOpen(false);
+    setSendGuest(null);
+    setSelectedTemplateId('');
+  };
+
   const renderBars = (series: { key: string; count: number }[], labels?: string[], columns = 7) => {
     const maxValue = Math.max(...series.map((item) => item.count), 1);
     return (
@@ -199,9 +265,12 @@ export default function Contacts() {
                 <th className="py-2">Guest</th>
                 <th className="py-2">Email</th>
                 <th className="py-2">Mobile</th>
+                <th className="py-2">Postcode</th>
+                <th className="py-2">Segment</th>
                 <th className="py-2">Visits</th>
                 <th className="py-2">Last seen</th>
                 <th className="py-2">Device</th>
+                <th className="py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -210,10 +279,27 @@ export default function Contacts() {
                   <td className="py-3 font-semibold text-brand">{guest.full_name || 'Guest'}</td>
                   <td className="py-3">{guest.email || '-'}</td>
                   <td className="py-3">{guest.mobile || '-'}</td>
+                  <td className="py-3">{guest.postcode || '-'}</td>
+                  <td className="py-3 text-sm font-semibold text-brand">
+                    {(guest.segment || 'unknown').charAt(0).toUpperCase() + (guest.segment || 'unknown').slice(1)}
+                  </td>
                   <td className="py-3">{Number(guest.visit_count ?? 0)}</td>
                   <td className="py-3">{guest.last_seen_at ? formatDateTime(guest.last_seen_at) : '-'}</td>
                   <td className="py-3 text-sm font-semibold text-brand">
                     {formatDeviceLabel(guest.last_device_type, guest.last_os_family)}
+                  </td>
+                  <td className="py-3">
+                    <Button
+                      variant="outline"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSendGuest(guest);
+                        setSelectedTemplateId('');
+                        setSendModalOpen(true);
+                      }}
+                    >
+                      Send email...
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -223,6 +309,45 @@ export default function Contacts() {
         </div>
       </Card>
 
+      {sendModalOpen && sendGuest && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={closeSendModal}>
+          <Card className="max-w-lg w-full" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-xl font-semibold text-brand">Send email</h3>
+                <p className="text-sm text-muted">{sendGuest.full_name || 'Guest'} · {sendGuest.email || 'No email'}</p>
+              </div>
+              <Button variant="outline" onClick={closeSendModal}>Close</Button>
+            </div>
+            <div className="space-y-4">
+              <Select
+                label="Template"
+                value={selectedTemplateId}
+                onChange={(event) => setSelectedTemplateId(event.target.value)}
+              >
+                <option value="">Select a template</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </Select>
+              {selectedTemplateId && (
+                <p className="text-sm text-muted">
+                  Subject: {templates.find((template) => template.id === selectedTemplateId)?.subject || '-'}
+                </p>
+              )}
+              <div className="flex items-center gap-3">
+                <Button onClick={handleSendEmail} disabled={sending}>
+                  {sending ? 'Sending...' : 'Send now'}
+                </Button>
+                <Button variant="ghost" onClick={closeSendModal}>Cancel</Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {selectedGuest && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setSelectedGuest(null)}>
           <Card className="max-w-4xl w-full" onClick={(event) => event.stopPropagation()}>
@@ -230,6 +355,11 @@ export default function Contacts() {
               <div>
                 <h3 className="text-2xl font-display text-brand">{selectedGuest.full_name || 'Guest'}</h3>
                 <p className="text-sm text-muted">{selectedGuest.email || 'No email'} / {selectedGuest.mobile || 'No mobile'}</p>
+                <p className="text-sm text-muted">
+                  {selectedGuest.postcode
+                    ? `Postcode: ${selectedGuest.postcode} (${(selectedGuest.segment || 'unknown').charAt(0).toUpperCase() + (selectedGuest.segment || 'unknown').slice(1)})`
+                    : 'Postcode: Not provided'}
+                </p>
               </div>
               <Button variant="outline" onClick={() => setSelectedGuest(null)}>Close</Button>
             </div>

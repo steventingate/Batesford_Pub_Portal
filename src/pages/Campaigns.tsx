@@ -39,6 +39,15 @@ type Recipient = {
   visit_count: number | null;
   last_seen_at: string | null;
   visits_by_weekday?: Record<string, number> | null;
+  segment?: string | null;
+};
+
+type GuestOption = {
+  guest_id: string;
+  email: string | null;
+  full_name: string | null;
+  visit_count: number | null;
+  last_seen_at: string | null;
 };
 
 type AudienceFilters = {
@@ -47,6 +56,7 @@ type AudienceFilters = {
   regularsOnly: boolean;
   hasEmail: boolean;
   weekday: string;
+  region: string;
 };
 
 type CampaignRunRow = {
@@ -227,6 +237,14 @@ export default function Campaigns() {
   const [status, setStatus] = useState('');
   const [viewerTemplate, setViewerTemplate] = useState<Template | null>(null);
   const [viewerMode, setViewerMode] = useState<'html' | 'text'>('html');
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [sendQuery, setSendQuery] = useState('');
+  const [sendOptions, setSendOptions] = useState<GuestOption[]>([]);
+  const [selectedGuest, setSelectedGuest] = useState<GuestOption | null>(null);
+  const [manualEmail, setManualEmail] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [sendingTest, setSendingTest] = useState(false);
+  const [sendingSingle, setSendingSingle] = useState(false);
   const [wizardStep, setWizardStep] = useState(1);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [filters, setFilters] = useState<AudienceFilters>({
@@ -234,7 +252,8 @@ export default function Campaigns() {
     returningOnly: false,
     regularsOnly: false,
     hasEmail: true,
-    weekday: ''
+    weekday: '',
+    region: 'any'
   });
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [loadingRecipients, setLoadingRecipients] = useState(false);
@@ -280,8 +299,8 @@ export default function Campaigns() {
     const minVisits = filters.regularsOnly ? 5 : filters.returningOnly ? 2 : 0;
 
     let query = supabase
-      .from('guest_profiles')
-      .select('guest_id, email, full_name, visit_count, last_seen_at, visits_by_weekday')
+      .from('guest_segments')
+      .select('guest_id, email, full_name, visit_count, last_seen_at, visits_by_weekday, segment')
       .gte('last_seen_at', cutoff.toISOString())
       .order('last_seen_at', { ascending: false })
       .limit(5000);
@@ -291,6 +310,9 @@ export default function Campaigns() {
     }
     if (minVisits > 0) {
       query = query.gte('visit_count', minVisits);
+    }
+    if (filters.region && filters.region !== 'any') {
+      query = query.eq('segment', filters.region);
     }
 
     const { data, error } = await query;
@@ -355,6 +377,28 @@ export default function Campaigns() {
     if (activeTab !== 'send') return;
     loadRecipients();
   }, [activeTab, loadRecipients]);
+
+  useEffect(() => {
+    if (!sendModalOpen) return;
+    if (!sendQuery.trim()) {
+      setSendOptions([]);
+      return;
+    }
+    const timer = window.setTimeout(async () => {
+      const query = sendQuery.trim();
+      const { data, error } = await supabase
+        .from('guest_segments')
+        .select('guest_id, email, full_name, visit_count, last_seen_at, segment')
+        .or(`full_name.ilike.%${query}%,email.ilike.%${query}%`)
+        .limit(10);
+      if (error) {
+        pushToast('Unable to search guests.', 'error');
+        return;
+      }
+      setSendOptions((data as GuestOption[]) ?? []);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [sendModalOpen, sendQuery, pushToast]);
 
   const startCreate = () => {
     setEditor(defaultEditorState);
@@ -569,6 +613,74 @@ export default function Campaigns() {
   const previewSubject = selectedTemplate ? applyTokens(selectedTemplate.subject, tokenMap) : '';
   const previewText = selectedTemplate ? renderText(selectedTemplate.body_text, tokenMap) : '';
 
+  const sendCampaignEmail = async (payload: Record<string, unknown>) => {
+    const { data, error } = await supabase.functions.invoke('send-campaign-email', {
+      body: payload
+    });
+    if (error) {
+      throw error;
+    }
+    return data as { success: boolean; to?: string; mode?: string; simulated?: boolean };
+  };
+
+  const resetSendModal = () => {
+    setSendModalOpen(false);
+    setSendQuery('');
+    setSendOptions([]);
+    setSelectedGuest(null);
+    setManualEmail('');
+    setManualName('');
+  };
+
+  const handleSendTest = async () => {
+    if (!viewerTemplate) return;
+    setSendingTest(true);
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data?.user?.email) {
+      pushToast('Unable to read your admin email.', 'error');
+      setSendingTest(false);
+      return;
+    }
+    try {
+      await sendCampaignEmail({
+        template_id: viewerTemplate.id,
+        mode: 'test',
+        to_email: data.user.email
+      });
+      pushToast(`Test sent to ${data.user.email}`, 'success');
+    } catch (err) {
+      pushToast(`Test send failed: ${(err as Error).message}`, 'error');
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
+  const handleSendSingle = async () => {
+    if (!viewerTemplate) return;
+    const email = manualEmail.trim() || selectedGuest?.email || '';
+    const name = manualName.trim() || selectedGuest?.full_name || '';
+    if (!email) {
+      pushToast('Add an email or select a guest.', 'error');
+      return;
+    }
+    setSendingSingle(true);
+    try {
+      await sendCampaignEmail({
+        template_id: viewerTemplate.id,
+        mode: 'single',
+        guest_id: selectedGuest?.guest_id ?? null,
+        to_email: manualEmail.trim() || undefined,
+        to_name: name || undefined
+      });
+      pushToast(`Sent to ${email}`, 'success');
+      resetSendModal();
+    } catch (err) {
+      pushToast(`Send failed: ${(err as Error).message}`, 'error');
+    } finally {
+      setSendingSingle(false);
+    }
+  };
+
   const handleSend = async () => {
     if (!selectedTemplate) return;
     if (!recipients.length) {
@@ -651,7 +763,15 @@ export default function Campaigns() {
               <h3 className="text-2xl font-display text-brand">{viewerTemplate.name}</h3>
               <p className="text-sm text-muted">Type: {viewerTemplate.type}</p>
             </div>
-            <Button variant="outline" onClick={() => setViewerTemplate(null)}>Close</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setViewerTemplate(null);
+                resetSendModal();
+              }}
+            >
+              Close
+            </Button>
           </div>
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <Button variant={viewerMode === 'html' ? 'primary' : 'outline'} onClick={() => setViewerMode('html')}>
@@ -662,6 +782,22 @@ export default function Campaigns() {
             </Button>
             <Button variant="outline" onClick={() => startEdit(viewerTemplate)}>Edit</Button>
             <Button variant="ghost" onClick={() => handleDuplicate(viewerTemplate)}>Duplicate</Button>
+            <Button variant="outline" onClick={handleSendTest} disabled={sendingTest}>
+              {sendingTest ? 'Sending test...' : 'Send test to me'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSendQuery('');
+                setSendOptions([]);
+                setSelectedGuest(null);
+                setManualEmail('');
+                setManualName('');
+                setSendModalOpen(true);
+              }}
+            >
+              Send to individual...
+            </Button>
           </div>
           <div className="rounded-xl border border-slate-200 p-4 bg-white max-h-[70vh] overflow-y-auto">
             <p className="text-xs uppercase tracking-wide text-muted mb-2">Subject</p>
@@ -680,6 +816,62 @@ export default function Campaigns() {
             )}
           </div>
         </Card>
+        {sendModalOpen && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+            <Card className="max-w-xl w-full">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="text-xl font-semibold text-brand">Send to individual</h3>
+                  <p className="text-sm text-muted">{viewerTemplate.name}</p>
+                </div>
+                <Button variant="outline" onClick={resetSendModal}>Close</Button>
+              </div>
+              <div className="space-y-4">
+                <Input
+                  label="Search guests"
+                  value={sendQuery}
+                  onChange={(event) => setSendQuery(event.target.value)}
+                  placeholder="Name or email"
+                />
+                {!!sendOptions.length && (
+                  <div className="border border-slate-200 rounded-xl divide-y">
+                    {sendOptions.map((guest) => (
+                      <button
+                        key={guest.guest_id}
+                        className={`w-full text-left px-4 py-3 hover:bg-slate-50 ${
+                          selectedGuest?.guest_id === guest.guest_id ? 'bg-slate-50' : ''
+                        }`}
+                        onClick={() => setSelectedGuest(guest)}
+                        type="button"
+                      >
+                        <p className="font-semibold">{guest.full_name || 'Guest'}</p>
+                        <p className="text-xs text-muted">{guest.email || 'No email'}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <Input
+                  label="Or send to email"
+                  value={manualEmail}
+                  onChange={(event) => setManualEmail(event.target.value)}
+                  placeholder="guest@example.com"
+                />
+                <Input
+                  label="Recipient name (optional)"
+                  value={manualName}
+                  onChange={(event) => setManualName(event.target.value)}
+                  placeholder="Guest name"
+                />
+                <div className="flex items-center gap-3">
+                  <Button onClick={handleSendSingle} disabled={sendingSingle}>
+                    {sendingSingle ? 'Sending...' : 'Send now'}
+                  </Button>
+                  <Button variant="ghost" onClick={resetSendModal}>Cancel</Button>
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
       </div>
     );
   };
@@ -952,6 +1144,16 @@ export default function Campaigns() {
                     <option value="5">Fri</option>
                     <option value="6">Sat</option>
                     <option value="0">Sun</option>
+                  </Select>
+                  <Select
+                    label="Audience region"
+                    value={filters.region}
+                    onChange={(event) => setFilters((prev) => ({ ...prev, region: event.target.value }))}
+                  >
+                    <option value="any">Any</option>
+                    <option value="local">Local</option>
+                    <option value="visitor">Visitor</option>
+                    <option value="unknown">Unknown</option>
                   </Select>
                   <div className="flex items-center gap-3">
                     <Button variant="outline" onClick={loadRecipients}>Refresh audience</Button>
