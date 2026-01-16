@@ -17,6 +17,13 @@ type Template = {
   created_at: string;
 };
 
+type BrandAsset = {
+  id: string;
+  key: string;
+  label: string;
+  url: string;
+};
+
 type EditorState = {
   id: string | null;
   name: string;
@@ -65,13 +72,20 @@ const variableOptions = [
   { label: 'Last visit date', value: '{{last_visit_date}}' }
 ];
 
+const brandBlockTop =
+  '<p><img src="{{brand_logo_url}}" alt="" style="max-width:180px;height:auto;margin-bottom:12px;" /></p>' +
+  '<p><img src="{{hero_image_url}}" alt="" style="max-width:100%;height:auto;border-radius:12px;margin:12px 0;" /></p>';
+
+const brandBlockFooter =
+  '<p><img src="{{footer_banner_url}}" alt="" style="max-width:100%;height:auto;border-radius:12px;margin:12px 0;" /></p>';
+
 const seedTemplates = [
   {
     name: 'Trivia Night Promo (Thu)',
     type: 'event',
     subject: 'Trivia Night Thursday at Batesford - book a table',
     body_html:
-      '<p>Hey {{first_name}},</p><p>Trivia Night is back this Thursday at Batesford Pub. Grab your team, lock in a table, and test your knowledge.</p><p><strong>Kick-off:</strong> Thursday night<br /><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book your table</a></p><p>See you at the bar!</p>',
+      `${brandBlockTop}<p>Hey {{first_name}},</p><p>Trivia Night is back this Thursday at Batesford Pub. Grab your team, lock in a table, and test your knowledge.</p><p><strong>Kick-off:</strong> Thursday night<br /><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book your table</a></p>${brandBlockFooter}<p>See you at the bar!</p>`,
     body_text:
       'Hey {{first_name}},\n\nTrivia Night is back this Thursday at Batesford Pub. Grab your team, lock in a table, and test your knowledge.\n\nKick-off: Thursday night\nWhere: {{venue_address}}\n\nBook your table: {{booking_link}}\n\nSee you at the bar!'
   },
@@ -80,7 +94,7 @@ const seedTemplates = [
     type: 'event',
     subject: 'Live music this weekend - reserve your spot',
     body_html:
-      '<p>Hi {{first_name}},</p><p>We have live music lined up this weekend at Batesford Pub. Good tunes, great food, and your favourite locals.</p><p><strong>When:</strong> Friday &amp; Saturday<br /><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Reserve a table</a></p><p>Bring a mate.</p>',
+      `${brandBlockTop}<p>Hi {{first_name}},</p><p>We have live music lined up this weekend at Batesford Pub. Good tunes, great food, and your favourite locals.</p><p><strong>When:</strong> Friday &amp; Saturday<br /><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Reserve a table</a></p>${brandBlockFooter}<p>Bring a mate.</p>`,
     body_text:
       'Hi {{first_name}},\n\nWe have live music lined up this weekend at Batesford Pub. Good tunes, great food, and your favourite locals.\n\nWhen: Friday & Saturday\nWhere: {{venue_address}}\n\nReserve a table: {{booking_link}}\n\nBring a mate.'
   },
@@ -89,7 +103,7 @@ const seedTemplates = [
     type: 'regular',
     subject: 'Happy Hour at Batesford - your first round is waiting',
     body_html:
-      '<p>Hey {{first_name}},</p><p>It is Happy Hour at Batesford Pub. Swing by for drink specials and a relaxed catch-up.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Plan your visit</a></p><p>Cheers!</p>',
+      `${brandBlockTop}<p>Hey {{first_name}},</p><p>It is Happy Hour at Batesford Pub. Swing by for drink specials and a relaxed catch-up.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Plan your visit</a></p>${brandBlockFooter}<p>Cheers!</p>`,
     body_text:
       'Hey {{first_name}},\n\nIt is Happy Hour at Batesford Pub. Swing by for drink specials and a relaxed catch-up.\n\nWhere: {{venue_address}}\n\nPlan your visit: {{booking_link}}\n\nCheers!'
   },
@@ -98,7 +112,7 @@ const seedTemplates = [
     type: 'regular',
     subject: 'Weekly Special Night - choose Steak or Parma',
     body_html:
-      '<p>Hi {{first_name}},</p><p>Your weekly special is on. Pick steak or parma and make it a mid-week win.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book for special night</a></p><p>We will save you a seat.</p>',
+      `${brandBlockTop}<p>Hi {{first_name}},</p><p>Your weekly special is on. Pick steak or parma and make it a mid-week win.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book for special night</a></p>${brandBlockFooter}<p>We will save you a seat.</p>`,
     body_text:
       'Hi {{first_name}},\n\nYour weekly special is on. Pick steak or parma and make it a mid-week win.\n\nWhere: {{venue_address}}\n\nBook for special night: {{booking_link}}\n\nWe will save you a seat.'
   },
@@ -107,7 +121,7 @@ const seedTemplates = [
     type: 'regular',
     subject: 'Family night at Batesford - kids eat free',
     body_html:
-      '<p>Hey {{first_name}},</p><p>Bring the family in - kids eat free on family night at Batesford Pub.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Reserve a family table</a></p><p>See you soon.</p>',
+      `${brandBlockTop}<p>Hey {{first_name}},</p><p>Bring the family in - kids eat free on family night at Batesford Pub.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Reserve a family table</a></p>${brandBlockFooter}<p>See you soon.</p>`,
     body_text:
       'Hey {{first_name}},\n\nBring the family in - kids eat free on family night at Batesford Pub.\n\nWhere: {{venue_address}}\n\nReserve a family table: {{booking_link}}\n\nSee you soon.'
   },
@@ -116,7 +130,7 @@ const seedTemplates = [
     type: 'winback',
     subject: 'We have not seen you in a while - come say hi',
     body_html:
-      '<p>Hi {{first_name}},</p><p>It has been a little while since your last visit on {{last_visit_date}}. We would love to welcome you back at Batesford Pub.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Plan a visit</a></p><p>See you soon!</p>',
+      `${brandBlockTop}<p>Hi {{first_name}},</p><p>It has been a little while since your last visit on {{last_visit_date}}. We would love to welcome you back at Batesford Pub.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Plan a visit</a></p>${brandBlockFooter}<p>See you soon!</p>`,
     body_text:
       'Hi {{first_name}},\n\nIt has been a little while since your last visit on {{last_visit_date}}. We would love to welcome you back at Batesford Pub.\n\nWhere: {{venue_address}}\n\nPlan a visit: {{booking_link}}\n\nSee you soon!'
   },
@@ -125,7 +139,7 @@ const seedTemplates = [
     type: 'custom',
     subject: 'Thanks for visiting {{visit_count}} times - a little treat',
     body_html:
-      '<p>Hey {{first_name}},</p><p>You have visited Batesford Pub {{visit_count}} times. That means a lot to us. Drop in this week and let us shout you a little thank-you.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book a table</a></p><p>We will see you at the bar.</p>',
+      `${brandBlockTop}<p>Hey {{first_name}},</p><p>You have visited Batesford Pub {{visit_count}} times. That means a lot to us. Drop in this week and let us shout you a little thank-you.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book a table</a></p>${brandBlockFooter}<p>We will see you at the bar.</p>`,
     body_text:
       'Hey {{first_name}},\n\nYou have visited Batesford Pub {{visit_count}} times. That means a lot to us. Drop in this week and let us shout you a little thank-you.\n\nWhere: {{venue_address}}\n\nBook a table: {{booking_link}}\n\nWe will see you at the bar.'
   },
@@ -134,7 +148,7 @@ const seedTemplates = [
     type: 'regular',
     subject: 'Thanks for visiting Batesford Pub!',
     body_html:
-      '<p>Hi {{first_name}},</p><p>Thanks for stopping by. We hope you enjoyed your visit on {{last_visit_date}}. If you are keen for another round, we would love to see you again.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book your next visit</a></p><p>Cheers!</p>',
+      `${brandBlockTop}<p>Hi {{first_name}},</p><p>Thanks for stopping by. We hope you enjoyed your visit on {{last_visit_date}}. If you are keen for another round, we would love to see you again.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book your next visit</a></p>${brandBlockFooter}<p>Cheers!</p>`,
     body_text:
       'Hi {{first_name}},\n\nThanks for stopping by. We hope you enjoyed your visit on {{last_visit_date}}. If you are keen for another round, we would love to see you again.\n\nWhere: {{venue_address}}\n\nBook your next visit: {{booking_link}}\n\nCheers!'
   }
@@ -150,13 +164,6 @@ const stripHtml = (html: string) => {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 };
 
-const renderPreview = (html: string, data: typeof sampleData) => {
-  return html
-    .replace(/{{first_name}}/g, data.first_name)
-    .replace(/{{visit_count}}/g, data.visit_count)
-    .replace(/{{last_visit_date}}/g, data.last_visit_date);
-};
-
 const getFirstName = (fullName: string | null) => {
   if (!fullName) return 'there';
   return fullName.split(' ')[0] || 'there';
@@ -165,6 +172,49 @@ const getFirstName = (fullName: string | null) => {
 const toLocalDate = (iso: string | null) => {
   if (!iso) return sampleData.last_visit_date;
   return new Date(iso).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const stripEmptyImages = (html: string) => {
+  return html.replace(/<img[^>]*src=['"]{0,1}['"]{0,1}[^>]*>/gi, '');
+};
+
+const applyTokens = (template: string, tokens: Record<string, string>) => {
+  let result = template;
+  Object.entries(tokens).forEach(([key, value]) => {
+    result = result.replaceAll(`{{${key}}}`, value);
+  });
+  return stripEmptyImages(result);
+};
+
+const buildEmailShell = (bodyHtml: string, tokens: Record<string, string>) => {
+  const hasLogoToken = bodyHtml.includes('{{brand_logo_url}}');
+  const hasHeroToken = bodyHtml.includes('{{hero_image_url}}');
+  const hasFooterToken = bodyHtml.includes('{{footer_banner_url}}');
+  const logoBlock = tokens.brand_logo_url && !hasLogoToken
+    ? `<p><img src="${tokens.brand_logo_url}" alt="" style="max-width:180px;height:auto;margin-bottom:12px;" /></p>`
+    : '';
+  const heroBlock = tokens.hero_image_url && !hasHeroToken
+    ? `<p><img src="${tokens.hero_image_url}" alt="" style="max-width:100%;height:auto;border-radius:12px;margin:12px 0;" /></p>`
+    : '';
+  const footerBlock = tokens.footer_banner_url && !hasFooterToken
+    ? `<p><img src="${tokens.footer_banner_url}" alt="" style="max-width:100%;height:auto;border-radius:12px;margin:12px 0;" /></p>`
+    : '';
+  const footerText = `<p style="font-size:12px;color:#5b5b5b;">{{venue_address}} | {{website_link}}</p>`;
+
+  return `<div style="max-width:640px;margin:0 auto;">${logoBlock}${heroBlock}${bodyHtml}${footerBlock}${footerText}</div>`;
+};
+
+const renderEmailHtml = (bodyHtml: string, tokens: Record<string, string>) => {
+  const shell = buildEmailShell(bodyHtml, tokens);
+  return applyTokens(shell, tokens);
+};
+
+const renderText = (text: string, tokens: Record<string, string>) => {
+  let output = text;
+  Object.entries(tokens).forEach(([key, value]) => {
+    output = output.replaceAll(`{{${key}}}`, value);
+  });
+  return output;
 };
 
 export default function Campaigns() {
@@ -193,6 +243,7 @@ export default function Campaigns() {
   const [sendResult, setSendResult] = useState<{ status: 'sent' | 'scheduled'; count: number } | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [brandAssets, setBrandAssets] = useState<Record<string, BrandAsset | null>>({});
 
   const loadTemplates = useCallback(async () => {
     const { data, error } = await supabase
@@ -205,6 +256,21 @@ export default function Campaigns() {
       return;
     }
     setTemplates((data as Template[]) ?? []);
+  }, [pushToast]);
+
+  const loadBrandAssets = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('brand_assets')
+      .select('id, key, label, url');
+    if (error) {
+      pushToast('Unable to load brand assets.', 'error');
+      return;
+    }
+    const map: Record<string, BrandAsset | null> = {};
+    (data ?? []).forEach((row) => {
+      map[row.key] = row as BrandAsset;
+    });
+    setBrandAssets(map);
   }, [pushToast]);
 
   const loadRecipients = useCallback(async () => {
@@ -264,6 +330,21 @@ export default function Campaigns() {
   useEffect(() => {
     loadTemplates();
   }, [loadTemplates]);
+
+  useEffect(() => {
+    loadBrandAssets();
+    const channel = supabase
+      .channel('brand-assets')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'brand_assets' },
+        () => loadBrandAssets()
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadBrandAssets]);
 
   useEffect(() => {
     if (!editorRef.current) return;
@@ -434,28 +515,34 @@ export default function Campaigns() {
   const handleSeedTemplates = useCallback(async () => {
     const { data: existing, error } = await supabase
       .from('campaign_templates')
-      .select('name');
+      .select('id, name');
 
     if (error) {
       pushToast('You do not have access to seed templates.', 'error');
       return;
     }
 
-    const existingNames = new Set((existing ?? []).map((row) => row.name));
-    const rowsToInsert = seedTemplates.filter((template) => !existingNames.has(template.name));
-
-    if (!rowsToInsert.length) {
-      pushToast('Templates already seeded.', 'info');
-      return;
-    }
-
-    const { error: insertError } = await supabase
-      .from('campaign_templates')
-      .insert(rowsToInsert);
-
-    if (insertError) {
-      pushToast(`Seed failed: ${insertError.message}`, 'error');
-      return;
+    const existingMap = new Map((existing ?? []).map((row) => [row.name, row.id]));
+    for (const template of seedTemplates) {
+      const existingId = existingMap.get(template.name);
+      if (existingId) {
+        const { error: updateError } = await supabase
+          .from('campaign_templates')
+          .update(template)
+          .eq('id', existingId);
+        if (updateError) {
+          pushToast(`Seed update failed: ${updateError.message}`, 'error');
+          return;
+        }
+      } else {
+        const { error: insertError } = await supabase
+          .from('campaign_templates')
+          .insert(template);
+        if (insertError) {
+          pushToast(`Seed failed: ${insertError.message}`, 'error');
+          return;
+        }
+      }
     }
 
     pushToast('Templates seeded.', 'success');
@@ -464,14 +551,23 @@ export default function Campaigns() {
 
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null;
   const sampleRecipient = recipients[0];
+  const brandTokens = {
+    brand_logo_url: brandAssets.logo?.url ?? '',
+    hero_image_url: brandAssets.hero_default?.url ?? '',
+    footer_banner_url: brandAssets.footer_banner?.url ?? '',
+    website_link: 'https://www.thebatesfordhotel.com.au/',
+    venue_address: '700 Ballarat Road, Batesford VIC 3213',
+    booking_link: 'https://www.thebatesfordhotel.com.au/'
+  };
   const previewData = {
     first_name: sampleRecipient ? getFirstName(sampleRecipient.full_name) : sampleData.first_name,
     visit_count: sampleRecipient?.visit_count ? String(sampleRecipient.visit_count) : sampleData.visit_count,
     last_visit_date: toLocalDate(sampleRecipient?.last_seen_at ?? null)
   };
-  const previewHtml = selectedTemplate ? renderPreview(selectedTemplate.body_html, previewData) : '';
-  const previewSubject = selectedTemplate ? renderPreview(selectedTemplate.subject, previewData) : '';
-  const previewText = selectedTemplate ? renderPreview(selectedTemplate.body_text, previewData) : '';
+  const tokenMap = { ...brandTokens, ...previewData };
+  const previewHtml = selectedTemplate ? renderEmailHtml(selectedTemplate.body_html, tokenMap) : '';
+  const previewSubject = selectedTemplate ? applyTokens(selectedTemplate.subject, tokenMap) : '';
+  const previewText = selectedTemplate ? renderText(selectedTemplate.body_text, tokenMap) : '';
 
   const handleSend = async () => {
     if (!selectedTemplate) return;
@@ -569,11 +665,18 @@ export default function Campaigns() {
           </div>
           <div className="rounded-xl border border-slate-200 p-4 bg-white max-h-[70vh] overflow-y-auto">
             <p className="text-xs uppercase tracking-wide text-muted mb-2">Subject</p>
-            <p className="font-semibold mb-4">{viewerTemplate.subject}</p>
+            <p className="font-semibold mb-4">
+              {applyTokens(viewerTemplate.subject, { ...brandTokens, ...sampleData })}
+            </p>
             {viewerMode === 'html' ? (
-              <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: viewerTemplate.body_html }} />
+              <div
+                className="prose prose-sm max-w-none"
+                dangerouslySetInnerHTML={{ __html: renderEmailHtml(viewerTemplate.body_html, { ...brandTokens, ...sampleData }) }}
+              />
             ) : (
-              <pre className="whitespace-pre-wrap text-sm text-muted">{viewerTemplate.body_text}</pre>
+              <pre className="whitespace-pre-wrap text-sm text-muted">
+                {renderText(viewerTemplate.body_text, { ...brandTokens, ...sampleData })}
+              </pre>
             )}
           </div>
         </Card>
@@ -713,11 +816,16 @@ export default function Campaigns() {
 
                 <div className="space-y-3">
                   <h3 className="text-lg font-semibold">Preview</h3>
-                  <div className="rounded-xl border border-slate-200 p-4 bg-white max-w-[640px]">
-                    <p className="text-xs uppercase tracking-wide text-muted mb-2">Subject</p>
-                    <p className="font-semibold mb-4">{renderPreview(editor.subject, sampleData)}</p>
-                    <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderPreview(editor.bodyHtml, sampleData) }} />
-                  </div>
+                    <div className="rounded-xl border border-slate-200 p-4 bg-white max-w-[640px]">
+                      <p className="text-xs uppercase tracking-wide text-muted mb-2">Subject</p>
+                      <p className="font-semibold mb-4">
+                        {applyTokens(editor.subject, { ...brandTokens, ...sampleData })}
+                      </p>
+                      <div
+                        className="prose prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: renderEmailHtml(editor.bodyHtml, { ...brandTokens, ...sampleData }) }}
+                      />
+                    </div>
                   <p className="text-xs text-muted">
                     Preview uses sample guest data to render variables.
                   </p>
@@ -764,7 +872,9 @@ export default function Campaigns() {
                   {selectedTemplate && (
                     <div className="space-y-2">
                       <p className="text-sm text-muted">Subject</p>
-                      <p className="font-semibold">{selectedTemplate.subject}</p>
+                      <p className="font-semibold">
+                        {applyTokens(selectedTemplate.subject, { ...brandTokens, ...sampleData })}
+                      </p>
                       <Button variant="outline" onClick={() => setViewerTemplate(selectedTemplate)}>
                         View template
                       </Button>
