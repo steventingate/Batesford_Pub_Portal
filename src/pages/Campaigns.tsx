@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { formatDateTime } from '../lib/format';
+import { useToast } from '../components/ToastProvider';
 
 type Template = {
   id: string;
@@ -56,6 +57,7 @@ const stripHtml = (html: string) => {
 };
 
 export default function Campaigns() {
+  const { pushToast } = useToast();
   const [activeTab, setActiveTab] = useState<'templates' | 'send' | 'history'>('templates');
   const [templates, setTemplates] = useState<Template[]>([]);
   const [editor, setEditor] = useState<EditorState>(defaultEditorState);
@@ -66,13 +68,17 @@ export default function Campaigns() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadTemplates = useCallback(async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('campaign_templates')
       .select('id, name, type, subject, body_html, body_text, created_at')
       .order('created_at', { ascending: false });
 
+    if (error) {
+      pushToast('You do not have access to templates.', 'error');
+      return;
+    }
     setTemplates((data as Template[]) ?? []);
-  }, []);
+  }, [pushToast]);
 
   useEffect(() => {
     loadTemplates();
@@ -124,9 +130,15 @@ export default function Campaigns() {
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!editor.id) {
+      setStatus('Save the template before uploading images.');
+      pushToast('Save the template first.', 'error');
+      event.target.value = '';
+      return;
+    }
     setStatus('Uploading image...');
     const fileName = `${Date.now()}-${file.name}`.replace(/\s+/g, '-');
-    const path = `templates/${editor.id ?? 'draft'}/${fileName}`;
+    const path = `${editor.id}/${fileName}`;
 
     const { error } = await supabase.storage
       .from('campaign-images')
@@ -134,6 +146,7 @@ export default function Campaigns() {
 
     if (error) {
       setStatus(`Upload failed: ${error.message}`);
+      pushToast('Image upload failed.', 'error');
       return;
     }
 
@@ -142,6 +155,7 @@ export default function Campaigns() {
     document.execCommand('insertHTML', false, imgTag);
     syncEditorHtml();
     setStatus('Image added.');
+    pushToast('Image inserted.', 'success');
     event.target.value = '';
   };
 
@@ -167,8 +181,10 @@ export default function Campaigns() {
         .eq('id', editor.id);
       if (error) {
         setStatus(`Save failed: ${error.message}`);
+        pushToast('You do not have access to update templates.', 'error');
       } else {
         setStatus('Template updated.');
+        pushToast('Template updated.', 'success');
         loadTemplates();
       }
     } else {
@@ -179,8 +195,10 @@ export default function Campaigns() {
         .single();
       if (error) {
         setStatus(`Save failed: ${error.message}`);
+        pushToast('You do not have access to create templates.', 'error');
       } else {
         setStatus('Template created.');
+        pushToast('Template created.', 'success');
         setEditor((prev) => ({ ...prev, id: data.id }));
         loadTemplates();
       }
@@ -192,7 +210,7 @@ export default function Campaigns() {
     const { error } = await supabase
       .from('campaign_templates')
       .insert({
-        name: `${template.name} (copy)`,
+        name: `Copy of ${template.name}`,
         type: template.type,
         subject: template.subject,
         body_html: template.body_html,
@@ -200,8 +218,10 @@ export default function Campaigns() {
       });
     if (error) {
       setStatus(`Duplicate failed: ${error.message}`);
+      pushToast('You do not have access to duplicate templates.', 'error');
       return;
     }
+    pushToast('Template duplicated.', 'success');
     loadTemplates();
   };
 
@@ -214,12 +234,14 @@ export default function Campaigns() {
       .eq('id', template.id);
     if (error) {
       setStatus(`Delete failed: ${error.message}`);
+      pushToast('You do not have access to delete templates.', 'error');
       return;
     }
     if (editor.id === template.id) {
       setEditing(false);
       setEditor(defaultEditorState);
     }
+    pushToast('Template deleted.', 'success');
     loadTemplates();
   };
 
