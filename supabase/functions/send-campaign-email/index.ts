@@ -51,6 +51,99 @@ const applyTokens = (template: string, tokens: Record<string, string>) => {
   return stripEmptyImages(result);
 };
 
+const stripInlineImageTokens = (value: string) => {
+  return value.replace(/\[\[image:[^\]]+\]\]/gi, "");
+};
+
+const escapeHtml = (value: string) => {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+};
+
+const replaceInlineImageTokens = (
+  html: string,
+  resolveUrl: (path: string) => string,
+) => {
+  return html.replace(/\[\[image:([^\]]+)\]\]/gi, (_match, attrs) => {
+    const pathMatch = attrs.match(/path="([^"]+)"/i);
+    if (!pathMatch) return "";
+    const altMatch = attrs.match(/alt="([^"]*)"/i);
+    const path = pathMatch[1];
+    const altText = altMatch ? altMatch[1] : "";
+    const url = resolveUrl(path);
+    if (!url) return "";
+    const alt = escapeHtml(altText);
+    return (
+      `<p style="margin:16px 0;">` +
+      `<img src="${url}" alt="${alt}" width="600" ` +
+      `style="display:block;width:100%;max-width:600px;height:auto;border:0;line-height:0;" />` +
+      `</p>`
+    );
+  });
+};
+
+const buildEmailShell = (
+  bodyHtml: string,
+  options: { logoUrl: string; heroUrl: string; footerUrl: string; footerText: string },
+) => {
+  const logoRow = options.logoUrl
+    ? `<tr>
+        <td style="padding:24px 24px 8px;">
+          <img src="${options.logoUrl}" alt="Batesford Pub" width="180" style="display:block;max-width:180px;height:auto;border:0;" />
+        </td>
+      </tr>`
+    : "";
+  const heroRow = options.heroUrl
+    ? `<tr>
+        <td style="padding:0 24px 16px;">
+          <img src="${options.heroUrl}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;line-height:0;" />
+        </td>
+      </tr>`
+    : "";
+  const footerImageRow = options.footerUrl
+    ? `<tr>
+        <td style="padding:16px 24px 0;">
+          <img src="${options.footerUrl}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;line-height:0;" />
+        </td>
+      </tr>`
+    : "";
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Batesford Pub</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f6f3ed;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f6f3ed;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="width:600px;max-width:600px;background-color:#ffffff;border:1px solid #e6dfd3;">
+            ${logoRow}
+            ${heroRow}
+            <tr>
+              <td style="padding:0 24px 8px;font-family:'Source Sans 3', Arial, sans-serif;font-size:16px;line-height:24px;color:#1f2a24;">
+                ${bodyHtml}
+              </td>
+            </tr>
+            ${footerImageRow}
+            <tr>
+              <td style="padding:12px 24px 24px;font-family:'Source Sans 3', Arial, sans-serif;font-size:12px;line-height:18px;color:#6b7a71;">
+                ${options.footerText}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+};
+
 const getFirstName = (fullName: string | null) => {
   if (!fullName) return "there";
   return fullName.split(" ")[0] || "there";
@@ -151,7 +244,9 @@ Deno.serve(async (req: Request) => {
 
   const { data: template, error: templateError } = await serviceClient
     .from("campaign_templates")
-    .select("id, name, subject, body_html, body_text")
+    .select(
+      "id, name, subject, body_html, body_text, hero_image_path, footer_image_path, inline_images",
+    )
     .eq("id", payload.template_id)
     .single();
 
@@ -169,6 +264,62 @@ Deno.serve(async (req: Request) => {
   (brandAssets ?? []).forEach((row: { key: string; url: string }) => {
     brandMap[row.key] = row.url;
   });
+
+  const publicUrlCache = new Map<string, string>();
+  const isAbsoluteUrl = (value: string) =>
+    /^https?:\/\//i.test(value) || value.startsWith("data:");
+  const resolveStorageUrl = (path: string) => {
+    if (!path) return "";
+    if (isAbsoluteUrl(path)) return path;
+    if (publicUrlCache.has(path)) return publicUrlCache.get(path) ?? "";
+    const { data } = serviceClient.storage.from("campaign-assets").getPublicUrl(
+      path,
+    );
+    const url = data.publicUrl;
+    publicUrlCache.set(path, url);
+    return url;
+  };
+
+  const renderEmailHtml = (params: {
+    subject: string;
+    body_html: string;
+    hero_image_path?: string | null;
+    footer_image_path?: string | null;
+    variables: Record<string, string>;
+  }) => {
+    const heroPath = params.hero_image_path ?? brandMap.hero_default ?? "";
+    const footerPath = params.footer_image_path ?? brandMap.footer_banner ?? "";
+    const logoUrl = resolveStorageUrl(brandMap.logo ?? "");
+    const heroUrl = resolveStorageUrl(heroPath);
+    const footerUrl = resolveStorageUrl(footerPath);
+
+    const tokens = {
+      ...params.variables,
+      brand_logo_url: logoUrl,
+      hero_image_url: heroUrl,
+      footer_banner_url: footerUrl,
+    };
+
+    const bodyWithInlineImages = replaceInlineImageTokens(
+      params.body_html,
+      resolveStorageUrl,
+    );
+    const hasLogoToken = params.body_html.includes("{{brand_logo_url}}");
+    const hasHeroToken = params.body_html.includes("{{hero_image_url}}");
+    const hasFooterToken = params.body_html.includes("{{footer_banner_url}}");
+    const resolvedBody = applyTokens(bodyWithInlineImages, tokens);
+    const footerText = applyTokens("{{venue_address}} | {{website_link}}", tokens);
+
+    return {
+      subject: applyTokens(params.subject, tokens),
+      html: buildEmailShell(resolvedBody, {
+        logoUrl: hasLogoToken ? "" : logoUrl,
+        heroUrl: hasHeroToken ? "" : heroUrl,
+        footerUrl: hasFooterToken ? "" : footerUrl,
+        footerText,
+      }),
+    };
+  };
 
   const fallbackDate = new Date().toLocaleDateString("en-AU", {
     day: "2-digit",
@@ -213,10 +364,7 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  const tokens = {
-    brand_logo_url: brandMap.logo || "",
-    hero_image_url: brandMap.hero_default || "",
-    footer_banner_url: brandMap.footer_banner || "",
+  const variables = {
     website_link: "https://www.thebatesfordhotel.com.au/",
     venue_address: "700 Ballarat Road, Batesford VIC 3213",
     booking_link: "https://www.thebatesfordhotel.com.au/",
@@ -228,16 +376,36 @@ Deno.serve(async (req: Request) => {
     last_visit_date: toLocalDate(lastSeenAt, fallbackDate),
   };
 
-  const subject = applyTokens(
-    payload.subject_override?.trim() || template.subject,
-    tokens,
+  const rendered = renderEmailHtml({
+    subject: payload.subject_override?.trim() || template.subject,
+    body_html: template.body_html,
+    hero_image_path: template.hero_image_path ?? null,
+    footer_image_path: template.footer_image_path ?? null,
+    variables,
+  });
+  const brandTokenUrls = {
+    brand_logo_url: resolveStorageUrl(brandMap.logo ?? ""),
+    hero_image_url: resolveStorageUrl(
+      template.hero_image_path ?? brandMap.hero_default ?? "",
+    ),
+    footer_banner_url: resolveStorageUrl(
+      template.footer_image_path ?? brandMap.footer_banner ?? "",
+    ),
+  };
+  const subject = rendered.subject;
+  const htmlBody = rendered.html;
+  const textBody = applyTokens(
+    stripInlineImageTokens(template.body_text),
+    { ...variables, ...brandTokenUrls },
   );
-  const htmlBody = applyTokens(template.body_html, tokens);
-  const textBody = applyTokens(template.body_text, tokens);
 
   const campaignName = `${template.name} - ${payload.mode === "test" ? "Test" : "Single"} - ${
     new Date().toLocaleDateString("en-AU")
   }`;
+  const resolvedHeroPath = template.hero_image_path ?? brandMap.hero_default ?? null;
+  const resolvedFooterPath =
+    template.footer_image_path ?? brandMap.footer_banner ?? null;
+  const inlineImages = template.inline_images ?? [];
 
   const { data: campaign, error: campaignError } = await serviceClient
     .from("campaigns")
@@ -245,6 +413,9 @@ Deno.serve(async (req: Request) => {
       name: campaignName,
       template_id: template.id,
       channel: "email",
+      hero_image_path: resolvedHeroPath,
+      footer_image_path: resolvedFooterPath,
+      inline_images: inlineImages,
     })
     .select("id")
     .single();

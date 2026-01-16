@@ -5,6 +5,8 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { formatDateTime } from '../lib/format';
+import { renderEmailHtml, stripInlineImageTokens, type InlineImage } from '../lib/emailRenderer';
+import { resolveStorageUrl } from '../lib/storage';
 import { useToast } from '../components/ToastProvider';
 
 type Template = {
@@ -14,6 +16,9 @@ type Template = {
   subject: string;
   body_html: string;
   body_text: string;
+  hero_image_path?: string | null;
+  footer_image_path?: string | null;
+  inline_images?: InlineImage[] | null;
   created_at: string;
 };
 
@@ -30,6 +35,9 @@ type EditorState = {
   type: string;
   subject: string;
   bodyHtml: string;
+  heroImagePath: string | null;
+  footerImagePath: string | null;
+  inlineImages: InlineImage[];
 };
 
 type Recipient = {
@@ -73,7 +81,10 @@ const defaultEditorState: EditorState = {
   name: '',
   type: 'regular',
   subject: '',
-  bodyHtml: '<p>Welcome back to Batesford Pub.</p>'
+  bodyHtml: '<p>Welcome back to Batesford Pub.</p>',
+  heroImagePath: null,
+  footerImagePath: null,
+  inlineImages: []
 };
 
 const variableOptions = [
@@ -82,20 +93,13 @@ const variableOptions = [
   { label: 'Last visit date', value: '{{last_visit_date}}' }
 ];
 
-const brandBlockTop =
-  '<p><img src="{{brand_logo_url}}" alt="" style="max-width:180px;height:auto;margin-bottom:12px;" /></p>' +
-  '<p><img src="{{hero_image_url}}" alt="" style="max-width:100%;height:auto;border-radius:12px;margin:12px 0;" /></p>';
-
-const brandBlockFooter =
-  '<p><img src="{{footer_banner_url}}" alt="" style="max-width:100%;height:auto;border-radius:12px;margin:12px 0;" /></p>';
-
 const seedTemplates = [
   {
     name: 'Trivia Night Promo (Thu)',
     type: 'event',
     subject: 'Trivia Night Thursday at Batesford - book a table',
     body_html:
-      `${brandBlockTop}<p>Hey {{first_name}},</p><p>Trivia Night is back this Thursday at Batesford Pub. Grab your team, lock in a table, and test your knowledge.</p><p><strong>Kick-off:</strong> Thursday night<br /><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book your table</a></p>${brandBlockFooter}<p>See you at the bar!</p>`,
+      '<p>Hey {{first_name}},</p><p>Trivia Night is back this Thursday at Batesford Pub. Grab your team, lock in a table, and test your knowledge.</p><p><strong>Kick-off:</strong> Thursday night<br /><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book your table</a></p><p>See you at the bar!</p>',
     body_text:
       'Hey {{first_name}},\n\nTrivia Night is back this Thursday at Batesford Pub. Grab your team, lock in a table, and test your knowledge.\n\nKick-off: Thursday night\nWhere: {{venue_address}}\n\nBook your table: {{booking_link}}\n\nSee you at the bar!'
   },
@@ -104,7 +108,7 @@ const seedTemplates = [
     type: 'event',
     subject: 'Live music this weekend - reserve your spot',
     body_html:
-      `${brandBlockTop}<p>Hi {{first_name}},</p><p>We have live music lined up this weekend at Batesford Pub. Good tunes, great food, and your favourite locals.</p><p><strong>When:</strong> Friday &amp; Saturday<br /><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Reserve a table</a></p>${brandBlockFooter}<p>Bring a mate.</p>`,
+      '<p>Hi {{first_name}},</p><p>We have live music lined up this weekend at Batesford Pub. Good tunes, great food, and your favourite locals.</p><p><strong>When:</strong> Friday &amp; Saturday<br /><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Reserve a table</a></p><p>Bring a mate.</p>',
     body_text:
       'Hi {{first_name}},\n\nWe have live music lined up this weekend at Batesford Pub. Good tunes, great food, and your favourite locals.\n\nWhen: Friday & Saturday\nWhere: {{venue_address}}\n\nReserve a table: {{booking_link}}\n\nBring a mate.'
   },
@@ -113,7 +117,7 @@ const seedTemplates = [
     type: 'regular',
     subject: 'Happy Hour at Batesford - your first round is waiting',
     body_html:
-      `${brandBlockTop}<p>Hey {{first_name}},</p><p>It is Happy Hour at Batesford Pub. Swing by for drink specials and a relaxed catch-up.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Plan your visit</a></p>${brandBlockFooter}<p>Cheers!</p>`,
+      '<p>Hey {{first_name}},</p><p>It is Happy Hour at Batesford Pub. Swing by for drink specials and a relaxed catch-up.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Plan your visit</a></p><p>Cheers!</p>',
     body_text:
       'Hey {{first_name}},\n\nIt is Happy Hour at Batesford Pub. Swing by for drink specials and a relaxed catch-up.\n\nWhere: {{venue_address}}\n\nPlan your visit: {{booking_link}}\n\nCheers!'
   },
@@ -122,7 +126,7 @@ const seedTemplates = [
     type: 'regular',
     subject: 'Weekly Special Night - choose Steak or Parma',
     body_html:
-      `${brandBlockTop}<p>Hi {{first_name}},</p><p>Your weekly special is on. Pick steak or parma and make it a mid-week win.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book for special night</a></p>${brandBlockFooter}<p>We will save you a seat.</p>`,
+      '<p>Hi {{first_name}},</p><p>Your weekly special is on. Pick steak or parma and make it a mid-week win.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book for special night</a></p><p>We will save you a seat.</p>',
     body_text:
       'Hi {{first_name}},\n\nYour weekly special is on. Pick steak or parma and make it a mid-week win.\n\nWhere: {{venue_address}}\n\nBook for special night: {{booking_link}}\n\nWe will save you a seat.'
   },
@@ -131,7 +135,7 @@ const seedTemplates = [
     type: 'regular',
     subject: 'Family night at Batesford - kids eat free',
     body_html:
-      `${brandBlockTop}<p>Hey {{first_name}},</p><p>Bring the family in - kids eat free on family night at Batesford Pub.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Reserve a family table</a></p>${brandBlockFooter}<p>See you soon.</p>`,
+      '<p>Hey {{first_name}},</p><p>Bring the family in - kids eat free on family night at Batesford Pub.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Reserve a family table</a></p><p>See you soon.</p>',
     body_text:
       'Hey {{first_name}},\n\nBring the family in - kids eat free on family night at Batesford Pub.\n\nWhere: {{venue_address}}\n\nReserve a family table: {{booking_link}}\n\nSee you soon.'
   },
@@ -140,7 +144,7 @@ const seedTemplates = [
     type: 'winback',
     subject: 'We have not seen you in a while - come say hi',
     body_html:
-      `${brandBlockTop}<p>Hi {{first_name}},</p><p>It has been a little while since your last visit on {{last_visit_date}}. We would love to welcome you back at Batesford Pub.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Plan a visit</a></p>${brandBlockFooter}<p>See you soon!</p>`,
+      '<p>Hi {{first_name}},</p><p>It has been a little while since your last visit on {{last_visit_date}}. We would love to welcome you back at Batesford Pub.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Plan a visit</a></p><p>See you soon!</p>',
     body_text:
       'Hi {{first_name}},\n\nIt has been a little while since your last visit on {{last_visit_date}}. We would love to welcome you back at Batesford Pub.\n\nWhere: {{venue_address}}\n\nPlan a visit: {{booking_link}}\n\nSee you soon!'
   },
@@ -149,7 +153,7 @@ const seedTemplates = [
     type: 'custom',
     subject: 'Thanks for visiting {{visit_count}} times - a little treat',
     body_html:
-      `${brandBlockTop}<p>Hey {{first_name}},</p><p>You have visited Batesford Pub {{visit_count}} times. That means a lot to us. Drop in this week and let us shout you a little thank-you.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book a table</a></p>${brandBlockFooter}<p>We will see you at the bar.</p>`,
+      '<p>Hey {{first_name}},</p><p>You have visited Batesford Pub {{visit_count}} times. That means a lot to us. Drop in this week and let us shout you a little thank-you.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book a table</a></p><p>We will see you at the bar.</p>',
     body_text:
       'Hey {{first_name}},\n\nYou have visited Batesford Pub {{visit_count}} times. That means a lot to us. Drop in this week and let us shout you a little thank-you.\n\nWhere: {{venue_address}}\n\nBook a table: {{booking_link}}\n\nWe will see you at the bar.'
   },
@@ -158,7 +162,7 @@ const seedTemplates = [
     type: 'regular',
     subject: 'Thanks for visiting Batesford Pub!',
     body_html:
-      `${brandBlockTop}<p>Hi {{first_name}},</p><p>Thanks for stopping by. We hope you enjoyed your visit on {{last_visit_date}}. If you are keen for another round, we would love to see you again.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book your next visit</a></p>${brandBlockFooter}<p>Cheers!</p>`,
+      '<p>Hi {{first_name}},</p><p>Thanks for stopping by. We hope you enjoyed your visit on {{last_visit_date}}. If you are keen for another round, we would love to see you again.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book your next visit</a></p><p>Cheers!</p>',
     body_text:
       'Hi {{first_name}},\n\nThanks for stopping by. We hope you enjoyed your visit on {{last_visit_date}}. If you are keen for another round, we would love to see you again.\n\nWhere: {{venue_address}}\n\nBook your next visit: {{booking_link}}\n\nCheers!'
   }
@@ -171,7 +175,7 @@ const sampleData = {
 };
 
 const stripHtml = (html: string) => {
-  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return stripInlineImageTokens(html).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 };
 
 const getFirstName = (fullName: string | null) => {
@@ -184,43 +188,8 @@ const toLocalDate = (iso: string | null) => {
   return new Date(iso).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
-const stripEmptyImages = (html: string) => {
-  return html.replace(/<img[^>]*src=['"]{0,1}['"]{0,1}[^>]*>/gi, '');
-};
-
-const applyTokens = (template: string, tokens: Record<string, string>) => {
-  let result = template;
-  Object.entries(tokens).forEach(([key, value]) => {
-    result = result.split(`{{${key}}}`).join(value);
-  });
-  return stripEmptyImages(result);
-};
-
-const buildEmailShell = (bodyHtml: string, tokens: Record<string, string>) => {
-  const hasLogoToken = bodyHtml.includes('{{brand_logo_url}}');
-  const hasHeroToken = bodyHtml.includes('{{hero_image_url}}');
-  const hasFooterToken = bodyHtml.includes('{{footer_banner_url}}');
-  const logoBlock = tokens.brand_logo_url && !hasLogoToken
-    ? `<p><img src="${tokens.brand_logo_url}" alt="" style="max-width:180px;height:auto;margin-bottom:12px;" /></p>`
-    : '';
-  const heroBlock = tokens.hero_image_url && !hasHeroToken
-    ? `<p><img src="${tokens.hero_image_url}" alt="" style="max-width:100%;height:auto;border-radius:12px;margin:12px 0;" /></p>`
-    : '';
-  const footerBlock = tokens.footer_banner_url && !hasFooterToken
-    ? `<p><img src="${tokens.footer_banner_url}" alt="" style="max-width:100%;height:auto;border-radius:12px;margin:12px 0;" /></p>`
-    : '';
-  const footerText = `<p style="font-size:12px;color:#5b5b5b;">{{venue_address}} | {{website_link}}</p>`;
-
-  return `<div style="max-width:640px;margin:0 auto;">${logoBlock}${heroBlock}${bodyHtml}${footerBlock}${footerText}</div>`;
-};
-
-const renderEmailHtml = (bodyHtml: string, tokens: Record<string, string>) => {
-  const shell = buildEmailShell(bodyHtml, tokens);
-  return applyTokens(shell, tokens);
-};
-
 const renderText = (text: string, tokens: Record<string, string>) => {
-  let output = text;
+  let output = stripInlineImageTokens(text);
   Object.entries(tokens).forEach(([key, value]) => {
     output = output.split(`{{${key}}}`).join(value);
   });
@@ -262,13 +231,15 @@ export default function Campaigns() {
   const [sendResult, setSendResult] = useState<{ status: 'sent' | 'scheduled'; count: number } | null>(null);
   const [sendingWizardTest, setSendingWizardTest] = useState(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const heroInputRef = useRef<HTMLInputElement | null>(null);
+  const footerInputRef = useRef<HTMLInputElement | null>(null);
+  const inlineInputRef = useRef<HTMLInputElement | null>(null);
   const [brandAssets, setBrandAssets] = useState<Record<string, BrandAsset | null>>({});
 
   const loadTemplates = useCallback(async () => {
     const { data, error } = await supabase
       .from('campaign_templates')
-      .select('id, name, type, subject, body_html, body_text, created_at')
+      .select('id, name, type, subject, body_html, body_text, hero_image_path, footer_image_path, inline_images, created_at')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -413,7 +384,10 @@ export default function Campaigns() {
       name: template.name,
       type: template.type,
       subject: template.subject,
-      bodyHtml: template.body_html
+      bodyHtml: template.body_html,
+      heroImagePath: template.hero_image_path ?? null,
+      footerImagePath: template.footer_image_path ?? null,
+      inlineImages: template.inline_images ?? []
     });
     setEditing(true);
     setStatus('');
@@ -435,40 +409,139 @@ export default function Campaigns() {
     syncEditorHtml();
   };
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
+  const ensureTemplateReady = (target?: HTMLInputElement) => {
+    if (editor.id) return true;
+    setStatus('Save the template before uploading images.');
+    pushToast('Save the template first.', 'error');
+    if (target) target.value = '';
+    return false;
   };
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!editor.id) {
-      setStatus('Save the template before uploading images.');
-      pushToast('Save the template first.', 'error');
-      event.target.value = '';
-      return;
-    }
-    setStatus('Uploading image...');
-    const fileName = `${Date.now()}-${file.name}`.replace(/\s+/g, '-');
-    const path = `${editor.id}/${fileName}`;
+  const sanitizeFileName = (fileName: string) => {
+    return fileName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9._-]/g, '');
+  };
 
+  const uploadTemplateAsset = async (file: File, folder: string) => {
+    if (!editor.id) return '';
+    const cleanName = sanitizeFileName(file.name);
+    const path = `templates/${editor.id}/${folder}/${crypto.randomUUID()}-${cleanName}`;
     const { error } = await supabase.storage
-      .from('campaign-images')
+      .from('campaign-assets')
       .upload(path, file, { upsert: false });
-
     if (error) {
       setStatus(`Upload failed: ${error.message}`);
       pushToast('Image upload failed.', 'error');
+      return '';
+    }
+    return path;
+  };
+
+  const handleHeroUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !ensureTemplateReady(event.target)) return;
+    setStatus('Uploading hero image...');
+    const path = await uploadTemplateAsset(file, 'hero');
+    if (!path) return;
+    const { error } = await supabase
+      .from('campaign_templates')
+      .update({ hero_image_path: path })
+      .eq('id', editor.id);
+    if (error) {
+      setStatus(`Hero update failed: ${error.message}`);
+      pushToast('Unable to save hero image.', 'error');
+      return;
+    }
+    setEditor((prev) => ({ ...prev, heroImagePath: path }));
+    setStatus('Hero image updated.');
+    pushToast('Hero image updated.', 'success');
+    loadTemplates();
+    event.target.value = '';
+  };
+
+  const handleFooterUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !ensureTemplateReady(event.target)) return;
+    setStatus('Uploading footer banner...');
+    const path = await uploadTemplateAsset(file, 'footer');
+    if (!path) return;
+    const { error } = await supabase
+      .from('campaign_templates')
+      .update({ footer_image_path: path })
+      .eq('id', editor.id);
+    if (error) {
+      setStatus(`Footer update failed: ${error.message}`);
+      pushToast('Unable to save footer banner.', 'error');
+      return;
+    }
+    setEditor((prev) => ({ ...prev, footerImagePath: path }));
+    setStatus('Footer banner updated.');
+    pushToast('Footer banner updated.', 'success');
+    loadTemplates();
+    event.target.value = '';
+  };
+
+  const handleInlineImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !ensureTemplateReady(event.target)) return;
+    setStatus('Uploading inline image...');
+    const path = await uploadTemplateAsset(file, 'inline');
+    if (!path) return;
+    const altText = window.prompt('Alt text (optional)')?.trim() || '';
+    const newInline = { path, alt: altText || undefined, sort: editor.inlineImages.length };
+    const nextInline = [...editor.inlineImages, newInline];
+
+    const { error } = await supabase
+      .from('campaign_templates')
+      .update({ inline_images: nextInline })
+      .eq('id', editor.id);
+    if (error) {
+      setStatus(`Inline image update failed: ${error.message}`);
+      pushToast('Unable to save inline image.', 'error');
       return;
     }
 
-    const { data } = supabase.storage.from('campaign-images').getPublicUrl(path);
-    const imgTag = `<img src="${data.publicUrl}" alt="" style="max-width:100%;height:auto;border-radius:12px;" />`;
-    document.execCommand('insertHTML', false, imgTag);
+    const token = altText
+      ? `[[image:path="${path}" alt="${altText}"]]`
+      : `[[image:path="${path}"]]`;
+    document.execCommand('insertText', false, token);
     syncEditorHtml();
-    setStatus('Image added.');
-    pushToast('Image inserted.', 'success');
+    setEditor((prev) => ({ ...prev, inlineImages: nextInline }));
+    setStatus('Inline image inserted.');
+    pushToast('Inline image inserted.', 'success');
+    loadTemplates();
     event.target.value = '';
+  };
+
+  const removeHeroImage = async () => {
+    if (!editor.id) return;
+    const { error } = await supabase
+      .from('campaign_templates')
+      .update({ hero_image_path: null })
+      .eq('id', editor.id);
+    if (error) {
+      setStatus(`Hero removal failed: ${error.message}`);
+      pushToast('Unable to remove hero image.', 'error');
+      return;
+    }
+    setEditor((prev) => ({ ...prev, heroImagePath: null }));
+    setStatus('Hero image removed.');
+    loadTemplates();
+  };
+
+  const removeFooterImage = async () => {
+    if (!editor.id) return;
+    const { error } = await supabase
+      .from('campaign_templates')
+      .update({ footer_image_path: null })
+      .eq('id', editor.id);
+    if (error) {
+      setStatus(`Footer removal failed: ${error.message}`);
+      pushToast('Unable to remove footer banner.', 'error');
+      return;
+    }
+    setEditor((prev) => ({ ...prev, footerImagePath: null }));
+    setStatus('Footer banner removed.');
+    loadTemplates();
   };
 
   const handleSave = async () => {
@@ -483,7 +556,10 @@ export default function Campaigns() {
       type: editor.type,
       subject: editor.subject.trim(),
       body_html: editor.bodyHtml,
-      body_text: stripHtml(editor.bodyHtml)
+      body_text: stripHtml(editor.bodyHtml),
+      hero_image_path: editor.heroImagePath,
+      footer_image_path: editor.footerImagePath,
+      inline_images: editor.inlineImages
     };
 
     if (editor.id) {
@@ -526,7 +602,10 @@ export default function Campaigns() {
         type: template.type,
         subject: template.subject,
         body_html: template.body_html,
-        body_text: template.body_text
+        body_text: template.body_text,
+        hero_image_path: template.hero_image_path ?? null,
+        footer_image_path: template.footer_image_path ?? null,
+        inline_images: template.inline_images ?? []
       });
     if (error) {
       setStatus(`Duplicate failed: ${error.message}`);
@@ -569,11 +648,17 @@ export default function Campaigns() {
 
     const existingMap = new Map((existing ?? []).map((row) => [row.name, row.id]));
     for (const template of seedTemplates) {
+      const payload = {
+        ...template,
+        hero_image_path: null,
+        footer_image_path: null,
+        inline_images: []
+      };
       const existingId = existingMap.get(template.name);
       if (existingId) {
         const { error: updateError } = await supabase
           .from('campaign_templates')
-          .update(template)
+          .update(payload)
           .eq('id', existingId);
         if (updateError) {
           pushToast(`Seed update failed: ${updateError.message}`, 'error');
@@ -582,7 +667,7 @@ export default function Campaigns() {
       } else {
         const { error: insertError } = await supabase
           .from('campaign_templates')
-          .insert(template);
+          .insert(payload);
         if (insertError) {
           pushToast(`Seed failed: ${insertError.message}`, 'error');
           return;
@@ -596,10 +681,12 @@ export default function Campaigns() {
 
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null;
   const sampleRecipient = recipients[0];
-  const brandTokens = {
-    brand_logo_url: brandAssets.logo?.url ?? '',
-    hero_image_url: brandAssets.hero_default?.url ?? '',
-    footer_banner_url: brandAssets.footer_banner?.url ?? '',
+  const branding = {
+    logo_path: brandAssets.logo?.url ?? null,
+    default_hero_path: brandAssets.hero_default?.url ?? null,
+    footer_banner_path: brandAssets.footer_banner?.url ?? null
+  };
+  const baseVariables = {
     website_link: 'https://www.thebatesfordhotel.com.au/',
     venue_address: '700 Ballarat Road, Batesford VIC 3213',
     booking_link: 'https://www.thebatesfordhotel.com.au/'
@@ -609,10 +696,34 @@ export default function Campaigns() {
     visit_count: sampleRecipient?.visit_count ? String(sampleRecipient.visit_count) : sampleData.visit_count,
     last_visit_date: toLocalDate(sampleRecipient?.last_seen_at ?? null)
   };
-  const tokenMap = { ...brandTokens, ...previewData };
-  const previewHtml = selectedTemplate ? renderEmailHtml(selectedTemplate.body_html, tokenMap) : '';
-  const previewSubject = selectedTemplate ? applyTokens(selectedTemplate.subject, tokenMap) : '';
-  const previewText = selectedTemplate ? renderText(selectedTemplate.body_text, tokenMap) : '';
+  const previewVariables = { ...baseVariables, ...previewData };
+  const previewRender = selectedTemplate
+    ? renderEmailHtml({ template: selectedTemplate, branding, variables: previewVariables })
+    : null;
+  const previewHtml = previewRender?.html ?? '';
+  const previewSubject = previewRender?.subject ?? '';
+  const brandTokenUrls = {
+    brand_logo_url: resolveStorageUrl(branding.logo_path ?? ''),
+    hero_image_url: resolveStorageUrl(selectedTemplate?.hero_image_path ?? branding.default_hero_path ?? ''),
+    footer_banner_url: resolveStorageUrl(selectedTemplate?.footer_image_path ?? branding.footer_banner_path ?? '')
+  };
+  const previewText = selectedTemplate
+    ? renderText(selectedTemplate.body_text, { ...previewVariables, ...brandTokenUrls })
+    : '';
+  const editorTemplatePayload = {
+    subject: editor.subject,
+    body_html: editor.bodyHtml,
+    hero_image_path: editor.heroImagePath,
+    footer_image_path: editor.footerImagePath,
+    inline_images: editor.inlineImages
+  };
+  const editorRender = renderEmailHtml({
+    template: editorTemplatePayload,
+    branding,
+    variables: { ...baseVariables, ...sampleData }
+  });
+  const resolvedHeroPreview = resolveStorageUrl(editor.heroImagePath ?? branding.default_hero_path ?? '');
+  const resolvedFooterPreview = resolveStorageUrl(editor.footerImagePath ?? branding.footer_banner_path ?? '');
 
   const sendCampaignEmail = async (payload: Record<string, unknown>) => {
     const { data, error } = await supabase.functions.invoke('send-campaign-email', {
@@ -714,9 +825,19 @@ export default function Campaigns() {
     }
 
     const campaignName = `${selectedTemplate.name} - ${new Date().toLocaleDateString('en-AU')}`;
+    const resolvedHeroPath = selectedTemplate.hero_image_path ?? branding.default_hero_path ?? null;
+    const resolvedFooterPath = selectedTemplate.footer_image_path ?? branding.footer_banner_path ?? null;
+    const inlineImages = selectedTemplate.inline_images ?? [];
     const { data: campaignData, error: campaignError } = await supabase
       .from('campaigns')
-      .insert({ name: campaignName, template_id: selectedTemplate.id, channel: 'email' })
+      .insert({
+        name: campaignName,
+        template_id: selectedTemplate.id,
+        channel: 'email',
+        hero_image_path: resolvedHeroPath,
+        footer_image_path: resolvedFooterPath,
+        inline_images: inlineImages
+      })
       .select('id')
       .single();
 
@@ -780,6 +901,13 @@ export default function Campaigns() {
 
   const renderTemplateViewer = () => {
     if (!viewerTemplate) return null;
+    const viewerVariables = { ...baseVariables, ...sampleData };
+    const viewerRender = renderEmailHtml({ template: viewerTemplate, branding, variables: viewerVariables });
+    const viewerBrandTokens = {
+      brand_logo_url: resolveStorageUrl(branding.logo_path ?? ''),
+      hero_image_url: resolveStorageUrl(viewerTemplate.hero_image_path ?? branding.default_hero_path ?? ''),
+      footer_banner_url: resolveStorageUrl(viewerTemplate.footer_image_path ?? branding.footer_banner_path ?? '')
+    };
     return (
       <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
         <Card className="max-w-3xl w-full">
@@ -827,16 +955,13 @@ export default function Campaigns() {
           <div className="rounded-xl border border-slate-200 p-4 bg-white max-h-[70vh] overflow-y-auto">
             <p className="text-xs uppercase tracking-wide text-muted mb-2">Subject</p>
             <p className="font-semibold mb-4">
-              {applyTokens(viewerTemplate.subject, { ...brandTokens, ...sampleData })}
+              {viewerRender.subject}
             </p>
             {viewerMode === 'html' ? (
-              <div
-                className="prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: renderEmailHtml(viewerTemplate.body_html, { ...brandTokens, ...sampleData }) }}
-              />
+              <iframe title="Template preview" srcDoc={viewerRender.html} className="w-full min-h-[420px] border-0" />
             ) : (
               <pre className="whitespace-pre-wrap text-sm text-muted">
-                {renderText(viewerTemplate.body_text, { ...brandTokens, ...sampleData })}
+                {renderText(viewerTemplate.body_text, { ...viewerVariables, ...viewerBrandTokens })}
               </pre>
             )}
           </div>
@@ -938,24 +1063,35 @@ export default function Campaigns() {
                   <tr className="text-left text-muted">
                     <th className="py-2">Name</th>
                     <th className="py-2">Type</th>
+                    <th className="py-2">Hero</th>
                     <th className="py-2">Created</th>
                     <th className="py-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {templates.map((template) => (
-                    <tr key={template.id} className="border-t border-slate-100">
-                      <td className="py-3 font-semibold text-brand">{template.name}</td>
-                      <td className="py-3 text-sm text-muted">{template.type}</td>
-                      <td className="py-3 text-sm text-muted">{formatDateTime(template.created_at)}</td>
-                      <td className="py-3 flex flex-wrap gap-2">
-                        <Button variant="outline" onClick={() => startEdit(template)}>Edit</Button>
-                        <Button variant="outline" onClick={() => setViewerTemplate(template)}>View</Button>
-                        <Button variant="ghost" onClick={() => handleDuplicate(template)}>Duplicate</Button>
-                        <Button variant="ghost" onClick={() => handleDelete(template)}>Delete</Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {templates.map((template) => {
+                    const heroPreview = resolveStorageUrl(template.hero_image_path ?? branding.default_hero_path ?? '');
+                    return (
+                      <tr key={template.id} className="border-t border-slate-100">
+                        <td className="py-3 font-semibold text-brand">{template.name}</td>
+                        <td className="py-3 text-sm text-muted">{template.type}</td>
+                        <td className="py-3">
+                          {heroPreview ? (
+                            <img src={heroPreview} alt="" className="h-10 w-16 rounded-md object-cover border border-slate-200" />
+                          ) : (
+                            <span className="text-xs text-muted">No hero</span>
+                          )}
+                        </td>
+                        <td className="py-3 text-sm text-muted">{formatDateTime(template.created_at)}</td>
+                        <td className="py-3 flex flex-wrap gap-2">
+                          <Button variant="outline" onClick={() => startEdit(template)}>Edit</Button>
+                          <Button variant="outline" onClick={() => setViewerTemplate(template)}>View</Button>
+                          <Button variant="ghost" onClick={() => handleDuplicate(template)}>Duplicate</Button>
+                          <Button variant="ghost" onClick={() => handleDelete(template)}>Delete</Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               {!templates.length && <p className="text-center text-sm text-muted py-8">No templates yet.</p>}
@@ -1010,9 +1146,64 @@ export default function Campaigns() {
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </Select>
-                    <Button variant="outline" onClick={handleUploadClick}>Upload image</Button>
-                    <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                    <Button variant="outline" onClick={() => heroInputRef.current?.click()}>Set Hero Image</Button>
+                    <Button variant="outline" onClick={() => inlineInputRef.current?.click()}>Insert Image into Body</Button>
+                    <input ref={heroInputRef} type="file" accept="image/*" className="hidden" onChange={handleHeroUpload} />
+                    <input ref={inlineInputRef} type="file" accept="image/*" className="hidden" onChange={handleInlineImageUpload} />
                   </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                      <div>
+                        <p className="text-sm font-semibold text-brand">Hero image</p>
+                        <p className="text-xs text-muted">Shows at the top of the email.</p>
+                      </div>
+                      {resolvedHeroPreview ? (
+                        <img src={resolvedHeroPreview} alt="Hero preview" className="max-h-40 w-full object-cover rounded-lg" />
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-slate-200 p-4 text-xs text-muted text-center">
+                          No hero image yet.
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" onClick={() => heroInputRef.current?.click()} disabled={!editor.id}>
+                          {editor.heroImagePath ? 'Replace hero' : 'Upload hero'}
+                        </Button>
+                        {editor.heroImagePath && (
+                          <Button variant="ghost" onClick={removeHeroImage}>Remove</Button>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted">
+                        {editor.heroImagePath ? 'Template override in use.' : 'Falling back to branding default.'}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                      <div>
+                        <p className="text-sm font-semibold text-brand">Footer banner</p>
+                        <p className="text-xs text-muted">Optional banner before the footer text.</p>
+                      </div>
+                      {resolvedFooterPreview ? (
+                        <img src={resolvedFooterPreview} alt="Footer preview" className="max-h-40 w-full object-cover rounded-lg" />
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-slate-200 p-4 text-xs text-muted text-center">
+                          No footer banner yet.
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" onClick={() => footerInputRef.current?.click()} disabled={!editor.id}>
+                          {editor.footerImagePath ? 'Replace footer' : 'Upload footer'}
+                        </Button>
+                        {editor.footerImagePath && (
+                          <Button variant="ghost" onClick={removeFooterImage}>Remove</Button>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted">
+                        {editor.footerImagePath ? 'Template override in use.' : 'Falling back to branding default.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <input ref={footerInputRef} type="file" accept="image/*" className="hidden" onChange={handleFooterUpload} />
 
                   <div>
                     <span className="block text-sm font-semibold text-muted mb-2">Email body</span>
@@ -1036,12 +1227,9 @@ export default function Campaigns() {
                     <div className="rounded-xl border border-slate-200 p-4 bg-white max-w-[640px]">
                       <p className="text-xs uppercase tracking-wide text-muted mb-2">Subject</p>
                       <p className="font-semibold mb-4">
-                        {applyTokens(editor.subject, { ...brandTokens, ...sampleData })}
+                        {editorRender.subject}
                       </p>
-                      <div
-                        className="prose prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{ __html: renderEmailHtml(editor.bodyHtml, { ...brandTokens, ...sampleData }) }}
-                      />
+                      <iframe title="Template preview" srcDoc={editorRender.html} className="w-full min-h-[380px] border-0" />
                     </div>
                   <p className="text-xs text-muted">
                     Preview uses sample guest data to render variables.
@@ -1090,7 +1278,7 @@ export default function Campaigns() {
                     <div className="space-y-2">
                       <p className="text-sm text-muted">Subject</p>
                       <p className="font-semibold">
-                        {applyTokens(selectedTemplate.subject, { ...brandTokens, ...sampleData })}
+                        {previewSubject}
                       </p>
                       <Button variant="outline" onClick={() => setViewerTemplate(selectedTemplate)}>
                         View template
@@ -1107,7 +1295,7 @@ export default function Campaigns() {
                 <div className="rounded-xl border border-slate-200 p-4 bg-white max-w-[640px]">
                   <p className="text-xs uppercase tracking-wide text-muted mb-2">Preview</p>
                   {selectedTemplate ? (
-                    <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                    <iframe title="Template preview" srcDoc={previewHtml} className="w-full min-h-[320px] border-0" />
                   ) : (
                     <p className="text-sm text-muted">Select a template to preview.</p>
                   )}
@@ -1225,7 +1413,7 @@ export default function Campaigns() {
                   <p className="text-sm text-muted">Subject</p>
                   <p className="text-xl font-semibold text-brand">{previewSubject}</p>
                   <div className="rounded-xl border border-slate-200 p-4 bg-white max-w-[640px]">
-                    <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                    <iframe title="Template preview" srcDoc={previewHtml} className="w-full min-h-[360px] border-0" />
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <Button variant="outline" onClick={() => setWizardStep(2)}>Back</Button>

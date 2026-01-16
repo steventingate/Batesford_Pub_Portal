@@ -4,6 +4,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { supabase } from '../lib/supabaseClient';
+import { resolveStorageUrl } from '../lib/storage';
 import { useToast } from '../components/ToastProvider';
 
 type BrandAsset = {
@@ -106,10 +107,16 @@ export default function Settings() {
     setUploadingKey(key);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const fileName = `${timestamp}-${file.name}`.replace(/\s+/g, '-');
-    const path = `${key}/${fileName}`;
+    const folderMap: Record<string, string> = {
+      logo: 'branding/logo',
+      hero_default: 'branding/default-hero',
+      footer_banner: 'branding/footer-banner'
+    };
+    const pathPrefix = folderMap[key] ?? `branding/${key}`;
+    const path = `${pathPrefix}/${fileName}`;
 
     const { error: uploadError } = await supabase.storage
-      .from('brand-assets')
+      .from('campaign-assets')
       .upload(path, file, { upsert: true });
 
     if (uploadError) {
@@ -118,11 +125,9 @@ export default function Settings() {
       return;
     }
 
-    const { data } = supabase.storage.from('brand-assets').getPublicUrl(path);
-    const url = data.publicUrl;
     const { error: upsertError } = await supabase
       .from('brand_assets')
-      .upsert({ key, label, url }, { onConflict: 'key' });
+      .upsert({ key, label, url: path }, { onConflict: 'key' });
 
     if (upsertError) {
       toast.pushToast(upsertError.message, 'error');
@@ -197,7 +202,7 @@ export default function Settings() {
                 </div>
                 {current?.url ? (
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <img src={current.url} alt={asset.label} className="max-h-40 w-full object-contain" />
+                    <img src={resolveStorageUrl(current.url)} alt={asset.label} className="max-h-40 w-full object-contain" />
                   </div>
                 ) : (
                   <div className="rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center text-xs text-muted">
