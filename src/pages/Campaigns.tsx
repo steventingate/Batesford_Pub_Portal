@@ -48,7 +48,7 @@ type CampaignRunRow = {
   sent_at: string | null;
   scheduled_for: string | null;
   recipient_count: number;
-  campaigns: { name: string } | null;
+  campaigns: { name: string }[] | { name: string } | null;
 };
 
 const defaultEditorState: EditorState = {
@@ -975,7 +975,9 @@ export default function Campaigns() {
               <tbody>
                 {historyRows.map((row) => (
                   <tr key={row.id} className="border-t border-slate-100">
-                    <td className="py-3 font-semibold text-brand">{row.campaigns?.name || 'Campaign'}</td>
+                    <td className="py-3 font-semibold text-brand">
+                      {Array.isArray(row.campaigns) ? row.campaigns[0]?.name || 'Campaign' : row.campaigns?.name || 'Campaign'}
+                    </td>
                     <td className="py-3 text-sm text-muted">{row.status}</td>
                     <td className="py-3 text-sm text-muted">{row.sent_at ? formatDateTime(row.sent_at) : '-'}</td>
                     <td className="py-3 text-sm text-muted">{row.scheduled_for ? formatDateTime(row.scheduled_for) : '-'}</td>
