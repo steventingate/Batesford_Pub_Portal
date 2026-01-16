@@ -353,6 +353,8 @@ export default function Campaigns() {
 
   useEffect(() => {
     if (!editorRef.current) return;
+    if (document.activeElement === editorRef.current) return;
+    if (editorRef.current.innerHTML === editor.bodyHtml) return;
     editorRef.current.innerHTML = editor.bodyHtml;
   }, [editor.id, editor.bodyHtml]);
 

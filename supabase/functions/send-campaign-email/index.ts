@@ -40,7 +40,7 @@ const buildCorsHeaders = (origin: string | null) => {
 };
 
 const stripEmptyImages = (html: string) => {
-  return html.replace(/<img[^>]*src=['"]{0,1}['"]{0,1}[^>]*>/gi, "");
+  return html.replace(/<img\b[^>]*\bsrc\s*=\s*([\"']?)\s*\1[^>]*>/gi, "");
 };
 
 const applyTokens = (template: string, tokens: Record<string, string>) => {
