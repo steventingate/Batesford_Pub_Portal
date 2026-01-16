@@ -260,6 +260,7 @@ export default function Campaigns() {
   const [sendMode, setSendMode] = useState<'now' | 'schedule'>('now');
   const [scheduleAt, setScheduleAt] = useState('');
   const [sendResult, setSendResult] = useState<{ status: 'sent' | 'scheduled'; count: number } | null>(null);
+  const [sendingWizardTest, setSendingWizardTest] = useState(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [brandAssets, setBrandAssets] = useState<Record<string, BrandAsset | null>>({});
@@ -679,6 +680,29 @@ export default function Campaigns() {
       pushToast(`Send failed: ${(err as Error).message}`, 'error');
     } finally {
       setSendingSingle(false);
+    }
+  };
+
+  const handleWizardTestSend = async () => {
+    if (!selectedTemplate) return;
+    setSendingWizardTest(true);
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data?.user?.email) {
+      pushToast('Unable to read your admin email.', 'error');
+      setSendingWizardTest(false);
+      return;
+    }
+    try {
+      await sendCampaignEmail({
+        template_id: selectedTemplate.id,
+        mode: 'test',
+        to_email: data.user.email
+      });
+      pushToast(`Test sent to ${data.user.email}`, 'success');
+    } catch (err) {
+      pushToast(`Test send failed: ${(err as Error).message}`, 'error');
+    } finally {
+      setSendingWizardTest(false);
     }
   };
 
@@ -1203,7 +1227,12 @@ export default function Campaigns() {
                   <div className="rounded-xl border border-slate-200 p-4 bg-white max-w-[640px]">
                     <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: previewHtml }} />
                   </div>
-                  <Button variant="outline" onClick={() => setWizardStep(2)}>Back</Button>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button variant="outline" onClick={() => setWizardStep(2)}>Back</Button>
+                    <Button variant="outline" onClick={handleWizardTestSend} disabled={sendingWizardTest}>
+                      {sendingWizardTest ? 'Sending test...' : 'Send test to me'}
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-4">
                   <div className="rounded-xl border border-slate-200 p-4 bg-white">
