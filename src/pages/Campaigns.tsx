@@ -570,12 +570,19 @@ export default function Campaigns() {
     setSaving(true);
     setStatus('');
     const bodyHtml = editorRef.current?.innerHTML ?? editor.bodyHtml;
+    const normalizedBodyHtml = bodyHtml
+      .replace(/&amp;quot;|&amp;#34;/gi, '"')
+      .replace(/&quot;|&#34;/gi, '"')
+      .replace(/&amp;#91;|&amp;#93;/gi, (match) => (match.includes('91') ? '[' : ']'))
+      .replace(/&amp;lbrack;|&amp;rbrack;/gi, (match) => (match.includes('lbrack') ? '[' : ']'))
+      .replace(/&#91;|&lbrack;/gi, '[')
+      .replace(/&#93;|&rbrack;/gi, ']');
     const payload = {
       name: editor.name.trim(),
       type: editor.type,
       subject: editor.subject.trim(),
-      body_html: bodyHtml,
-      body_text: stripHtml(bodyHtml),
+      body_html: normalizedBodyHtml,
+      body_text: stripHtml(normalizedBodyHtml),
       hero_image_path: editor.heroImagePath,
       footer_image_path: editor.footerImagePath,
       inline_images: editor.inlineImages
@@ -730,9 +737,16 @@ export default function Campaigns() {
     ? renderText(selectedTemplate.body_text, { ...previewVariables, ...brandTokenUrls })
     : '';
   const editorBodyHtml = editorRef.current?.innerHTML ?? editor.bodyHtml;
+  const normalizedEditorBody = editorBodyHtml
+    .replace(/&amp;quot;|&amp;#34;/gi, '"')
+    .replace(/&quot;|&#34;/gi, '"')
+    .replace(/&amp;#91;|&amp;#93;/gi, (match) => (match.includes('91') ? '[' : ']'))
+    .replace(/&amp;lbrack;|&amp;rbrack;/gi, (match) => (match.includes('lbrack') ? '[' : ']'))
+    .replace(/&#91;|&lbrack;/gi, '[')
+    .replace(/&#93;|&rbrack;/gi, ']');
   const editorTemplatePayload = {
     subject: editor.subject,
-    body_html: editorBodyHtml,
+    body_html: normalizedEditorBody,
     hero_image_path: editor.heroImagePath,
     footer_image_path: editor.footerImagePath,
     inline_images: editor.inlineImages

@@ -67,6 +67,12 @@ const normalizeInlineTokenHtml = (value: string) => {
   return value
     .replace(/&amp;quot;|&amp;#34;/gi, "\"")
     .replace(/&quot;|&#34;/gi, "\"")
+    .replace(/&amp;#91;|&amp;#93;/gi, (match) =>
+      match.includes("91") ? "[" : "]",
+    )
+    .replace(/&amp;lbrack;|&amp;rbrack;/gi, (match) =>
+      match.includes("lbrack") ? "[" : "]",
+    )
     .replace(/&#91;|&lbrack;/gi, "[")
     .replace(/&#93;|&rbrack;/gi, "]");
 };
