@@ -68,9 +68,10 @@ const replaceInlineImageTokens = (
   resolveUrl: (path: string) => string,
 ) => {
   return html.replace(/\[\[image:([^\]]+)\]\]/gi, (_match, attrs) => {
-    const pathMatch = attrs.match(/path="([^"]+)"/i);
+    const normalizedAttrs = attrs.replace(/&quot;|&#34;/gi, "\"");
+    const pathMatch = normalizedAttrs.match(/path="([^"]+)"/i);
     if (!pathMatch) return "";
-    const altMatch = attrs.match(/alt="([^"]*)"/i);
+    const altMatch = normalizedAttrs.match(/alt="([^"]*)"/i);
     const path = pathMatch[1];
     const altText = altMatch ? altMatch[1] : "";
     const url = resolveUrl(path);
