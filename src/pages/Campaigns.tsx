@@ -255,7 +255,10 @@ export default function Campaigns() {
           <p className="text-muted">Fast, venue-first guest messaging.</p>
         </div>
         {activeTab === 'templates' && (
-          <Button onClick={startCreate}>Create Template</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={loadTemplates}>Refresh</Button>
+            <Button onClick={startCreate}>Create Template</Button>
+          </div>
         )}
       </div>
 
