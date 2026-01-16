@@ -40,7 +40,12 @@ const buildCorsHeaders = (origin: string | null) => {
 };
 
 const stripEmptyImages = (html: string) => {
-  return html.replace(/<img\b[^>]*\bsrc\s*=\s*([\"']?)\s*\1[^>]*>/gi, "");
+  return html.replace(/<img\b[^>]*>/gi, (match) => {
+    const srcMatch = match.match(/\bsrc\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))/i);
+    if (!srcMatch) return "";
+    const src = (srcMatch[1] ?? srcMatch[2] ?? srcMatch[3] ?? "").trim();
+    return src ? match : "";
+  });
 };
 
 const applyTokens = (template: string, tokens: Record<string, string>) => {
