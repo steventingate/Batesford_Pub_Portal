@@ -173,6 +173,10 @@ const toLocalDate = (iso: string | null, fallback: string) => {
   });
 };
 
+const defaultBookingLink = "https://www.thebatesfordhotel.com.au/";
+const defaultVenueAddress = "700 Ballarat Road, Batesford VIC 3213";
+const defaultWebsiteLink = "https://www.thebatesfordhotel.com.au/";
+
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("origin");
   const corsHeaders = buildCorsHeaders(origin);
@@ -280,6 +284,20 @@ Deno.serve(async (req: Request) => {
     brandMap[row.key] = row.url;
   });
 
+  const { data: appSettings } = await serviceClient
+    .from("app_settings")
+    .select("key, value")
+    .in("key", ["booking_link", "venue_address", "website_link"]);
+  const appSettingsMap: Record<string, string> = {};
+  (appSettings ?? []).forEach((row: { key: string; value: string }) => {
+    appSettingsMap[row.key] = row.value;
+  });
+  const resolvedSettings = {
+    booking_link: appSettingsMap.booking_link || defaultBookingLink,
+    venue_address: appSettingsMap.venue_address || defaultVenueAddress,
+    website_link: appSettingsMap.website_link || defaultWebsiteLink,
+  };
+
   const publicUrlCache = new Map<string, string>();
   const isAbsoluteUrl = (value: string) =>
     /^https?:\/\//i.test(value) || value.startsWith("data:");
@@ -380,9 +398,9 @@ Deno.serve(async (req: Request) => {
   }
 
   const variables = {
-    website_link: "https://www.thebatesfordhotel.com.au/",
-    venue_address: "700 Ballarat Road, Batesford VIC 3213",
-    booking_link: "https://www.thebatesfordhotel.com.au/",
+    website_link: resolvedSettings.website_link,
+    venue_address: resolvedSettings.venue_address,
+    booking_link: resolvedSettings.booking_link,
     first_name:
       payload.mode === "test"
         ? getFirstName(recipientName || userData.user.email || null)

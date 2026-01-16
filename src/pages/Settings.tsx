@@ -27,6 +27,9 @@ export default function Settings() {
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [localPostcodes, setLocalPostcodes] = useState('3213,3220,3218,3216,3214,3228');
+  const [bookingLink, setBookingLink] = useState('https://www.thebatesfordhotel.com.au/');
+  const [venueAddress, setVenueAddress] = useState('700 Ballarat Road, Batesford VIC 3213');
+  const [websiteLink, setWebsiteLink] = useState('https://www.thebatesfordhotel.com.au/');
 
   const loadBrandAssets = useCallback(async () => {
     const { data, error } = await supabase
@@ -47,15 +50,19 @@ export default function Settings() {
     const { data, error } = await supabase
       .from('app_settings')
       .select('key, value')
-      .eq('key', 'local_postcodes')
-      .maybeSingle();
+      .in('key', ['local_postcodes', 'booking_link', 'venue_address', 'website_link']);
     if (error) {
-      toast.pushToast('Unable to load local postcodes.', 'error');
+      toast.pushToast('Unable to load settings.', 'error');
       return;
     }
-    if (data?.value) {
-      setLocalPostcodes(data.value);
-    }
+    const map: Record<string, string> = {};
+    (data ?? []).forEach((row) => {
+      map[row.key] = row.value;
+    });
+    if (map.local_postcodes) setLocalPostcodes(map.local_postcodes);
+    if (map.booking_link) setBookingLink(map.booking_link);
+    if (map.venue_address) setVenueAddress(map.venue_address);
+    if (map.website_link) setWebsiteLink(map.website_link);
   }, [toast]);
 
   useEffect(() => {
@@ -96,6 +103,27 @@ export default function Settings() {
     }
     setLocalPostcodes(cleaned);
     toast.pushToast('Local postcodes saved.', 'success');
+  };
+
+  const saveEmailDefaults = async () => {
+    const trimmedBooking = bookingLink.trim();
+    const trimmedVenue = venueAddress.trim();
+    const trimmedWebsite = websiteLink.trim();
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert([
+        { key: 'booking_link', value: trimmedBooking },
+        { key: 'venue_address', value: trimmedVenue },
+        { key: 'website_link', value: trimmedWebsite }
+      ] as AppSetting[], { onConflict: 'key' });
+    if (error) {
+      toast.pushToast(error.message, 'error');
+      return;
+    }
+    setBookingLink(trimmedBooking);
+    setVenueAddress(trimmedVenue);
+    setWebsiteLink(trimmedWebsite);
+    toast.pushToast('Email defaults saved.', 'success');
   };
 
   const triggerUpload = (key: string) => {
@@ -181,6 +209,32 @@ export default function Settings() {
             placeholder="3213,3220,3218,3216,3214,3228"
           />
           <Button className="mt-4" onClick={saveLocalPostcodes}>Save postcodes</Button>
+        </Card>
+      </div>
+
+      <div className="space-y-4">
+        <h3 className="text-2xl font-display text-brand">Email defaults</h3>
+        <p className="text-sm text-muted">Used in template variables and the footer.</p>
+        <Card className="max-w-xl">
+          <Input
+            label="Booking link"
+            value={bookingLink}
+            onChange={(event) => setBookingLink(event.target.value)}
+            placeholder="https://www.thebatesfordhotel.com.au/"
+          />
+          <Input
+            label="Venue address"
+            value={venueAddress}
+            onChange={(event) => setVenueAddress(event.target.value)}
+            placeholder="700 Ballarat Road, Batesford VIC 3213"
+          />
+          <Input
+            label="Website link"
+            value={websiteLink}
+            onChange={(event) => setWebsiteLink(event.target.value)}
+            placeholder="https://www.thebatesfordhotel.com.au/"
+          />
+          <Button className="mt-4" onClick={saveEmailDefaults}>Save email defaults</Button>
         </Card>
       </div>
 

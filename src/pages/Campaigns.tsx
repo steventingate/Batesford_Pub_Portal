@@ -90,7 +90,10 @@ const defaultEditorState: EditorState = {
 const variableOptions = [
   { label: 'First name', value: '{{first_name}}' },
   { label: 'Visit count', value: '{{visit_count}}' },
-  { label: 'Last visit date', value: '{{last_visit_date}}' }
+  { label: 'Last visit date', value: '{{last_visit_date}}' },
+  { label: 'Booking link', value: '{{booking_link}}' },
+  { label: 'Venue address', value: '{{venue_address}}' },
+  { label: 'Website link', value: '{{website_link}}' }
 ];
 
 const seedTemplates = [
@@ -174,6 +177,10 @@ const sampleData = {
   last_visit_date: '15 Jan 2026'
 };
 
+const defaultBookingLink = 'https://www.thebatesfordhotel.com.au/';
+const defaultVenueAddress = '700 Ballarat Road, Batesford VIC 3213';
+const defaultWebsiteLink = 'https://www.thebatesfordhotel.com.au/';
+
 const stripHtml = (html: string) => {
   return stripInlineImageTokens(html).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 };
@@ -245,6 +252,9 @@ export default function Campaigns() {
   const footerInputRef = useRef<HTMLInputElement | null>(null);
   const inlineInputRef = useRef<HTMLInputElement | null>(null);
   const [brandAssets, setBrandAssets] = useState<Record<string, BrandAsset | null>>({});
+  const [bookingLink, setBookingLink] = useState(defaultBookingLink);
+  const [venueAddress, setVenueAddress] = useState(defaultVenueAddress);
+  const [websiteLink, setWebsiteLink] = useState(defaultWebsiteLink);
   const [showPreviewDebug, setShowPreviewDebug] = useState(false);
 
   const loadTemplates = useCallback(async () => {
@@ -273,6 +283,24 @@ export default function Campaigns() {
       map[row.key] = row as BrandAsset;
     });
     setBrandAssets(map);
+  }, [pushToast]);
+
+  const loadAppSettings = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('key, value')
+      .in('key', ['booking_link', 'venue_address', 'website_link']);
+    if (error) {
+      pushToast('Unable to load email defaults.', 'error');
+      return;
+    }
+    const map: Record<string, string> = {};
+    (data ?? []).forEach((row) => {
+      map[row.key] = row.value;
+    });
+    setBookingLink(map.booking_link || defaultBookingLink);
+    setVenueAddress(map.venue_address || defaultVenueAddress);
+    setWebsiteLink(map.website_link || defaultWebsiteLink);
   }, [pushToast]);
 
   const loadRecipients = useCallback(async () => {
@@ -334,7 +362,8 @@ export default function Campaigns() {
 
   useEffect(() => {
     loadTemplates();
-  }, [loadTemplates]);
+    loadAppSettings();
+  }, [loadTemplates, loadAppSettings]);
 
   useEffect(() => {
     loadBrandAssets();
@@ -720,9 +749,9 @@ export default function Campaigns() {
     footer_banner_path: brandAssets.footer_banner?.url ?? null
   };
   const baseVariables = {
-    website_link: 'https://www.thebatesfordhotel.com.au/',
-    venue_address: '700 Ballarat Road, Batesford VIC 3213',
-    booking_link: 'https://www.thebatesfordhotel.com.au/'
+    website_link: websiteLink,
+    venue_address: venueAddress,
+    booking_link: bookingLink
   };
   const previewData = {
     first_name: sampleRecipient ? getFirstName(sampleRecipient.full_name) : sampleData.first_name,
