@@ -125,6 +125,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { isAdmin: false, profile: null as AdminProfile | null };
     }
 
+    const checkRpc = async () => {
+      return withTimeout(supabase.rpc('is_admin', { user_id: user.id }), 1500).catch((err) => {
+        console.info('[AUTH] admin rpc error:', err);
+        return { data: null, error: err };
+      });
+    };
+
     try {
       const query = supabase
         .from('admin_profiles')
@@ -137,10 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) {
         console.info('[AUTH] admin check error:', error.message);
-        const rpcResult = await withTimeout(supabase.rpc('is_admin'), 1500).catch((err) => {
-          console.info('[AUTH] admin rpc error:', err);
-          return { data: null, error: err };
-        });
+        const rpcResult = await checkRpc();
         if (rpcResult && 'data' in rpcResult && rpcResult.data === true) {
           return { isAdmin: true, profile: null };
         }
@@ -152,10 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (allowlistHit) {
           return { isAdmin: true, profile: null };
         }
-        const rpcResult = await withTimeout(supabase.rpc('is_admin'), 1500).catch((err) => {
-          console.info('[AUTH] admin rpc error:', err);
-          return { data: null, error: err };
-        });
+        const rpcResult = await checkRpc();
         if (rpcResult && 'data' in rpcResult && rpcResult.data === true) {
           return { isAdmin: true, profile: null };
         }
@@ -166,10 +167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { isAdmin: ADMIN_ROLES.has(role), profile: data };
     } catch (err) {
       console.info('[AUTH] admin check error:', err);
-      const rpcResult = await withTimeout(supabase.rpc('is_admin'), 1500).catch((rpcErr) => {
-        console.info('[AUTH] admin rpc error:', rpcErr);
-        return { data: null, error: rpcErr };
-      });
+      const rpcResult = await checkRpc();
       if (rpcResult && 'data' in rpcResult && rpcResult.data === true) {
         return { isAdmin: true, profile: null };
       }
