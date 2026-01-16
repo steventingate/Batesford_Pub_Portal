@@ -178,6 +178,16 @@ const stripHtml = (html: string) => {
   return stripInlineImageTokens(html).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 };
 
+const normalizeInlineTokenHtml = (value: string) => {
+  return value
+    .replace(/&amp;quot;|&amp;#34;/gi, '"')
+    .replace(/&quot;|&#34;/gi, '"')
+    .replace(/&amp;#91;|&amp;#93;/gi, (match) => (match.includes('91') ? '[' : ']'))
+    .replace(/&amp;lbrack;|&amp;rbrack;/gi, (match) => (match.includes('lbrack') ? '[' : ']'))
+    .replace(/&#91;|&lbrack;/gi, '[')
+    .replace(/&#93;|&rbrack;/gi, ']');
+};
+
 const getFirstName = (fullName: string | null) => {
   if (!fullName) return 'there';
   return fullName.split(' ')[0] || 'there';
@@ -235,6 +245,7 @@ export default function Campaigns() {
   const footerInputRef = useRef<HTMLInputElement | null>(null);
   const inlineInputRef = useRef<HTMLInputElement | null>(null);
   const [brandAssets, setBrandAssets] = useState<Record<string, BrandAsset | null>>({});
+  const [showPreviewDebug, setShowPreviewDebug] = useState(false);
 
   const loadTemplates = useCallback(async () => {
     const { data, error } = await supabase
@@ -570,13 +581,7 @@ export default function Campaigns() {
     setSaving(true);
     setStatus('');
     const bodyHtml = editorRef.current?.innerHTML ?? editor.bodyHtml;
-    const normalizedBodyHtml = bodyHtml
-      .replace(/&amp;quot;|&amp;#34;/gi, '"')
-      .replace(/&quot;|&#34;/gi, '"')
-      .replace(/&amp;#91;|&amp;#93;/gi, (match) => (match.includes('91') ? '[' : ']'))
-      .replace(/&amp;lbrack;|&amp;rbrack;/gi, (match) => (match.includes('lbrack') ? '[' : ']'))
-      .replace(/&#91;|&lbrack;/gi, '[')
-      .replace(/&#93;|&rbrack;/gi, ']');
+    const normalizedBodyHtml = normalizeInlineTokenHtml(bodyHtml);
     const payload = {
       name: editor.name.trim(),
       type: editor.type,
@@ -737,13 +742,7 @@ export default function Campaigns() {
     ? renderText(selectedTemplate.body_text, { ...previewVariables, ...brandTokenUrls })
     : '';
   const editorBodyHtml = editorRef.current?.innerHTML ?? editor.bodyHtml;
-  const normalizedEditorBody = editorBodyHtml
-    .replace(/&amp;quot;|&amp;#34;/gi, '"')
-    .replace(/&quot;|&#34;/gi, '"')
-    .replace(/&amp;#91;|&amp;#93;/gi, (match) => (match.includes('91') ? '[' : ']'))
-    .replace(/&amp;lbrack;|&amp;rbrack;/gi, (match) => (match.includes('lbrack') ? '[' : ']'))
-    .replace(/&#91;|&lbrack;/gi, '[')
-    .replace(/&#93;|&rbrack;/gi, ']');
+  const normalizedEditorBody = normalizeInlineTokenHtml(editorBodyHtml);
   const editorTemplatePayload = {
     subject: editor.subject,
     body_html: normalizedEditorBody,
@@ -1264,6 +1263,30 @@ export default function Campaigns() {
                         {editorRender.subject}
                       </p>
                       <iframe title="Template preview" srcDoc={editorRender.html} className="w-full min-h-[380px] border-0" />
+                      <div className="mt-4">
+                        <Button
+                          variant="ghost"
+                          onClick={() => setShowPreviewDebug((prev) => !prev)}
+                        >
+                          {showPreviewDebug ? 'Hide debug' : 'Show debug'}
+                        </Button>
+                        {showPreviewDebug && (
+                          <div className="mt-3 space-y-3 text-xs text-muted">
+                            <div>
+                              <p className="font-semibold text-brand">Editor HTML</p>
+                              <pre className="whitespace-pre-wrap">{editorBodyHtml}</pre>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-brand">Normalized HTML</p>
+                              <pre className="whitespace-pre-wrap">{normalizedEditorBody}</pre>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-brand">Rendered HTML</p>
+                              <pre className="whitespace-pre-wrap">{editorRender.html}</pre>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   <p className="text-xs text-muted">
                     Preview uses sample guest data to render variables.
