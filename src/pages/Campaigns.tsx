@@ -663,12 +663,13 @@ export default function Campaigns() {
       pushToast('Add an email or select a guest.', 'error');
       return;
     }
+    const guestId = manualEmail.trim() ? null : selectedGuest?.guest_id ?? null;
     setSendingSingle(true);
     try {
       await sendCampaignEmail({
         template_id: viewerTemplate.id,
         mode: 'single',
-        guest_id: selectedGuest?.guest_id ?? null,
+        guest_id: guestId,
         to_email: manualEmail.trim() || undefined,
         to_name: name || undefined
       });
