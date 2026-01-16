@@ -421,10 +421,29 @@ export default function Campaigns() {
     return fileName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9._-]/g, '');
   };
 
+  const getUploadId = () => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  };
+
+  const insertBodyToken = (token: string) => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      const inserted = document.execCommand('insertText', false, token);
+      if (inserted) {
+        syncEditorHtml();
+        return;
+      }
+    }
+    setEditor((prev) => ({ ...prev, bodyHtml: `${prev.bodyHtml}${token}` }));
+  };
+
   const uploadTemplateAsset = async (file: File, folder: string) => {
     if (!editor.id) return '';
     const cleanName = sanitizeFileName(file.name);
-    const path = `templates/${editor.id}/${folder}/${crypto.randomUUID()}-${cleanName}`;
+    const path = `templates/${editor.id}/${folder}/${getUploadId()}-${cleanName}`;
     const { error } = await supabase.storage
       .from('campaign-assets')
       .upload(path, file, { upsert: false });
@@ -503,8 +522,7 @@ export default function Campaigns() {
     const token = altText
       ? `[[image:path="${path}" alt="${altText}"]]`
       : `[[image:path="${path}"]]`;
-    document.execCommand('insertText', false, token);
-    syncEditorHtml();
+    insertBodyToken(token);
     setEditor((prev) => ({ ...prev, inlineImages: nextInline }));
     setStatus('Inline image inserted.');
     pushToast('Inline image inserted.', 'success');
