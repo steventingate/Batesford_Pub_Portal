@@ -569,12 +569,13 @@ export default function Campaigns() {
     }
     setSaving(true);
     setStatus('');
+    const bodyHtml = editorRef.current?.innerHTML ?? editor.bodyHtml;
     const payload = {
       name: editor.name.trim(),
       type: editor.type,
       subject: editor.subject.trim(),
-      body_html: editor.bodyHtml,
-      body_text: stripHtml(editor.bodyHtml),
+      body_html: bodyHtml,
+      body_text: stripHtml(bodyHtml),
       hero_image_path: editor.heroImagePath,
       footer_image_path: editor.footerImagePath,
       inline_images: editor.inlineImages
@@ -728,9 +729,10 @@ export default function Campaigns() {
   const previewText = selectedTemplate
     ? renderText(selectedTemplate.body_text, { ...previewVariables, ...brandTokenUrls })
     : '';
+  const editorBodyHtml = editorRef.current?.innerHTML ?? editor.bodyHtml;
   const editorTemplatePayload = {
     subject: editor.subject,
-    body_html: editor.bodyHtml,
+    body_html: editorBodyHtml,
     hero_image_path: editor.heroImagePath,
     footer_image_path: editor.footerImagePath,
     inline_images: editor.inlineImages
