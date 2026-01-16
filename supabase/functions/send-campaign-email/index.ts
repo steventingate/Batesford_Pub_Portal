@@ -86,10 +86,10 @@ const replaceInlineImageTokens = (
     if (!url) return "";
     const alt = escapeHtml(altText);
     return (
-      `<p style="margin:16px 0;">` +
+      `<br />` +
       `<img src="${url}" alt="${alt}" width="600" ` +
-      `style="display:block;width:100%;max-width:600px;height:auto;border:0;line-height:0;" />` +
-      `</p>`
+      `style="display:block;width:100%;max-width:600px;height:auto;border:0;line-height:0;margin:12px 0;" />` +
+      `<br />`
     );
   });
 };
