@@ -45,6 +45,81 @@ const sampleData = {
   last_visit_date: '12 Jan 2026'
 };
 
+const seedTemplates = [
+  {
+    name: 'Trivia Night Promo (Thu)',
+    type: 'event',
+    subject: 'Trivia Night Thursday at Batesford — book a table',
+    body_html:
+      '<p>Hey {{first_name}},</p><p>Trivia Night is back this Thursday at Batesford Pub. Grab your team, lock in a table, and test your knowledge.</p><p><strong>Kick-off:</strong> Thursday night<br /><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book your table</a></p><p>See you at the bar!</p>',
+    body_text:
+      'Hey {{first_name}},\n\nTrivia Night is back this Thursday at Batesford Pub. Grab your team, lock in a table, and test your knowledge.\n\nKick-off: Thursday night\nWhere: {{venue_address}}\n\nBook your table: {{booking_link}}\n\nSee you at the bar!'
+  },
+  {
+    name: 'Live Music Weekend',
+    type: 'event',
+    subject: 'Live music this weekend — reserve your spot',
+    body_html:
+      '<p>Hi {{first_name}},</p><p>We’ve got live music lined up this weekend at Batesford Pub. Good tunes, great food, and your favourite locals.</p><p><strong>When:</strong> Friday &amp; Saturday<br /><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Reserve a table</a></p><p>Bring a mate.</p>',
+    body_text:
+      'Hi {{first_name}},\n\nWe’ve got live music lined up this weekend at Batesford Pub. Good tunes, great food, and your favourite locals.\n\nWhen: Friday & Saturday\nWhere: {{venue_address}}\n\nReserve a table: {{booking_link}}\n\nBring a mate.'
+  },
+  {
+    name: 'Happy Hour / Drinks Special',
+    type: 'regular',
+    subject: 'Happy Hour at Batesford — your first round is waiting',
+    body_html:
+      '<p>Hey {{first_name}},</p><p>It’s Happy Hour at Batesford Pub. Swing by for drink specials and a relaxed catch-up.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Plan your visit</a></p><p>Cheers!</p>',
+    body_text:
+      'Hey {{first_name}},\n\nIt’s Happy Hour at Batesford Pub. Swing by for drink specials and a relaxed catch-up.\n\nWhere: {{venue_address}}\n\nPlan your visit: {{booking_link}}\n\nCheers!'
+  },
+  {
+    name: 'Weekly Special — Steak or Parma Night',
+    type: 'regular',
+    subject: 'Weekly Special Night — choose Steak or Parma',
+    body_html:
+      '<p>Hi {{first_name}},</p><p>Your weekly special is on. Pick steak or parma and make it a mid‑week win.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book for special night</a></p><p>We’ll save you a seat.</p>',
+    body_text:
+      'Hi {{first_name}},\n\nYour weekly special is on. Pick steak or parma and make it a mid‑week win.\n\nWhere: {{venue_address}}\n\nBook for special night: {{booking_link}}\n\nWe’ll save you a seat.'
+  },
+  {
+    name: 'Kids Eat Free / Family Offer',
+    type: 'regular',
+    subject: 'Family night at Batesford — kids eat free',
+    body_html:
+      '<p>Hey {{first_name}},</p><p>Bring the family in — kids eat free on family night at Batesford Pub.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Reserve a family table</a></p><p>See you soon.</p>',
+    body_text:
+      'Hey {{first_name}},\n\nBring the family in — kids eat free on family night at Batesford Pub.\n\nWhere: {{venue_address}}\n\nReserve a family table: {{booking_link}}\n\nSee you soon.'
+  },
+  {
+    name: 'Win-back — We Miss You',
+    type: 'winback',
+    subject: 'We haven’t seen you in a while — come say hi',
+    body_html:
+      '<p>Hi {{first_name}},</p><p>It’s been a little while since your last visit on {{last_visit_date}}. We’d love to welcome you back at Batesford Pub.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Plan a visit</a></p><p>See you soon!</p>',
+    body_text:
+      'Hi {{first_name}},\n\nIt’s been a little while since your last visit on {{last_visit_date}}. We’d love to welcome you back at Batesford Pub.\n\nWhere: {{venue_address}}\n\nPlan a visit: {{booking_link}}\n\nSee you soon!'
+  },
+  {
+    name: 'Regulars Reward',
+    type: 'custom',
+    subject: 'Thanks for visiting {{visit_count}} times — a little treat',
+    body_html:
+      '<p>Hey {{first_name}},</p><p>You’ve visited Batesford Pub {{visit_count}} times. That means a lot to us. Drop in this week and let us shout you a little thank‑you.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book a table</a></p><p>We’ll see you at the bar.</p>',
+    body_text:
+      'Hey {{first_name}},\n\nYou’ve visited Batesford Pub {{visit_count}} times. That means a lot to us. Drop in this week and let us shout you a little thank‑you.\n\nWhere: {{venue_address}}\n\nBook a table: {{booking_link}}\n\nWe’ll see you at the bar.'
+  },
+  {
+    name: 'Welcome / Thanks for Visiting',
+    type: 'regular',
+    subject: 'Thanks for visiting Batesford Pub!',
+    body_html:
+      '<p>Hi {{first_name}},</p><p>Thanks for stopping by. We hope you enjoyed your visit on {{last_visit_date}}. If you’re keen for another round, we’d love to see you again.</p><p><strong>Where:</strong> {{venue_address}}</p><p><a href="{{booking_link}}">Book your next visit</a></p><p>Cheers!</p>',
+    body_text:
+      'Hi {{first_name}},\n\nThanks for stopping by. We hope you enjoyed your visit on {{last_visit_date}}. If you’re keen for another round, we’d love to see you again.\n\nWhere: {{venue_address}}\n\nBook your next visit: {{booking_link}}\n\nCheers!'
+  }
+];
+
 const renderPreview = (html: string) => {
   return html
     .replace(/{{first_name}}/g, sampleData.first_name)
@@ -79,6 +154,37 @@ export default function Campaigns() {
     }
     setTemplates((data as Template[]) ?? []);
   }, [pushToast]);
+
+  const handleSeedTemplates = useCallback(async () => {
+    const { data: existing, error } = await supabase
+      .from('campaign_templates')
+      .select('name');
+
+    if (error) {
+      pushToast('You do not have access to seed templates.', 'error');
+      return;
+    }
+
+    const existingNames = new Set((existing ?? []).map((row) => row.name));
+    const rowsToInsert = seedTemplates.filter((template) => !existingNames.has(template.name));
+
+    if (!rowsToInsert.length) {
+      pushToast('Templates already seeded.', 'info');
+      return;
+    }
+
+    const { error: insertError } = await supabase
+      .from('campaign_templates')
+      .insert(rowsToInsert);
+
+    if (insertError) {
+      pushToast(`Seed failed: ${insertError.message}`, 'error');
+      return;
+    }
+
+    pushToast('Templates seeded.', 'success');
+    loadTemplates();
+  }, [loadTemplates, pushToast]);
 
   useEffect(() => {
     loadTemplates();
@@ -256,6 +362,7 @@ export default function Campaigns() {
         </div>
         {activeTab === 'templates' && (
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={handleSeedTemplates}>Seed templates</Button>
             <Button variant="outline" onClick={loadTemplates}>Refresh</Button>
             <Button onClick={startCreate}>Create Template</Button>
           </div>
