@@ -46,14 +46,22 @@ const escapeHtml = (value: string) => {
     .replace(/"/g, '&quot;');
 };
 
+const normalizeInlineTokenHtml = (value: string) => {
+  return value
+    .replace(/&amp;quot;|&amp;#34;/gi, '"')
+    .replace(/&quot;|&#34;/gi, '"')
+    .replace(/&#91;|&lbrack;/gi, '[')
+    .replace(/&#93;|&rbrack;/gi, ']');
+};
+
 const replaceInlineImageTokens = (html: string) => {
-  return html.replace(/\[\[image:([^\]]+)\]\]/gi, (_match, attrs) => {
-    const normalizedAttrs = attrs.replace(/&quot;|&#34;/gi, '"');
-    const pathMatch = normalizedAttrs.match(/path="([^"]+)"/i);
+  const normalizedHtml = normalizeInlineTokenHtml(html);
+  return normalizedHtml.replace(/\[\[image:([^\]]+)\]\]/gi, (_match, attrs) => {
+    const pathMatch = attrs.match(/path=(?:"([^"]+)"|'([^']+)')/i);
     if (!pathMatch) return '';
-    const altMatch = normalizedAttrs.match(/alt="([^"]*)"/i);
-    const path = pathMatch[1];
-    const altText = altMatch ? altMatch[1] : '';
+    const altMatch = attrs.match(/alt=(?:"([^"]*)"|'([^']*)')/i);
+    const path = pathMatch[1] || pathMatch[2];
+    const altText = altMatch ? (altMatch[1] || altMatch[2]) : '';
     const url = resolveStorageUrl(path);
     if (!url) return '';
     const alt = escapeHtml(altText);
