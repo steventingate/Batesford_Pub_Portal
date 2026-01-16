@@ -181,7 +181,7 @@ const stripEmptyImages = (html: string) => {
 const applyTokens = (template: string, tokens: Record<string, string>) => {
   let result = template;
   Object.entries(tokens).forEach(([key, value]) => {
-    result = result.replaceAll(`{{${key}}}`, value);
+    result = result.split(`{{${key}}}`).join(value);
   });
   return stripEmptyImages(result);
 };
@@ -212,7 +212,7 @@ const renderEmailHtml = (bodyHtml: string, tokens: Record<string, string>) => {
 const renderText = (text: string, tokens: Record<string, string>) => {
   let output = text;
   Object.entries(tokens).forEach(([key, value]) => {
-    output = output.replaceAll(`{{${key}}}`, value);
+    output = output.split(`{{${key}}}`).join(value);
   });
   return output;
 };
