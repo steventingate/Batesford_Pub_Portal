@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const rpcResult = await withTimeout(
-        supabase.rpc('is_admin', { uid: user.id }),
+        supabase.rpc('is_admin', { user_id: user.id }),
         1500
       ).catch((err) => {
         console.info('[AUTH] admin rpc error:', err);

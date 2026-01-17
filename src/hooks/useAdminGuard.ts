@@ -18,7 +18,7 @@ export function useAdminGuard(options: AdminGuardOptions = {}) {
     const runCheck = async () => {
       if (runningRef.current) return;
       runningRef.current = true;
-      const { data, error } = await supabase.rpc('is_admin', { uid: user.id });
+      const { data, error } = await supabase.rpc('is_admin', { user_id: user.id });
       runningRef.current = false;
       if (cancelled) return;
       if (error || data !== true) {
