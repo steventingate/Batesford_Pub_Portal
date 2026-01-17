@@ -13,8 +13,11 @@ import { clearLegacySupabaseStorage } from '../auth/authRecovery';
 
 export type AdminProfile = {
   user_id: string;
-  full_name: string | null;
-  role: string | null;
+  full_name?: string | null;
+  role?: string | null;
+  email?: string | null;
+  created_at?: string | null;
+  revoked_at?: string | null;
 };
 
 type AuthState = {
@@ -32,22 +35,6 @@ type AuthContextValue = AuthState & {
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-
-const ADMIN_ROLES = new Set(['admin', 'manager']);
-
-const parseAllowlist = () => {
-  const raw = (import.meta.env.VITE_ADMIN_ALLOWLIST || '') as string;
-  return raw
-    .split(',')
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
-};
-
-const isAllowlisted = (email?: string | null) => {
-  if (!email) return false;
-  const allowlist = parseAllowlist();
-  return allowlist.includes(email.trim().toLowerCase());
-};
 
 const withTimeout = async <T,>(promise: Promise<T> | PromiseLike<T>, timeoutMs: number) => {
   let timeoutHandle: number | null = null;
@@ -125,53 +112,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { isAdmin: false, profile: null as AdminProfile | null };
     }
 
-    const checkRpc = async () => {
-      return withTimeout(supabase.rpc('is_admin', { user_id: user.id }), 1500).catch((err) => {
+    try {
+      const rpcResult = await withTimeout(
+        supabase.rpc('is_admin', { uid: user.id }),
+        1500
+      ).catch((err) => {
         console.info('[AUTH] admin rpc error:', err);
         return { data: null, error: err };
       });
-    };
 
-    try {
-      const query = supabase
-        .from('admin_profiles')
-        .select('user_id, full_name, role')
-        .eq('user_id', user.id)
-        .in('role', ['admin', 'manager'])
-        .maybeSingle()
-        .then((result) => result);
-      const { data, error } = await withTimeout(query, 1500);
-
-      if (error) {
-        console.info('[AUTH] admin check error:', error.message);
-        const rpcResult = await checkRpc();
-        if (rpcResult && 'data' in rpcResult && rpcResult.data === true) {
-          return { isAdmin: true, profile: null };
-        }
-        return { isAdmin: isAllowlisted(user.email), profile: null };
+      if (!rpcResult || !('data' in rpcResult) || rpcResult.data !== true) {
+        return { isAdmin: false, profile: null };
       }
 
-      if (!data) {
-        const allowlistHit = isAllowlisted(user.email);
-        if (allowlistHit) {
-          return { isAdmin: true, profile: null };
-        }
-        const rpcResult = await checkRpc();
-        if (rpcResult && 'data' in rpcResult && rpcResult.data === true) {
-          return { isAdmin: true, profile: null };
-        }
-        return { isAdmin: isAllowlisted(user.email), profile: null };
-      }
+      const { data: profile, error: profileError } = await withTimeout(
+        supabase
+          .from('admin_profiles')
+          .select('user_id, full_name, role, email, created_at, revoked_at')
+          .eq('user_id', user.id)
+          .maybeSingle(),
+        1500
+      );
 
-      const role = data.role?.toLowerCase() || '';
-      return { isAdmin: ADMIN_ROLES.has(role), profile: data };
-    } catch (err) {
-      console.info('[AUTH] admin check error:', err);
-      const rpcResult = await checkRpc();
-      if (rpcResult && 'data' in rpcResult && rpcResult.data === true) {
+      if (profileError) {
+        console.info('[AUTH] admin profile load error:', profileError.message);
         return { isAdmin: true, profile: null };
       }
-      return { isAdmin: isAllowlisted(user.email), profile: null };
+
+      return { isAdmin: true, profile };
+    } catch (err) {
+      console.info('[AUTH] admin check error:', err);
+      return { isAdmin: false, profile: null };
     }
   }, []);
 

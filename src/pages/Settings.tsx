@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { Badge } from '../components/ui/Badge';
 import { supabase } from '../lib/supabaseClient';
 import { resolveStorageUrl } from '../lib/storage';
 import { useToast } from '../components/ToastProvider';
@@ -19,8 +20,18 @@ type AppSetting = {
   value: string;
 };
 
+type AdminRow = {
+  id: string;
+  user_id: string;
+  email: string | null;
+  role: string | null;
+  created_at: string | null;
+  revoked_at: string | null;
+  created_by: string | null;
+};
+
 export default function Settings() {
-  const { profile, refreshAdmin } = useAuth();
+  const { profile, refreshAdmin, isAdmin, user } = useAuth();
   const [name, setName] = useState('');
   const toast = useToast();
   const [brandAssets, setBrandAssets] = useState<Record<string, BrandAsset | null>>({});
@@ -30,6 +41,12 @@ export default function Settings() {
   const [bookingLink, setBookingLink] = useState('https://www.thebatesfordhotel.com.au/');
   const [venueAddress, setVenueAddress] = useState('700 Ballarat Road, Batesford VIC 3213');
   const [websiteLink, setWebsiteLink] = useState('https://www.thebatesfordhotel.com.au/');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [admins, setAdmins] = useState<AdminRow[]>([]);
+  const [loadingAdmins, setLoadingAdmins] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [reinvitingId, setReinvitingId] = useState<string | null>(null);
 
   const loadBrandAssets = useCallback(async () => {
     const { data, error } = await supabase
@@ -65,6 +82,22 @@ export default function Settings() {
     if (map.website_link) setWebsiteLink(map.website_link);
   }, [toast]);
 
+  const loadAdmins = useCallback(async () => {
+    if (!isAdmin) return;
+    setLoadingAdmins(true);
+    const { data, error } = await supabase
+      .from('admin_profiles')
+      .select('id, user_id, email, role, created_at, revoked_at, created_by')
+      .order('created_at', { ascending: false });
+    if (error) {
+      toast.pushToast('Unable to load admins.', 'error');
+      setLoadingAdmins(false);
+      return;
+    }
+    setAdmins(data ?? []);
+    setLoadingAdmins(false);
+  }, [isAdmin, toast]);
+
   useEffect(() => {
     setName(profile?.full_name || '');
   }, [profile]);
@@ -73,6 +106,10 @@ export default function Settings() {
     loadBrandAssets();
     loadSettings();
   }, [loadBrandAssets, loadSettings]);
+
+  useEffect(() => {
+    loadAdmins();
+  }, [loadAdmins]);
 
   const saveProfile = async () => {
     if (!profile) return;
@@ -86,6 +123,70 @@ export default function Settings() {
       toast.pushToast('Profile updated.', 'success');
       await refreshAdmin();
     }
+  };
+
+  const handleInvite = async () => {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email) {
+      toast.pushToast('Enter an email address.', 'error');
+      return;
+    }
+    setInviting(true);
+    const { error } = await supabase.functions.invoke('admin-invite', {
+      body: { email }
+    });
+    if (error) {
+      toast.pushToast(error.message || 'Invite failed.', 'error');
+      setInviting(false);
+      return;
+    }
+    toast.pushToast('Invite sent.', 'success');
+    setInviteEmail('');
+    await loadAdmins();
+    setInviting(false);
+  };
+
+  const handleReinvite = async (email: string, targetUserId: string) => {
+    if (!email) {
+      toast.pushToast('Email is required to re-invite.', 'error');
+      return;
+    }
+    setReinvitingId(targetUserId);
+    const { error } = await supabase.functions.invoke('admin-invite', {
+      body: { email }
+    });
+    if (error) {
+      toast.pushToast(error.message || 'Re-invite failed.', 'error');
+      setReinvitingId(null);
+      return;
+    }
+    toast.pushToast('Re-invite sent.', 'success');
+    await loadAdmins();
+    setReinvitingId(null);
+  };
+
+  const handleRevoke = async (targetUserId: string) => {
+    setRevokingId(targetUserId);
+    const { error } = await supabase.functions.invoke('admin-revoke', {
+      body: { target_user_id: targetUserId }
+    });
+    if (error) {
+      toast.pushToast(error.message || 'Revoke failed.', 'error');
+      setRevokingId(null);
+      return;
+    }
+    toast.pushToast('Admin access revoked.', 'success');
+    await loadAdmins();
+    setRevokingId(null);
+  };
+
+  const formatDate = (value?: string | null) => {
+    if (!value) return '—';
+    return new Date(value).toLocaleDateString('en-AU', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
   };
 
   const saveLocalPostcodes = async () => {
@@ -195,7 +296,97 @@ export default function Settings() {
 
       <Card className="max-w-lg">
         <h3 className="text-lg font-semibold mb-2">Access</h3>
-        <p className="text-sm text-muted">To grant access, insert a row into admin_profiles with the user's auth uid.</p>
+        {!isAdmin ? (
+          <p className="text-sm text-muted">Admin access is required to manage invites.</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-sm text-muted">Invite a new admin by email.</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  label="Admin email"
+                  value={inviteEmail}
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                  placeholder="name@example.com"
+                />
+                <Button className="sm:mt-6" onClick={handleInvite} disabled={inviting}>
+                  {inviting ? 'Sending...' : 'Send Invite'}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-base font-semibold">Admin list</h4>
+                <Button variant="ghost" onClick={loadAdmins} disabled={loadingAdmins}>
+                  Refresh
+                </Button>
+              </div>
+              {loadingAdmins ? (
+                <p className="text-sm text-muted">Loading admins...</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-muted">
+                        <th className="py-2 pr-3 font-medium">Email</th>
+                        <th className="py-2 pr-3 font-medium">Role</th>
+                        <th className="py-2 pr-3 font-medium">Created</th>
+                        <th className="py-2 pr-3 font-medium">Status</th>
+                        <th className="py-2 pr-3 font-medium">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {admins.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-3 text-muted">
+                            No admins found yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        admins.map((admin) => {
+                          const isRevoked = Boolean(admin.revoked_at);
+                          const isSelf = admin.user_id === user?.id;
+                          return (
+                            <tr key={admin.id}>
+                              <td className="py-3 pr-3">{admin.email || '—'}</td>
+                              <td className="py-3 pr-3">{admin.role || 'admin'}</td>
+                              <td className="py-3 pr-3">{formatDate(admin.created_at)}</td>
+                              <td className="py-3 pr-3">
+                                <Badge tone={isRevoked ? 'soft' : 'accent'}>
+                                  {isRevoked ? 'Revoked' : 'Active'}
+                                </Badge>
+                              </td>
+                              <td className="py-3 pr-3">
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    variant="outline"
+                                    disabled={!admin.email || reinvitingId === admin.user_id}
+                                    onClick={() =>
+                                      handleReinvite(admin.email || '', admin.user_id)
+                                    }
+                                  >
+                                    {reinvitingId === admin.user_id ? 'Sending...' : 'Re-invite'}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    disabled={isRevoked || isSelf || revokingId === admin.user_id}
+                                    onClick={() => handleRevoke(admin.user_id)}
+                                  >
+                                    {isSelf ? 'Current' : revokingId === admin.user_id ? 'Revoking...' : 'Revoke'}
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </Card>
 
       <div className="space-y-4">

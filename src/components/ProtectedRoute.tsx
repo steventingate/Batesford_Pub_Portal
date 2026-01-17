@@ -1,19 +1,47 @@
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Spinner } from './ui/Spinner';
 import { Button } from './ui/Button';
+import { Card } from './ui/Card';
+import { supabase } from '../lib/supabaseClient';
+import { useAdminGuard } from '../hooks/useAdminGuard';
 
 export function ProtectedRoute() {
-  const { status, signOut } = useAuth();
+  const { status, signOut, refreshAdmin } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [showHint, setShowHint] = useState(false);
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [bootstrapSuccess, setBootstrapSuccess] = useState<string | null>(null);
+
+  useAdminGuard({ intervalMs: 180000 });
 
   useEffect(() => {
     const timer = window.setTimeout(() => setShowHint(true), 1500);
     return () => window.clearTimeout(timer);
   }, []);
+
+  const handleBootstrap = useCallback(async () => {
+    setBootstrapping(true);
+    setBootstrapError(null);
+    setBootstrapSuccess(null);
+    const { data, error } = await supabase.functions.invoke('admin-bootstrap');
+    if (error) {
+      setBootstrapError(error.message || 'Bootstrap failed.');
+      setBootstrapping(false);
+      return;
+    }
+    if (!data || data.ok !== true) {
+      setBootstrapError('Bootstrap not allowed.');
+      setBootstrapping(false);
+      return;
+    }
+    setBootstrapSuccess('Admin access granted.');
+    await refreshAdmin();
+    setBootstrapping(false);
+  }, [refreshAdmin]);
 
   if (status === 'loading') {
     return (
@@ -38,10 +66,27 @@ export function ProtectedRoute() {
   if (status === 'denied') {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="card p-8 max-w-lg text-center">
-          <h2 className="text-2xl font-semibold mb-3">Access restricted</h2>
-          <p className="text-muted mb-4">Your account is not on the admin list. Ask a manager to grant access.</p>
-          <Button variant="outline" onClick={signOut}>Sign out</Button>
+        <div className="w-full max-w-lg space-y-4">
+          <Card className="p-8 text-center">
+            <h2 className="text-2xl font-semibold mb-3">Access restricted</h2>
+            <p className="text-muted mb-4">Your account is not on the admin list. Ask a manager to grant access.</p>
+            <Button variant="outline" onClick={signOut}>Sign out</Button>
+          </Card>
+          <Card className="p-6">
+            <h3 className="text-lg font-semibold mb-2">Set up Admin Access</h3>
+            <p className="text-sm text-muted mb-4">
+              If no admins exist yet, you can bootstrap this account as the first admin.
+            </p>
+            {bootstrapError && (
+              <p className="text-sm text-red-600 mb-3">{bootstrapError}</p>
+            )}
+            {bootstrapSuccess && (
+              <p className="text-sm text-emerald-700 mb-3">{bootstrapSuccess}</p>
+            )}
+            <Button onClick={handleBootstrap} disabled={bootstrapping}>
+              {bootstrapping ? 'Setting up...' : 'Make this account the first admin'}
+            </Button>
+          </Card>
         </div>
       </div>
     );
