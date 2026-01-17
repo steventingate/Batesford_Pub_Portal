@@ -1,0 +1,2 @@
+[functions.wifi-connect]
+verify_jwt = false
