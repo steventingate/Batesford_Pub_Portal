@@ -85,7 +85,44 @@ export const stripInlineImageTokens = (value: string) => {
   return value.replace(/\[\[image:[^\]]+\]\]/gi, '');
 };
 
-const buildEmailShell = (bodyHtml: string, options: { logoUrl: string; heroUrl: string; footerUrl: string; footerText: string }) => {
+type SocialLink = {
+  label: string;
+  url: string;
+  iconUrl: string;
+};
+
+const buildSocialRow = (links: SocialLink[]) => {
+  const active = links.filter((link) => /^https?:\/\//i.test(link.url));
+  if (!active.length) return '';
+  const items = active
+    .map(
+      (link) =>
+        `<td style="padding:0 6px;">
+          <a href="${link.url}" style="display:inline-block;">
+            <img src="${link.iconUrl}" alt="${link.label}" width="28" height="28" style="display:block;border:0;" />
+          </a>
+        </td>`
+    )
+    .join('');
+
+  return `<tr>
+        <td align="center" style="padding:16px 24px 8px;border-top:1px solid #efe6d8;background-color:#f9f6f0;">
+          <p style="margin:0 0 8px;font-family:'Source Sans 3', Arial, sans-serif;font-size:13px;font-weight:600;color:#1f2a24;">
+            Follow us
+          </p>
+          <table role="presentation" cellpadding="0" cellspacing="0">
+            <tr>
+              ${items}
+            </tr>
+          </table>
+        </td>
+      </tr>`;
+};
+
+const buildEmailShell = (
+  bodyHtml: string,
+  options: { logoUrl: string; heroUrl: string; footerUrl: string; footerText: string; socialLinks: SocialLink[] }
+) => {
   const logoRow = options.logoUrl
     ? `<tr>
         <td style="padding:24px 24px 8px;">
@@ -108,6 +145,8 @@ const buildEmailShell = (bodyHtml: string, options: { logoUrl: string; heroUrl: 
       </tr>`
     : '';
 
+  const socialRow = buildSocialRow(options.socialLinks);
+
   return `<!doctype html>
 <html>
   <head>
@@ -128,8 +167,9 @@ const buildEmailShell = (bodyHtml: string, options: { logoUrl: string; heroUrl: 
               </td>
             </tr>
             ${footerImageRow}
+            ${socialRow}
             <tr>
-              <td style="padding:12px 24px 24px;font-family:'Source Sans 3', Arial, sans-serif;font-size:12px;line-height:18px;color:#6b7a71;">
+              <td style="padding:12px 24px 24px;font-family:'Source Sans 3', Arial, sans-serif;font-size:12px;line-height:18px;color:#6b7a71;text-align:center;">
                 ${options.footerText}
               </td>
             </tr>
@@ -171,6 +211,13 @@ export const renderEmailHtml = ({
   const hasFooterToken = template.body_html.includes('{{footer_banner_url}}');
   const resolvedBody = applyTokens(bodyWithInlineImages, tokens);
   const footerText = applyTokens('{{venue_address}} | {{website_link}}', tokens);
+  const socialLinks: SocialLink[] = [
+    { label: 'Facebook', url: tokens.facebook_link ?? '', iconUrl: 'https://cdn.simpleicons.org/facebook/1a472a' },
+    { label: 'Instagram', url: tokens.instagram_link ?? '', iconUrl: 'https://cdn.simpleicons.org/instagram/1a472a' },
+    { label: 'TikTok', url: tokens.tiktok_link ?? '', iconUrl: 'https://cdn.simpleicons.org/tiktok/1a472a' },
+    { label: 'X', url: tokens.x_link ?? '', iconUrl: 'https://cdn.simpleicons.org/x/1a472a' },
+    { label: 'LinkedIn', url: tokens.linkedin_link ?? '', iconUrl: 'https://cdn.simpleicons.org/linkedin/1a472a' }
+  ];
 
   return {
     subject: applyTokens(template.subject, tokens),
@@ -178,7 +225,8 @@ export const renderEmailHtml = ({
       logoUrl: hasLogoToken ? '' : logoUrl,
       heroUrl: hasHeroToken ? '' : heroUrl,
       footerUrl: hasFooterToken ? '' : footerUrl,
-      footerText
+      footerText,
+      socialLinks
     })
   };
 };

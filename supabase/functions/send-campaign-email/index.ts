@@ -105,9 +105,49 @@ const replaceInlineImageTokens = (
   });
 };
 
+type SocialLink = {
+  label: string;
+  url: string;
+  iconUrl: string;
+};
+
+const buildSocialRow = (links: SocialLink[]) => {
+  const active = links.filter((link) => /^https?:\/\//i.test(link.url));
+  if (!active.length) return "";
+  const items = active
+    .map(
+      (link) =>
+        `<td style="padding:0 6px;">
+          <a href="${link.url}" style="display:inline-block;">
+            <img src="${link.iconUrl}" alt="${link.label}" width="28" height="28" style="display:block;border:0;" />
+          </a>
+        </td>`,
+    )
+    .join("");
+
+  return `<tr>
+        <td align="center" style="padding:16px 24px 8px;border-top:1px solid #efe6d8;background-color:#f9f6f0;">
+          <p style="margin:0 0 8px;font-family:'Source Sans 3', Arial, sans-serif;font-size:13px;font-weight:600;color:#1f2a24;">
+            Follow us
+          </p>
+          <table role="presentation" cellpadding="0" cellspacing="0">
+            <tr>
+              ${items}
+            </tr>
+          </table>
+        </td>
+      </tr>`;
+};
+
 const buildEmailShell = (
   bodyHtml: string,
-  options: { logoUrl: string; heroUrl: string; footerUrl: string; footerText: string },
+  options: {
+    logoUrl: string;
+    heroUrl: string;
+    footerUrl: string;
+    footerText: string;
+    socialLinks: SocialLink[];
+  },
 ) => {
   const logoRow = options.logoUrl
     ? `<tr>
@@ -131,6 +171,8 @@ const buildEmailShell = (
       </tr>`
     : "";
 
+  const socialRow = buildSocialRow(options.socialLinks);
+
   return `<!doctype html>
 <html>
   <head>
@@ -151,8 +193,9 @@ const buildEmailShell = (
               </td>
             </tr>
             ${footerImageRow}
+            ${socialRow}
             <tr>
-              <td style="padding:12px 24px 24px;font-family:'Source Sans 3', Arial, sans-serif;font-size:12px;line-height:18px;color:#6b7a71;">
+              <td style="padding:12px 24px 24px;font-family:'Source Sans 3', Arial, sans-serif;font-size:12px;line-height:18px;color:#6b7a71;text-align:center;">
                 ${options.footerText}
               </td>
             </tr>
@@ -181,6 +224,11 @@ const toLocalDate = (iso: string | null, fallback: string) => {
 const defaultBookingLink = "https://www.thebatesfordhotel.com.au/";
 const defaultVenueAddress = "700 Ballarat Road, Batesford VIC 3213";
 const defaultWebsiteLink = "https://www.thebatesfordhotel.com.au/";
+const defaultFacebookLink = "https://www.facebook.com/";
+const defaultInstagramLink = "https://www.instagram.com/";
+const defaultTiktokLink = "https://www.tiktok.com/";
+const defaultXLink = "https://x.com/";
+const defaultLinkedinLink = "https://www.linkedin.com/";
 
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("origin");
@@ -292,15 +340,29 @@ Deno.serve(async (req: Request) => {
   const { data: appSettings } = await serviceClient
     .from("app_settings")
     .select("key, value")
-    .in("key", ["booking_link", "venue_address", "website_link"]);
+    .in("key", [
+      "booking_link",
+      "venue_address",
+      "website_link",
+      "facebook_link",
+      "instagram_link",
+      "tiktok_link",
+      "x_link",
+      "linkedin_link",
+    ]);
   const appSettingsMap: Record<string, string> = {};
   (appSettings ?? []).forEach((row: { key: string; value: string }) => {
     appSettingsMap[row.key] = row.value;
   });
   const resolvedSettings = {
-    booking_link: appSettingsMap.booking_link || defaultBookingLink,
-    venue_address: appSettingsMap.venue_address || defaultVenueAddress,
-    website_link: appSettingsMap.website_link || defaultWebsiteLink,
+    booking_link: appSettingsMap.booking_link ?? defaultBookingLink,
+    venue_address: appSettingsMap.venue_address ?? defaultVenueAddress,
+    website_link: appSettingsMap.website_link ?? defaultWebsiteLink,
+    facebook_link: appSettingsMap.facebook_link ?? defaultFacebookLink,
+    instagram_link: appSettingsMap.instagram_link ?? defaultInstagramLink,
+    tiktok_link: appSettingsMap.tiktok_link ?? defaultTiktokLink,
+    x_link: appSettingsMap.x_link ?? defaultXLink,
+    linkedin_link: appSettingsMap.linkedin_link ?? defaultLinkedinLink,
   };
 
   const publicUrlCache = new Map<string, string>();
@@ -347,6 +409,33 @@ Deno.serve(async (req: Request) => {
     const hasFooterToken = params.body_html.includes("{{footer_banner_url}}");
     const resolvedBody = applyTokens(bodyWithInlineImages, tokens);
     const footerText = applyTokens("{{venue_address}} | {{website_link}}", tokens);
+    const socialLinks: SocialLink[] = [
+      {
+        label: "Facebook",
+        url: tokens.facebook_link ?? "",
+        iconUrl: "https://cdn.simpleicons.org/facebook/1a472a",
+      },
+      {
+        label: "Instagram",
+        url: tokens.instagram_link ?? "",
+        iconUrl: "https://cdn.simpleicons.org/instagram/1a472a",
+      },
+      {
+        label: "TikTok",
+        url: tokens.tiktok_link ?? "",
+        iconUrl: "https://cdn.simpleicons.org/tiktok/1a472a",
+      },
+      {
+        label: "X",
+        url: tokens.x_link ?? "",
+        iconUrl: "https://cdn.simpleicons.org/x/1a472a",
+      },
+      {
+        label: "LinkedIn",
+        url: tokens.linkedin_link ?? "",
+        iconUrl: "https://cdn.simpleicons.org/linkedin/1a472a",
+      },
+    ];
 
     return {
       subject: applyTokens(params.subject, tokens),
@@ -355,6 +444,7 @@ Deno.serve(async (req: Request) => {
         heroUrl: hasHeroToken ? "" : heroUrl,
         footerUrl: hasFooterToken ? "" : footerUrl,
         footerText,
+        socialLinks,
       }),
     };
   };
@@ -406,6 +496,11 @@ Deno.serve(async (req: Request) => {
     website_link: resolvedSettings.website_link,
     venue_address: resolvedSettings.venue_address,
     booking_link: resolvedSettings.booking_link,
+    facebook_link: resolvedSettings.facebook_link,
+    instagram_link: resolvedSettings.instagram_link,
+    tiktok_link: resolvedSettings.tiktok_link,
+    x_link: resolvedSettings.x_link,
+    linkedin_link: resolvedSettings.linkedin_link,
     first_name:
       payload.mode === "test"
         ? getFirstName(recipientName || userData.user.email || null)

@@ -41,6 +41,11 @@ export default function Settings() {
   const [bookingLink, setBookingLink] = useState('https://www.thebatesfordhotel.com.au/');
   const [venueAddress, setVenueAddress] = useState('700 Ballarat Road, Batesford VIC 3213');
   const [websiteLink, setWebsiteLink] = useState('https://www.thebatesfordhotel.com.au/');
+  const [facebookLink, setFacebookLink] = useState('https://www.facebook.com/');
+  const [instagramLink, setInstagramLink] = useState('https://www.instagram.com/');
+  const [tiktokLink, setTiktokLink] = useState('https://www.tiktok.com/');
+  const [xLink, setXLink] = useState('https://x.com/');
+  const [linkedinLink, setLinkedinLink] = useState('https://www.linkedin.com/');
   const [inviteEmail, setInviteEmail] = useState('');
   const [admins, setAdmins] = useState<AdminRow[]>([]);
   const [loadingAdmins, setLoadingAdmins] = useState(false);
@@ -67,7 +72,17 @@ export default function Settings() {
     const { data, error } = await supabase
       .from('app_settings')
       .select('key, value')
-      .in('key', ['local_postcodes', 'booking_link', 'venue_address', 'website_link']);
+      .in('key', [
+        'local_postcodes',
+        'booking_link',
+        'venue_address',
+        'website_link',
+        'facebook_link',
+        'instagram_link',
+        'tiktok_link',
+        'x_link',
+        'linkedin_link'
+      ]);
     if (error) {
       toast.pushToast('Unable to load settings.', 'error');
       return;
@@ -76,10 +91,15 @@ export default function Settings() {
     (data ?? []).forEach((row) => {
       map[row.key] = row.value;
     });
-    if (map.local_postcodes) setLocalPostcodes(map.local_postcodes);
-    if (map.booking_link) setBookingLink(map.booking_link);
-    if (map.venue_address) setVenueAddress(map.venue_address);
-    if (map.website_link) setWebsiteLink(map.website_link);
+    if (map.local_postcodes !== undefined) setLocalPostcodes(map.local_postcodes);
+    if (map.booking_link !== undefined) setBookingLink(map.booking_link);
+    if (map.venue_address !== undefined) setVenueAddress(map.venue_address);
+    if (map.website_link !== undefined) setWebsiteLink(map.website_link);
+    if (map.facebook_link !== undefined) setFacebookLink(map.facebook_link);
+    if (map.instagram_link !== undefined) setInstagramLink(map.instagram_link);
+    if (map.tiktok_link !== undefined) setTiktokLink(map.tiktok_link);
+    if (map.x_link !== undefined) setXLink(map.x_link);
+    if (map.linkedin_link !== undefined) setLinkedinLink(map.linkedin_link);
   }, [toast]);
 
   const loadAdmins = useCallback(async () => {
@@ -225,6 +245,29 @@ export default function Settings() {
     setVenueAddress(trimmedVenue);
     setWebsiteLink(trimmedWebsite);
     toast.pushToast('Email defaults saved.', 'success');
+  };
+
+  const saveSocialLinks = async () => {
+    const payload: AppSetting[] = [
+      { key: 'facebook_link', value: facebookLink.trim() },
+      { key: 'instagram_link', value: instagramLink.trim() },
+      { key: 'tiktok_link', value: tiktokLink.trim() },
+      { key: 'x_link', value: xLink.trim() },
+      { key: 'linkedin_link', value: linkedinLink.trim() }
+    ];
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert(payload, { onConflict: 'key' });
+    if (error) {
+      toast.pushToast(error.message, 'error');
+      return;
+    }
+    setFacebookLink(payload[0].value);
+    setInstagramLink(payload[1].value);
+    setTiktokLink(payload[2].value);
+    setXLink(payload[3].value);
+    setLinkedinLink(payload[4].value);
+    toast.pushToast('Social links saved.', 'success');
   };
 
   const triggerUpload = (key: string) => {
@@ -426,6 +469,44 @@ export default function Settings() {
             placeholder="https://www.thebatesfordhotel.com.au/"
           />
           <Button className="mt-4" onClick={saveEmailDefaults}>Save email defaults</Button>
+        </Card>
+      </div>
+
+      <div className="space-y-4">
+        <h3 className="text-2xl font-display text-brand">Social links</h3>
+        <p className="text-sm text-muted">Used in the email footer social icons.</p>
+        <Card className="max-w-xl">
+          <Input
+            label="Facebook"
+            value={facebookLink}
+            onChange={(event) => setFacebookLink(event.target.value)}
+            placeholder="https://www.facebook.com/yourpage"
+          />
+          <Input
+            label="Instagram"
+            value={instagramLink}
+            onChange={(event) => setInstagramLink(event.target.value)}
+            placeholder="https://www.instagram.com/yourpage"
+          />
+          <Input
+            label="TikTok"
+            value={tiktokLink}
+            onChange={(event) => setTiktokLink(event.target.value)}
+            placeholder="https://www.tiktok.com/@yourpage"
+          />
+          <Input
+            label="X (Twitter)"
+            value={xLink}
+            onChange={(event) => setXLink(event.target.value)}
+            placeholder="https://x.com/yourpage"
+          />
+          <Input
+            label="LinkedIn"
+            value={linkedinLink}
+            onChange={(event) => setLinkedinLink(event.target.value)}
+            placeholder="https://www.linkedin.com/company/yourpage"
+          />
+          <Button className="mt-4" onClick={saveSocialLinks}>Save social links</Button>
         </Card>
       </div>
 

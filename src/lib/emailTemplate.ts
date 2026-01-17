@@ -41,6 +41,29 @@ export const defaultEmailTemplate = `
         margin-top: 24px;
         font-size: 12px;
         color: #6b7a71;
+        text-align: center;
+      }
+      .social {
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid #efe6d8;
+        text-align: center;
+      }
+      .social-title {
+        margin: 0 0 10px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #1f2a24;
+      }
+      .social-icons a {
+        display: inline-block;
+        margin: 0 6px;
+      }
+      .social-icons img {
+        width: 28px;
+        height: 28px;
+        display: block;
+        border: 0;
       }
     </style>
   </head>
@@ -50,6 +73,16 @@ export const defaultEmailTemplate = `
         <h1>Hello {{first_name}},</h1>
         <p>Thanks for dropping into {{venue_name}}. We have a new seasonal menu and weekend specials ready for you.</p>
         <p><a class="cta" href="https://www.thebatesfordhotel.com.au/">See what is on</a></p>
+        <div class="social">
+          <p class="social-title">Follow us</p>
+          <div class="social-icons">
+            <a href="https://www.facebook.com/"><img src="https://cdn.simpleicons.org/facebook/1a472a" alt="Facebook" /></a>
+            <a href="https://www.instagram.com/"><img src="https://cdn.simpleicons.org/instagram/1a472a" alt="Instagram" /></a>
+            <a href="https://www.tiktok.com/"><img src="https://cdn.simpleicons.org/tiktok/1a472a" alt="TikTok" /></a>
+            <a href="https://x.com/"><img src="https://cdn.simpleicons.org/x/1a472a" alt="X" /></a>
+            <a href="https://www.linkedin.com/"><img src="https://cdn.simpleicons.org/linkedin/1a472a" alt="LinkedIn" /></a>
+          </div>
+        </div>
         <p class="footer">You are receiving this because you joined our guest Wi-Fi. Unsubscribe anytime by replying to this email.</p>
       </div>
     </div>
