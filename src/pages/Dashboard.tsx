@@ -1,10 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseISO } from 'date-fns';
 import { Link, useNavigate } from 'react-router-dom';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import 'leaflet.markercluster';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import { supabase } from '../lib/supabaseClient';
 import { Card } from '../components/ui/Card';
 import { ChartBars } from '../components/ChartBars';
 import { formatDateTime } from '../lib/format';
+import { useToast } from '../components/ToastProvider';
 
 type ConnectionRow = {
   id: string;
@@ -17,7 +23,20 @@ type ConnectionRow = {
     full_name: string | null;
     email: string | null;
     mobile: string | null;
+    postcode?: string | null;
   } | null;
+};
+
+type PostcodeCount = {
+  postcode: string;
+  guests: number;
+};
+
+type PostcodeMapPoint = {
+  postcode: string;
+  lat: number;
+  lon: number;
+  guests: number;
 };
 
 const melbourneTimeZone = 'Australia/Melbourne';
@@ -86,6 +105,7 @@ const getMelbourneDayBounds = (date: Date) => {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { pushToast } = useToast();
   const [recent, setRecent] = useState<ConnectionRow[]>([]);
   const [total, setTotal] = useState(0);
   const [uniqueEmails, setUniqueEmails] = useState(0);
@@ -99,6 +119,38 @@ export default function Dashboard() {
   const [busiestDay, setBusiestDay] = useState<string>('');
   const [quietestDay, setQuietestDay] = useState<string>('');
   const [selectedDay, setSelectedDay] = useState<{ dateKey: string; startISO: string; endISO: string; label: string; displayLabel: string } | null>(null);
+  const [postcodeCounts, setPostcodeCounts] = useState<PostcodeCount[]>([]);
+  const [postcodeMapPoints, setPostcodeMapPoints] = useState<PostcodeMapPoint[]>([]);
+  const [selectedPostcode, setSelectedPostcode] = useState<string | null>(null);
+  const [uploadingPostcodes, setUploadingPostcodes] = useState(false);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const mapLayerRef = useRef<L.LayerGroup | null>(null);
+  const postcodeFileRef = useRef<HTMLInputElement | null>(null);
+
+  const loadPostcodeData = useCallback(async () => {
+    const { data: postcodeData, error: postcodeError } = await supabase
+      .from('guest_postcode_counts')
+      .select('postcode, guests')
+      .order('guests', { ascending: false })
+      .limit(10);
+    if (postcodeError) {
+      pushToast('Unable to load postcode stats.', 'error');
+      setPostcodeCounts([]);
+    } else {
+      setPostcodeCounts((postcodeData as PostcodeCount[]) ?? []);
+    }
+
+    const { data: mapData, error: mapError } = await supabase
+      .from('guest_postcode_centroid_counts')
+      .select('postcode, lat, lon, guests')
+      .order('guests', { ascending: false });
+    if (mapError) {
+      setPostcodeMapPoints([]);
+    } else {
+      setPostcodeMapPoints((mapData as PostcodeMapPoint[]) ?? []);
+    }
+  }, [pushToast]);
 
   useEffect(() => {
     const load = async () => {
@@ -181,16 +233,26 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    loadPostcodeData();
+  }, [loadPostcodeData]);
+
+  useEffect(() => {
     const loadRecent = async () => {
+      const baseSelect = 'id, connected_at, device_type, os_family, guests(id, full_name, email, mobile, postcode)';
+      const filteredSelect = 'id, connected_at, device_type, os_family, guests!inner(id, full_name, email, mobile, postcode)';
       let query = supabase
         .from('wifi_connections')
-        .select('id, connected_at, device_type, os_family, guests(id, full_name, email, mobile)')
+        .select(selectedPostcode ? filteredSelect : baseSelect)
         .order('connected_at', { ascending: false });
 
       if (selectedDay) {
         query = query.gte('connected_at', selectedDay.startISO).lt('connected_at', selectedDay.endISO).limit(100);
       } else {
         query = query.limit(20);
+      }
+
+      if (selectedPostcode) {
+        query = query.eq('guests.postcode', selectedPostcode);
       }
 
       const { data: latest } = await query;
@@ -220,7 +282,130 @@ export default function Dashboard() {
     };
 
     loadRecent();
-  }, [selectedDay]);
+  }, [selectedDay, selectedPostcode]);
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+    if (!mapRef.current) {
+      mapRef.current = L.map(mapContainerRef.current, {
+        zoomControl: false,
+        scrollWheelZoom: false
+      });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(mapRef.current);
+    }
+
+    const mapInstance = mapRef.current;
+    if (mapLayerRef.current) {
+      mapInstance.removeLayer(mapLayerRef.current);
+    }
+
+    if (!postcodeMapPoints.length) {
+      mapInstance.setView([-38.08, 144.3], 10);
+      return;
+    }
+
+    const group = postcodeMapPoints.length > 18
+      ? (L as unknown as { markerClusterGroup: () => L.LayerGroup }).markerClusterGroup()
+      : L.layerGroup();
+
+    postcodeMapPoints.forEach((point) => {
+      const size = Math.max(18, Math.min(46, 12 + Math.sqrt(point.guests) * 6));
+      const marker = L.marker([point.lat, point.lon], {
+        icon: L.divIcon({
+          className: 'postcode-dot',
+          html: `<div style="width:${size}px;height:${size}px;border-radius:9999px;background:rgba(26,71,42,0.7);border:2px solid rgba(26,71,42,0.9);box-shadow:0 6px 14px rgba(26,71,42,0.25);"></div>`,
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2]
+        })
+      });
+      marker.bindTooltip(`${point.postcode} — ${point.guests} guest${point.guests === 1 ? '' : 's'}`, {
+        direction: 'top',
+        offset: [0, -8]
+      });
+      group.addLayer(marker);
+    });
+
+    group.addTo(mapInstance);
+    mapLayerRef.current = group;
+
+    const bounds = (group as L.FeatureGroup).getBounds?.();
+    if (bounds && bounds.isValid()) {
+      mapInstance.fitBounds(bounds.pad(0.3));
+    } else {
+      mapInstance.setView([-38.08, 144.3], 10);
+    }
+  }, [postcodeMapPoints]);
+
+  useEffect(() => {
+    return () => {
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  const handlePostcodeSelect = (postcode: string) => {
+    setSelectedPostcode((prev) => (prev === postcode ? null : postcode));
+  };
+
+  const handleUploadCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploadingPostcodes(true);
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      if (!lines.length) {
+        pushToast('CSV file is empty.', 'error');
+        return;
+      }
+      const headers = lines[0].split(',').map((header) => header.trim().toLowerCase());
+      const indices = {
+        postcode: headers.indexOf('postcode'),
+        suburb: headers.indexOf('suburb'),
+        state: headers.indexOf('state'),
+        lat: headers.indexOf('lat'),
+        lon: headers.indexOf('lon')
+      };
+      if (indices.postcode === -1 || indices.lat === -1 || indices.lon === -1) {
+        pushToast('CSV must include postcode, lat, and lon columns.', 'error');
+        return;
+      }
+
+      const rows = lines.slice(1).map((line) => line.split(',').map((value) => value.trim())).filter((values) => values.length >= 3);
+      const payload = rows
+        .map((values) => ({
+          postcode: values[indices.postcode],
+          suburb: indices.suburb >= 0 ? values[indices.suburb] || null : null,
+          state: indices.state >= 0 ? values[indices.state] || null : null,
+          lat: Number(values[indices.lat]),
+          lon: Number(values[indices.lon])
+        }))
+        .filter((row) => row.postcode && Number.isFinite(row.lat) && Number.isFinite(row.lon));
+
+      if (!payload.length) {
+        pushToast('No valid rows found in CSV.', 'error');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('postcode_centroids')
+        .upsert(payload, { onConflict: 'postcode' });
+      if (error) {
+        pushToast(`Upload failed: ${error.message}`, 'error');
+        return;
+      }
+
+      pushToast(`Uploaded ${payload.length} postcode centroids.`, 'success');
+      loadPostcodeData();
+    } finally {
+      setUploadingPostcodes(false);
+      if (postcodeFileRef.current) {
+        postcodeFileRef.current.value = '';
+      }
+    }
+  };
 
   const tiles = useMemo(
     () => [
@@ -230,6 +415,22 @@ export default function Dashboard() {
     ],
     [total, uniqueEmails, returning]
   );
+
+  const postcodeChartPoints = useMemo(
+    () =>
+      postcodeCounts.map((row) => ({
+        label: row.postcode,
+        value: row.guests,
+        tooltip: `${row.postcode} · ${row.guests} guest${row.guests === 1 ? '' : 's'}`,
+        dateKey: row.postcode,
+        startISO: '',
+        endISO: '',
+        displayLabel: row.postcode
+      })),
+    [postcodeCounts]
+  );
+
+  const hasMapData = postcodeMapPoints.length > 0;
 
   return (
     <div className="space-y-6">
@@ -296,6 +497,91 @@ export default function Dashboard() {
       </div>
 
       <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-lg font-semibold">Where guests come from</h3>
+            <p className="text-sm text-muted">Postcode catchment overview</p>
+          </div>
+          {selectedPostcode && (
+            <button
+              type="button"
+              className="text-xs font-semibold uppercase tracking-wide text-brand underline"
+              onClick={() => setSelectedPostcode(null)}
+            >
+              Clear postcode filter
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-6">
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-muted">Top postcodes</p>
+            <div className="space-y-2">
+              {postcodeCounts.map((row) => (
+                <button
+                  key={row.postcode}
+                  type="button"
+                  onClick={() => handlePostcodeSelect(row.postcode)}
+                  className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm transition ${
+                    selectedPostcode === row.postcode
+                      ? 'border-brand bg-brand/5 text-brand'
+                      : 'border-slate-200 text-slate-700 hover:border-brand/40'
+                  }`}
+                >
+                  <span className="font-semibold">{row.postcode}</span>
+                  <span className="text-xs text-muted">{row.guests} guest{row.guests === 1 ? '' : 's'}</span>
+                </button>
+              ))}
+              {!postcodeCounts.length && (
+                <p className="text-sm text-muted">No postcodes captured yet.</p>
+              )}
+            </div>
+          </div>
+          <div className="space-y-3">
+            {hasMapData ? (
+              <>
+                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <div ref={mapContainerRef} className="h-72 w-full" />
+                </div>
+                <p className="text-xs text-muted">Circle size reflects guest count per postcode.</p>
+              </>
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-brand">Map available once postcode centroids are uploaded</p>
+                  <p className="text-xs text-muted">Upload postcode centroid dataset to enable map.</p>
+                </div>
+                {postcodeChartPoints.length > 0 && (
+                  <ChartBars
+                    points={postcodeChartPoints}
+                    selectedKey={selectedPostcode}
+                    onSelect={(point) => handlePostcodeSelect(point.dateKey)}
+                  />
+                )}
+                <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
+                  <input
+                    ref={postcodeFileRef}
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="hidden"
+                    onChange={handleUploadCsv}
+                  />
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-brand underline"
+                    onClick={() => postcodeFileRef.current?.click()}
+                    disabled={uploadingPostcodes}
+                  >
+                    {uploadingPostcodes ? 'Uploading...' : 'Upload CSV'}
+                  </button>
+                  <span>Columns: postcode, suburb, state, lat, lon</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-lg font-semibold">Recent connections</h3>
@@ -303,15 +589,19 @@ export default function Dashboard() {
           </div>
           <Link className="text-sm font-semibold text-brand" to="/contacts">View contacts</Link>
         </div>
-        {selectedDay && (
+        {(selectedDay || selectedPostcode) && (
           <div className="flex flex-wrap items-center gap-3 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2 text-sm text-brand mb-4">
-            <span>Filter: {selectedDay.displayLabel}</span>
+            {selectedDay && <span>Filter: {selectedDay.displayLabel}</span>}
+            {selectedPostcode && <span>Postcode: {selectedPostcode}</span>}
             <button
               type="button"
               className="ml-auto text-xs font-semibold uppercase tracking-wide text-brand underline"
-              onClick={() => setSelectedDay(null)}
+              onClick={() => {
+                setSelectedDay(null);
+                setSelectedPostcode(null);
+              }}
             >
-              Clear filter
+              Clear filters
             </button>
           </div>
         )}

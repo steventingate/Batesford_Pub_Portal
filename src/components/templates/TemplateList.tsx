@@ -37,7 +37,15 @@ export function TemplateList({
             const heroPreview = resolveStorageUrl(template.hero_image_path ?? defaultHeroPath ?? '');
             return (
               <tr key={template.id} className="border-t border-slate-100">
-                <td className="py-3 font-semibold text-brand">{template.name}</td>
+                <td className="py-3 font-semibold text-brand">
+                  <button
+                    type="button"
+                    className="text-left text-brand hover:underline"
+                    onClick={() => onEdit(template)}
+                  >
+                    {template.name}
+                  </button>
+                </td>
                 <td className="py-3 text-sm text-muted">{template.type}</td>
                 <td className="py-3">
                   {heroPreview ? (
