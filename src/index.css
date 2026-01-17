@@ -53,11 +53,12 @@ a {
 }
 
 .input {
-  border-radius: 12px;
+  border-radius: 8px;
   border: 1px solid rgba(26, 71, 42, 0.15);
-  padding: 10px 12px;
+  padding: 8px 12px;
   width: 100%;
   font-size: 14px;
+  min-height: 36px;
 }
 
 .input:focus {
@@ -67,10 +68,15 @@ a {
 }
 
 .btn {
-  border-radius: 12px;
-  padding: 10px 16px;
+  border-radius: 8px;
+  padding: 8px 12px;
   font-weight: 600;
   transition: all 0.2s ease;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .btn-primary {
@@ -90,6 +96,21 @@ a {
 
 .btn-outline:hover {
   background: rgba(26, 71, 42, 0.08);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-primary);
+}
+
+.btn-ghost:hover {
+  background: rgba(26, 71, 42, 0.08);
+}
+
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
 }
 
 .sidebar {

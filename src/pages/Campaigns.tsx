@@ -8,36 +8,16 @@ import { formatDateTime } from '../lib/format';
 import { renderEmailHtml, stripInlineImageTokens, type InlineImage } from '../lib/emailRenderer';
 import { resolveStorageUrl } from '../lib/storage';
 import { useToast } from '../components/ToastProvider';
-
-type Template = {
-  id: string;
-  name: string;
-  type: string;
-  subject: string;
-  body_html: string;
-  body_text: string;
-  hero_image_path?: string | null;
-  footer_image_path?: string | null;
-  inline_images?: InlineImage[] | null;
-  created_at: string;
-};
+import { TemplateEditorModal } from '../components/templates/TemplateEditorModal';
+import { TemplateEditorForm } from '../components/templates/TemplateEditorForm';
+import { TemplateList } from '../components/templates/TemplateList';
+import type { CampaignTemplate, EditorState } from '../types/templates';
 
 type BrandAsset = {
   id: string;
   key: string;
   label: string;
   url: string;
-};
-
-type EditorState = {
-  id: string | null;
-  name: string;
-  type: string;
-  subject: string;
-  bodyHtml: string;
-  heroImagePath: string | null;
-  footerImagePath: string | null;
-  inlineImages: InlineImage[];
 };
 
 type Recipient = {
@@ -98,12 +78,18 @@ const defaultEditorState: EditorState = {
   inlineImages: []
 };
 
+const cloneEditorState = (state: EditorState): EditorState => ({
+  ...state,
+  inlineImages: [...state.inlineImages]
+});
+
 const variableOptions = [
   { label: 'First name', value: '{{first_name}}' },
+  { label: 'Offer name', value: '{{offer_name}}' },
+  { label: 'Venue address', value: '{{venue_address}}' },
+  { label: 'Booking link', value: '{{booking_link}}' },
   { label: 'Visit count', value: '{{visit_count}}' },
   { label: 'Last visit date', value: '{{last_visit_date}}' },
-  { label: 'Booking link', value: '{{booking_link}}' },
-  { label: 'Venue address', value: '{{venue_address}}' },
   { label: 'Website link', value: '{{website_link}}' }
 ];
 
@@ -186,6 +172,7 @@ const seedTemplateNames = new Set(seedTemplates.map((template) => template.name)
 
 const sampleData = {
   first_name: 'Sam',
+  offer_name: 'Happy Hour',
   visit_count: '3',
   last_visit_date: '15 Jan 2026'
 };
@@ -229,12 +216,12 @@ const renderText = (text: string, tokens: Record<string, string>) => {
 export default function Campaigns() {
   const { pushToast } = useToast();
   const [activeTab, setActiveTab] = useState<'templates' | 'send' | 'history'>('templates');
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templates, setTemplates] = useState<CampaignTemplate[]>([]);
   const [editor, setEditor] = useState<EditorState>(defaultEditorState);
-  const [editing, setEditing] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
-  const [viewerTemplate, setViewerTemplate] = useState<Template | null>(null);
+  const [viewerTemplate, setViewerTemplate] = useState<CampaignTemplate | null>(null);
   const [viewerMode, setViewerMode] = useState<'html' | 'text'>('html');
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const [sendQuery, setSendQuery] = useState('');
@@ -261,6 +248,7 @@ export default function Campaigns() {
   const [sendResult, setSendResult] = useState<{ status: 'sent' | 'scheduled'; count: number } | null>(null);
   const [sendingWizardTest, setSendingWizardTest] = useState(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const editorBaselineRef = useRef<EditorState>(defaultEditorState);
   const heroInputRef = useRef<HTMLInputElement | null>(null);
   const footerInputRef = useRef<HTMLInputElement | null>(null);
   const inlineInputRef = useRef<HTMLInputElement | null>(null);
@@ -283,7 +271,7 @@ export default function Campaigns() {
       pushToast('You do not have access to templates.', 'error');
       return;
     }
-    setTemplates((data as Template[]) ?? []);
+    setTemplates((data as CampaignTemplate[]) ?? []);
   }, [pushToast]);
 
   const loadDefaultTemplates = useCallback(async () => {
@@ -443,13 +431,16 @@ export default function Campaigns() {
   }, [sendModalOpen, sendQuery, pushToast]);
 
   const startCreate = () => {
-    setEditor(defaultEditorState);
-    setEditing(true);
+    const nextEditor = cloneEditorState(defaultEditorState);
+    setEditor(nextEditor);
+    editorBaselineRef.current = nextEditor;
+    setEditorOpen(true);
     setStatus('');
+    setShowPreviewDebug(false);
   };
 
-  const startEdit = (template: Template) => {
-    setEditor({
+  const startEdit = (template: CampaignTemplate) => {
+    const nextEditor = {
       id: template.id,
       name: template.name,
       type: template.type,
@@ -458,9 +449,12 @@ export default function Campaigns() {
       heroImagePath: template.hero_image_path ?? null,
       footerImagePath: template.footer_image_path ?? null,
       inlineImages: template.inline_images ?? []
-    });
-    setEditing(true);
+    };
+    setEditor(nextEditor);
+    editorBaselineRef.current = cloneEditorState(nextEditor);
+    setEditorOpen(true);
     setStatus('');
+    setShowPreviewDebug(false);
   };
 
   const syncEditorHtml = () => {
@@ -469,14 +463,14 @@ export default function Campaigns() {
   };
 
   const handleCommand = (command: string, value?: string) => {
+    editorRef.current?.focus();
     document.execCommand(command, false, value);
     syncEditorHtml();
   };
 
   const handleInsertVariable = (value: string) => {
     if (!value) return;
-    document.execCommand('insertText', false, value);
-    syncEditorHtml();
+    insertBodyToken(value);
   };
 
   const ensureTemplateReady = (target?: HTMLInputElement) => {
@@ -563,20 +557,9 @@ export default function Campaigns() {
     setStatus('Uploading hero image...');
     const path = await uploadTemplateAsset(file, 'hero');
     if (!path) return;
-    const { error } = await supabase
-      .from('campaign_templates')
-      .update({ hero_image_path: path })
-      .eq('id', editor.id);
-    if (error) {
-      setStatus(`Hero update failed: ${error.message}`);
-      pushToast('Unable to save hero image.', 'error');
-      return;
-    }
-    await syncDefaultTemplate(getTemplatePayload({ hero_image_path: path }));
     setEditor((prev) => ({ ...prev, heroImagePath: path }));
-    setStatus('Hero image updated.');
-    pushToast('Hero image updated.', 'success');
-    loadTemplates();
+    setStatus('Hero image ready. Save to apply.');
+    pushToast('Hero image ready.', 'success');
     event.target.value = '';
   };
 
@@ -586,20 +569,9 @@ export default function Campaigns() {
     setStatus('Uploading footer banner...');
     const path = await uploadTemplateAsset(file, 'footer');
     if (!path) return;
-    const { error } = await supabase
-      .from('campaign_templates')
-      .update({ footer_image_path: path })
-      .eq('id', editor.id);
-    if (error) {
-      setStatus(`Footer update failed: ${error.message}`);
-      pushToast('Unable to save footer banner.', 'error');
-      return;
-    }
-    await syncDefaultTemplate(getTemplatePayload({ footer_image_path: path }));
     setEditor((prev) => ({ ...prev, footerImagePath: path }));
-    setStatus('Footer banner updated.');
-    pushToast('Footer banner updated.', 'success');
-    loadTemplates();
+    setStatus('Footer banner ready. Save to apply.');
+    pushToast('Footer banner ready.', 'success');
     event.target.value = '';
   };
 
@@ -613,70 +585,38 @@ export default function Campaigns() {
     const newInline = { path, alt: altText || undefined, sort: editor.inlineImages.length };
     const nextInline = [...editor.inlineImages, newInline];
 
-    const { error } = await supabase
-      .from('campaign_templates')
-      .update({ inline_images: nextInline })
-      .eq('id', editor.id);
-    if (error) {
-      setStatus(`Inline image update failed: ${error.message}`);
-      pushToast('Unable to save inline image.', 'error');
-      return;
-    }
-
     const token = altText
       ? `[[image:path="${path}" alt="${altText}"]]`
       : `[[image:path="${path}"]]`;
     insertBodyToken(token);
     setEditor((prev) => ({ ...prev, inlineImages: nextInline }));
-    await syncDefaultTemplate(getTemplatePayload({ inline_images: nextInline }));
-    setStatus('Inline image inserted.');
+    setStatus('Inline image inserted. Save to apply.');
     pushToast('Inline image inserted.', 'success');
-    loadTemplates();
     event.target.value = '';
   };
 
   const removeHeroImage = async () => {
-    if (!editor.id) return;
-    const { error } = await supabase
-      .from('campaign_templates')
-      .update({ hero_image_path: null })
-      .eq('id', editor.id);
-    if (error) {
-      setStatus(`Hero removal failed: ${error.message}`);
-      pushToast('Unable to remove hero image.', 'error');
-      return;
-    }
-    await syncDefaultTemplate(getTemplatePayload({ hero_image_path: null }));
     setEditor((prev) => ({ ...prev, heroImagePath: null }));
-    setStatus('Hero image removed.');
-    loadTemplates();
+    setStatus('Hero image removed. Save to apply.');
+    pushToast('Hero image removed.', 'success');
   };
 
   const removeFooterImage = async () => {
-    if (!editor.id) return;
-    const { error } = await supabase
-      .from('campaign_templates')
-      .update({ footer_image_path: null })
-      .eq('id', editor.id);
-    if (error) {
-      setStatus(`Footer removal failed: ${error.message}`);
-      pushToast('Unable to remove footer banner.', 'error');
-      return;
-    }
-    await syncDefaultTemplate(getTemplatePayload({ footer_image_path: null }));
     setEditor((prev) => ({ ...prev, footerImagePath: null }));
-    setStatus('Footer banner removed.');
-    loadTemplates();
+    setStatus('Footer banner removed. Save to apply.');
+    pushToast('Footer banner removed.', 'success');
   };
 
   const handleSave = async () => {
     if (!editor.name.trim() || !editor.subject.trim()) {
       setStatus('Name and subject are required.');
-      return;
+      return null;
     }
     setSaving(true);
     setStatus('');
     const payload = getTemplatePayload();
+    const normalizedBodyHtml = normalizeInlineTokenHtml(editorRef.current?.innerHTML ?? editor.bodyHtml);
+    let savedEditor: EditorState | null = null;
 
     if (editor.id) {
       const { error } = await supabase
@@ -691,6 +631,7 @@ export default function Campaigns() {
         setStatus('Template updated.');
         pushToast('Template updated.', 'success');
         loadTemplates();
+        savedEditor = cloneEditorState({ ...editor, bodyHtml: normalizedBodyHtml });
       }
     } else {
       const { data, error } = await supabase
@@ -705,14 +646,56 @@ export default function Campaigns() {
         await syncDefaultTemplate(payload);
         setStatus('Template created.');
         pushToast('Template created.', 'success');
-        setEditor((prev) => ({ ...prev, id: data.id }));
+        savedEditor = cloneEditorState({ ...editor, id: data.id, bodyHtml: normalizedBodyHtml });
         loadTemplates();
       }
     }
     setSaving(false);
+    return savedEditor;
   };
 
-  const handleDuplicate = async (template: Template) => {
+  const isEditorDirty = () => {
+    const baseline = editorBaselineRef.current;
+    const baselineBody = normalizeInlineTokenHtml(baseline.bodyHtml);
+    const currentBody = normalizeInlineTokenHtml(editorRef.current?.innerHTML ?? editor.bodyHtml);
+    if (baseline.name !== editor.name) return true;
+    if (baseline.type !== editor.type) return true;
+    if (baseline.subject !== editor.subject) return true;
+    if (baseline.heroImagePath !== editor.heroImagePath) return true;
+    if (baseline.footerImagePath !== editor.footerImagePath) return true;
+    if (baselineBody !== currentBody) return true;
+    if (JSON.stringify(baseline.inlineImages) !== JSON.stringify(editor.inlineImages)) return true;
+    return false;
+  };
+
+  const handleEditorSave = async () => {
+    const savedEditor = await handleSave();
+    if (!savedEditor) return;
+    setEditor(savedEditor);
+    editorBaselineRef.current = cloneEditorState(savedEditor);
+    setEditorOpen(false);
+  };
+
+  const requestCloseEditor = () => {
+    if (isEditorDirty()) {
+      const confirmed = window.confirm('Discard unsaved changes?');
+      if (!confirmed) return false;
+    }
+    setEditor(cloneEditorState(editorBaselineRef.current));
+    setEditorOpen(false);
+    setStatus('');
+    return true;
+  };
+
+  const handleTabChange = (nextTab: 'templates' | 'send' | 'history') => {
+    if (editorOpen) {
+      const closed = requestCloseEditor();
+      if (!closed) return;
+    }
+    setActiveTab(nextTab);
+  };
+
+  const handleDuplicate = async (template: CampaignTemplate) => {
     const { error } = await supabase
       .from('campaign_templates')
       .insert({
@@ -734,7 +717,7 @@ export default function Campaigns() {
     loadTemplates();
   };
 
-  const handleDelete = async (template: Template) => {
+  const handleDelete = async (template: CampaignTemplate) => {
     const confirmed = window.confirm(`Delete "${template.name}"?`);
     if (!confirmed) return;
     const { error } = await supabase
@@ -747,8 +730,10 @@ export default function Campaigns() {
       return;
     }
     if (editor.id === template.id) {
-      setEditing(false);
-      setEditor(defaultEditorState);
+      setEditorOpen(false);
+      const resetEditor = cloneEditorState(defaultEditorState);
+      setEditor(resetEditor);
+      editorBaselineRef.current = resetEditor;
     }
     pushToast('Template deleted.', 'success');
     loadTemplates();
@@ -842,6 +827,7 @@ export default function Campaigns() {
   };
   const previewData = {
     first_name: sampleRecipient ? getFirstName(sampleRecipient.full_name) : sampleData.first_name,
+    offer_name: sampleData.offer_name,
     visit_count: sampleRecipient?.visit_count ? String(sampleRecipient.visit_count) : sampleData.visit_count,
     last_visit_date: toLocalDate(sampleRecipient?.last_seen_at ?? null)
   };
@@ -1194,13 +1180,13 @@ export default function Campaigns() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button variant={activeTab === 'templates' ? 'primary' : 'outline'} onClick={() => setActiveTab('templates')}>
+        <Button variant={activeTab === 'templates' ? 'primary' : 'outline'} onClick={() => handleTabChange('templates')}>
           Templates
         </Button>
-        <Button variant={activeTab === 'send' ? 'primary' : 'outline'} onClick={() => setActiveTab('send')}>
+        <Button variant={activeTab === 'send' ? 'primary' : 'outline'} onClick={() => handleTabChange('send')}>
           Send
         </Button>
-        <Button variant={activeTab === 'history' ? 'primary' : 'outline'} onClick={() => setActiveTab('history')}>
+        <Button variant={activeTab === 'history' ? 'primary' : 'outline'} onClick={() => handleTabChange('history')}>
           History
         </Button>
       </div>
@@ -1208,211 +1194,60 @@ export default function Campaigns() {
       {activeTab === 'templates' && (
         <div className="space-y-6">
           <Card>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-left text-muted">
-                    <th className="py-2">Name</th>
-                    <th className="py-2">Type</th>
-                    <th className="py-2">Hero</th>
-                    <th className="py-2">Created</th>
-                    <th className="py-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {templates.map((template) => {
-                    const heroPreview = resolveStorageUrl(template.hero_image_path ?? branding.default_hero_path ?? '');
-                    return (
-                      <tr key={template.id} className="border-t border-slate-100">
-                        <td className="py-3 font-semibold text-brand">{template.name}</td>
-                        <td className="py-3 text-sm text-muted">{template.type}</td>
-                        <td className="py-3">
-                          {heroPreview ? (
-                            <img src={heroPreview} alt="" className="h-10 w-16 rounded-md object-cover border border-slate-200" />
-                          ) : (
-                            <span className="text-xs text-muted">No hero</span>
-                          )}
-                        </td>
-                        <td className="py-3 text-sm text-muted">{formatDateTime(template.created_at)}</td>
-                        <td className="py-3 flex flex-wrap gap-2">
-                          <Button variant="outline" onClick={() => startEdit(template)}>Edit</Button>
-                          <Button variant="outline" onClick={() => setViewerTemplate(template)}>View</Button>
-                          <Button variant="ghost" onClick={() => handleDuplicate(template)}>Duplicate</Button>
-                          <Button variant="ghost" onClick={() => handleDelete(template)}>Delete</Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {!templates.length && <p className="text-center text-sm text-muted py-8">No templates yet.</p>}
-            </div>
+            <TemplateList
+              templates={templates}
+              defaultHeroPath={branding.default_hero_path}
+              onEdit={startEdit}
+              onView={setViewerTemplate}
+              onDuplicate={handleDuplicate}
+              onDelete={handleDelete}
+            />
           </Card>
-
-          {editing && (
-            <Card>
-              <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-6">
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Input
-                      label="Template name"
-                      value={editor.name}
-                      onChange={(event) => setEditor((prev) => ({ ...prev, name: event.target.value }))}
-                      placeholder="Weekend welcome"
-                    />
-                    <Select
-                      label="Type"
-                      value={editor.type}
-                      onChange={(event) => setEditor((prev) => ({ ...prev, type: event.target.value }))}
-                    >
-                      <option value="event">Event</option>
-                      <option value="winback">Winback</option>
-                      <option value="regular">Regular</option>
-                      <option value="custom">Custom</option>
-                    </Select>
-                    <Input
-                      label="Subject"
-                      value={editor.subject}
-                      onChange={(event) => setEditor((prev) => ({ ...prev, subject: event.target.value }))}
-                      placeholder="You are invited back to Batesford"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => handleCommand('bold')}>Bold</Button>
-                    <Button variant="outline" onClick={() => handleCommand('italic')}>Italic</Button>
-                    <Button variant="outline" onClick={() => handleCommand('insertUnorderedList')}>Bullets</Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        const url = window.prompt('Enter link URL');
-                        if (url) handleCommand('createLink', url);
-                      }}
-                    >
-                      Link
-                    </Button>
-                    <Select label="Insert variable" onChange={(event) => handleInsertVariable(event.target.value)} defaultValue="">
-                      <option value="" disabled>Select variable</option>
-                      {variableOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </Select>
-                    <Button variant="outline" onClick={() => heroInputRef.current?.click()}>Set Hero Image</Button>
-                    <Button variant="outline" onClick={() => inlineInputRef.current?.click()}>Insert Image into Body</Button>
-                    <input ref={heroInputRef} type="file" accept="image/*" className="hidden" onChange={handleHeroUpload} />
-                    <input ref={inlineInputRef} type="file" accept="image/*" className="hidden" onChange={handleInlineImageUpload} />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-                      <div>
-                        <p className="text-sm font-semibold text-brand">Hero image</p>
-                        <p className="text-xs text-muted">Shows at the top of the email.</p>
-                      </div>
-                      {resolvedHeroPreview ? (
-                        <img src={resolvedHeroPreview} alt="Hero preview" className="max-h-40 w-full object-cover rounded-lg" />
-                      ) : (
-                        <div className="rounded-lg border border-dashed border-slate-200 p-4 text-xs text-muted text-center">
-                          No hero image yet.
-                        </div>
-                      )}
-                      <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" onClick={() => heroInputRef.current?.click()} disabled={!editor.id}>
-                          {editor.heroImagePath ? 'Replace hero' : 'Upload hero'}
-                        </Button>
-                        {editor.heroImagePath && (
-                          <Button variant="ghost" onClick={removeHeroImage}>Remove</Button>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted">
-                        {editor.heroImagePath ? 'Template override in use.' : 'Falling back to branding default.'}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-                      <div>
-                        <p className="text-sm font-semibold text-brand">Footer banner</p>
-                        <p className="text-xs text-muted">Optional banner before the footer text.</p>
-                      </div>
-                      {resolvedFooterPreview ? (
-                        <img src={resolvedFooterPreview} alt="Footer preview" className="max-h-40 w-full object-cover rounded-lg" />
-                      ) : (
-                        <div className="rounded-lg border border-dashed border-slate-200 p-4 text-xs text-muted text-center">
-                          No footer banner yet.
-                        </div>
-                      )}
-                      <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" onClick={() => footerInputRef.current?.click()} disabled={!editor.id}>
-                          {editor.footerImagePath ? 'Replace footer' : 'Upload footer'}
-                        </Button>
-                        {editor.footerImagePath && (
-                          <Button variant="ghost" onClick={removeFooterImage}>Remove</Button>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted">
-                        {editor.footerImagePath ? 'Template override in use.' : 'Falling back to branding default.'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <input ref={footerInputRef} type="file" accept="image/*" className="hidden" onChange={handleFooterUpload} />
-
-                  <div>
-                    <span className="block text-sm font-semibold text-muted mb-2">Email body</span>
-                    <div
-                      ref={editorRef}
-                      className="input min-h-[220px] bg-white"
-                      contentEditable
-                      onInput={syncEditorHtml}
-                      suppressContentEditableWarning
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save template'}</Button>
-                    {status && <span className="text-sm text-muted">{status}</span>}
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold">Preview</h3>
-                    <div className="rounded-xl border border-slate-200 p-4 bg-white max-w-[640px]">
-                      <p className="text-xs uppercase tracking-wide text-muted mb-2">Subject</p>
-                      <p className="font-semibold mb-4">
-                        {editorRender.subject}
-                      </p>
-                      <iframe title="Template preview" srcDoc={editorRender.html} className="w-full min-h-[380px] border-0" />
-                      <div className="mt-4">
-                        <Button
-                          variant="ghost"
-                          onClick={() => setShowPreviewDebug((prev) => !prev)}
-                        >
-                          {showPreviewDebug ? 'Hide debug' : 'Show debug'}
-                        </Button>
-                        {showPreviewDebug && (
-                          <div className="mt-3 space-y-3 text-xs text-muted">
-                            <div>
-                              <p className="font-semibold text-brand">Editor HTML</p>
-                              <pre className="whitespace-pre-wrap">{editorBodyHtml}</pre>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-brand">Normalized HTML</p>
-                              <pre className="whitespace-pre-wrap">{normalizedEditorBody}</pre>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-brand">Rendered HTML</p>
-                              <pre className="whitespace-pre-wrap">{editorRender.html}</pre>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  <p className="text-xs text-muted">
-                    Preview uses sample guest data to render variables.
-                  </p>
-                </div>
-              </div>
-            </Card>
-          )}
+          <TemplateEditorModal open={editorOpen} onClose={requestCloseEditor}>
+            <TemplateEditorForm
+              name={editor.name}
+              type={editor.type}
+              subject={editor.subject}
+              bodyHtml={editor.bodyHtml}
+              heroImagePath={editor.heroImagePath}
+              footerImagePath={editor.footerImagePath}
+              saving={saving}
+              status={status}
+              resolvedHeroPreview={resolvedHeroPreview}
+              resolvedFooterPreview={resolvedFooterPreview}
+              previewSubject={editorRender.subject}
+              previewHtml={editorRender.html}
+              showPreviewDebug={showPreviewDebug}
+              debugSections={[
+                { label: 'Editor HTML', content: editorBodyHtml },
+                { label: 'Normalized HTML', content: normalizedEditorBody },
+                { label: 'Rendered HTML', content: editorRender.html }
+              ]}
+              variableOptions={variableOptions}
+              editorRef={editorRef}
+              heroInputRef={heroInputRef}
+              footerInputRef={footerInputRef}
+              inlineInputRef={inlineInputRef}
+              canUploadAssets={Boolean(editor.id)}
+              onNameChange={(value) => setEditor((prev) => ({ ...prev, name: value }))}
+              onTypeChange={(value) => setEditor((prev) => ({ ...prev, type: value }))}
+              onSubjectChange={(value) => setEditor((prev) => ({ ...prev, subject: value }))}
+              onBodyInput={syncEditorHtml}
+              onCommand={handleCommand}
+              onInsertVariable={handleInsertVariable}
+              onSave={handleEditorSave}
+              onCancel={requestCloseEditor}
+              onTogglePreviewDebug={() => setShowPreviewDebug((prev) => !prev)}
+              onHeroUploadClick={() => heroInputRef.current?.click()}
+              onFooterUploadClick={() => footerInputRef.current?.click()}
+              onInlineUploadClick={() => inlineInputRef.current?.click()}
+              onRemoveHero={removeHeroImage}
+              onRemoveFooter={removeFooterImage}
+              onHeroUpload={handleHeroUpload}
+              onFooterUpload={handleFooterUpload}
+              onInlineUpload={handleInlineImageUpload}
+            />
+          </TemplateEditorModal>
         </div>
       )}
 

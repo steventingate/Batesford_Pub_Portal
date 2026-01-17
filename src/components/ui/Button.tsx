@@ -10,7 +10,7 @@ export function Button({ variant = 'primary', className, ...props }: ButtonProps
       ? 'btn btn-primary'
       : variant === 'outline'
       ? 'btn btn-outline'
-      : 'btn text-brand';
+      : 'btn btn-ghost';
 
   return <button className={clsx(variantClass, className)} {...props} />;
 }
