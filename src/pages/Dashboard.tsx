@@ -361,12 +361,15 @@ export default function Dashboard() {
         return;
       }
       const headers = lines[0].split(',').map((header) => header.trim().toLowerCase());
+      const lonIndex = ['lon', 'long', 'lng', 'longitude']
+        .map((key) => headers.indexOf(key))
+        .find((index) => index !== -1) ?? -1;
       const indices = {
         postcode: headers.indexOf('postcode'),
         suburb: headers.indexOf('suburb'),
         state: headers.indexOf('state'),
         lat: headers.indexOf('lat'),
-        lon: headers.indexOf('lon')
+        lon: lonIndex
       };
       if (indices.postcode === -1 || indices.lat === -1 || indices.lon === -1) {
         pushToast('CSV must include postcode, lat, and lon columns.', 'error');
@@ -374,30 +377,55 @@ export default function Dashboard() {
       }
 
       const rows = lines.slice(1).map((line) => line.split(',').map((value) => value.trim())).filter((values) => values.length >= 3);
-      const payload = rows
-        .map((values) => ({
-          postcode: values[indices.postcode],
-          suburb: indices.suburb >= 0 ? values[indices.suburb] || null : null,
-          state: indices.state >= 0 ? values[indices.state] || null : null,
-          lat: Number(values[indices.lat]),
-          lon: Number(values[indices.lon])
-        }))
-        .filter((row) => row.postcode && Number.isFinite(row.lat) && Number.isFinite(row.lon));
+      const rowsRead = rows.length;
+      const deduped = new Map<string, { postcode: string; suburb: string | null; state: string | null; lat: number; lon: number }>();
+      let validRows = 0;
+      let duplicateRows = 0;
+
+      rows.forEach((values) => {
+        const postcode = String(values[indices.postcode] ?? '').trim();
+        const lat = Number(values[indices.lat]);
+        const lon = Number(values[indices.lon]);
+        if (!postcode || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+          return;
+        }
+        validRows += 1;
+        const suburbValue = indices.suburb >= 0 ? values[indices.suburb]?.trim() || null : null;
+        const stateValue = indices.state >= 0 ? values[indices.state]?.trim() || null : null;
+        const next = { postcode, suburb: suburbValue, state: stateValue, lat, lon };
+        const existing = deduped.get(postcode);
+        if (!existing) {
+          deduped.set(postcode, next);
+          return;
+        }
+        duplicateRows += 1;
+        if (!existing.suburb && next.suburb) {
+          deduped.set(postcode, next);
+        }
+      });
+
+      const payload = Array.from(deduped.values());
 
       if (!payload.length) {
         pushToast('No valid rows found in CSV.', 'error');
         return;
       }
 
-      const { error } = await supabase
-        .from('postcode_centroids')
-        .upsert(payload, { onConflict: 'postcode' });
-      if (error) {
-        pushToast(`Upload failed: ${error.message}`, 'error');
-        return;
+      const chunkSize = 1000;
+      let upserted = 0;
+      for (let i = 0; i < payload.length; i += chunkSize) {
+        const chunk = payload.slice(i, i + chunkSize);
+        const { error } = await supabase
+          .from('postcode_centroids')
+          .upsert(chunk, { onConflict: 'postcode' });
+        if (error) {
+          pushToast(`Upload failed: ${error.message}`, 'error');
+          return;
+        }
+        upserted += chunk.length;
       }
 
-      pushToast(`Uploaded ${payload.length} postcode centroids.`, 'success');
+      pushToast(`${rowsRead} rows read, ${validRows} valid, ${duplicateRows} duplicates removed, ${upserted} inserted/updated.`, 'success');
       loadPostcodeData();
     } finally {
       setUploadingPostcodes(false);
