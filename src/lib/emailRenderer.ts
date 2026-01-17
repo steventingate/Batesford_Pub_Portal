@@ -198,7 +198,7 @@ export const renderEmailHtml = ({
   const heroUrl = resolveStorageUrl(heroPath);
   const footerUrl = resolveStorageUrl(footerPath);
 
-  const tokens = {
+  const tokens: Record<string, string> = {
     ...variables,
     brand_logo_url: logoUrl,
     hero_image_url: heroUrl,
