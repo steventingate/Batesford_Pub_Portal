@@ -271,6 +271,11 @@ export default function Campaigns() {
   const [tiktokLink, setTiktokLink] = useState(defaultTiktokLink);
   const [xLink, setXLink] = useState(defaultXLink);
   const [linkedinLink, setLinkedinLink] = useState(defaultLinkedinLink);
+  const [facebookEnabled, setFacebookEnabled] = useState(true);
+  const [instagramEnabled, setInstagramEnabled] = useState(true);
+  const [tiktokEnabled, setTiktokEnabled] = useState(true);
+  const [xEnabled, setXEnabled] = useState(true);
+  const [linkedinEnabled, setLinkedinEnabled] = useState(true);
   const [showPreviewDebug, setShowPreviewDebug] = useState(false);
   const [defaultTemplateNames, setDefaultTemplateNames] = useState<string[]>([]);
 
@@ -327,7 +332,12 @@ export default function Campaigns() {
         'instagram_link',
         'tiktok_link',
         'x_link',
-        'linkedin_link'
+        'linkedin_link',
+        'facebook_enabled',
+        'instagram_enabled',
+        'tiktok_enabled',
+        'x_enabled',
+        'linkedin_enabled'
       ]);
     if (error) {
       pushToast('Unable to load email defaults.', 'error');
@@ -337,6 +347,13 @@ export default function Campaigns() {
     (data ?? []).forEach((row) => {
       map[row.key] = row.value;
     });
+    const parseSettingBool = (value: string | undefined, fallback: boolean) => {
+      if (value === undefined) return fallback;
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'false' || normalized === '0') return false;
+      if (normalized === 'true' || normalized === '1') return true;
+      return fallback;
+    };
     setBookingLink(map.booking_link ?? defaultBookingLink);
     setVenueAddress(map.venue_address ?? defaultVenueAddress);
     setWebsiteLink(map.website_link ?? defaultWebsiteLink);
@@ -345,6 +362,11 @@ export default function Campaigns() {
     setTiktokLink(map.tiktok_link ?? defaultTiktokLink);
     setXLink(map.x_link ?? defaultXLink);
     setLinkedinLink(map.linkedin_link ?? defaultLinkedinLink);
+    setFacebookEnabled(parseSettingBool(map.facebook_enabled, true));
+    setInstagramEnabled(parseSettingBool(map.instagram_enabled, true));
+    setTiktokEnabled(parseSettingBool(map.tiktok_enabled, true));
+    setXEnabled(parseSettingBool(map.x_enabled, true));
+    setLinkedinEnabled(parseSettingBool(map.linkedin_enabled, true));
   }, [pushToast]);
 
   const loadRecipients = useCallback(async () => {
@@ -853,11 +875,11 @@ export default function Campaigns() {
     website_link: websiteLink,
     venue_address: venueAddress,
     booking_link: bookingLink,
-    facebook_link: facebookLink,
-    instagram_link: instagramLink,
-    tiktok_link: tiktokLink,
-    x_link: xLink,
-    linkedin_link: linkedinLink
+    facebook_link: facebookEnabled ? facebookLink : '',
+    instagram_link: instagramEnabled ? instagramLink : '',
+    tiktok_link: tiktokEnabled ? tiktokLink : '',
+    x_link: xEnabled ? xLink : '',
+    linkedin_link: linkedinEnabled ? linkedinLink : ''
   };
   const previewData = {
     first_name: sampleRecipient ? getFirstName(sampleRecipient.full_name) : sampleData.first_name,

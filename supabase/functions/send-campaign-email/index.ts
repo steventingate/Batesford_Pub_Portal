@@ -349,11 +349,23 @@ Deno.serve(async (req: Request) => {
       "tiktok_link",
       "x_link",
       "linkedin_link",
+      "facebook_enabled",
+      "instagram_enabled",
+      "tiktok_enabled",
+      "x_enabled",
+      "linkedin_enabled",
     ]);
   const appSettingsMap: Record<string, string> = {};
   (appSettings ?? []).forEach((row: { key: string; value: string }) => {
     appSettingsMap[row.key] = row.value;
   });
+  const parseSettingBool = (value: string | undefined, fallback: boolean) => {
+    if (value === undefined) return fallback;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "false" || normalized === "0") return false;
+    if (normalized === "true" || normalized === "1") return true;
+    return fallback;
+  };
   const resolvedSettings = {
     booking_link: appSettingsMap.booking_link ?? defaultBookingLink,
     venue_address: appSettingsMap.venue_address ?? defaultVenueAddress,
@@ -363,6 +375,11 @@ Deno.serve(async (req: Request) => {
     tiktok_link: appSettingsMap.tiktok_link ?? defaultTiktokLink,
     x_link: appSettingsMap.x_link ?? defaultXLink,
     linkedin_link: appSettingsMap.linkedin_link ?? defaultLinkedinLink,
+    facebook_enabled: parseSettingBool(appSettingsMap.facebook_enabled, true),
+    instagram_enabled: parseSettingBool(appSettingsMap.instagram_enabled, true),
+    tiktok_enabled: parseSettingBool(appSettingsMap.tiktok_enabled, true),
+    x_enabled: parseSettingBool(appSettingsMap.x_enabled, true),
+    linkedin_enabled: parseSettingBool(appSettingsMap.linkedin_enabled, true),
   };
 
   const publicUrlCache = new Map<string, string>();
@@ -496,11 +513,11 @@ Deno.serve(async (req: Request) => {
     website_link: resolvedSettings.website_link,
     venue_address: resolvedSettings.venue_address,
     booking_link: resolvedSettings.booking_link,
-    facebook_link: resolvedSettings.facebook_link,
-    instagram_link: resolvedSettings.instagram_link,
-    tiktok_link: resolvedSettings.tiktok_link,
-    x_link: resolvedSettings.x_link,
-    linkedin_link: resolvedSettings.linkedin_link,
+    facebook_link: resolvedSettings.facebook_enabled ? resolvedSettings.facebook_link : "",
+    instagram_link: resolvedSettings.instagram_enabled ? resolvedSettings.instagram_link : "",
+    tiktok_link: resolvedSettings.tiktok_enabled ? resolvedSettings.tiktok_link : "",
+    x_link: resolvedSettings.x_enabled ? resolvedSettings.x_link : "",
+    linkedin_link: resolvedSettings.linkedin_enabled ? resolvedSettings.linkedin_link : "",
     first_name:
       payload.mode === "test"
         ? getFirstName(recipientName || userData.user.email || null)

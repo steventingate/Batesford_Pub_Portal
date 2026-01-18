@@ -46,6 +46,11 @@ export default function Settings() {
   const [tiktokLink, setTiktokLink] = useState('https://www.tiktok.com/');
   const [xLink, setXLink] = useState('https://x.com/');
   const [linkedinLink, setLinkedinLink] = useState('https://www.linkedin.com/');
+  const [facebookEnabled, setFacebookEnabled] = useState(true);
+  const [instagramEnabled, setInstagramEnabled] = useState(true);
+  const [tiktokEnabled, setTiktokEnabled] = useState(true);
+  const [xEnabled, setXEnabled] = useState(true);
+  const [linkedinEnabled, setLinkedinEnabled] = useState(true);
   const [inviteEmail, setInviteEmail] = useState('');
   const [admins, setAdmins] = useState<AdminRow[]>([]);
   const [loadingAdmins, setLoadingAdmins] = useState(false);
@@ -81,7 +86,12 @@ export default function Settings() {
         'instagram_link',
         'tiktok_link',
         'x_link',
-        'linkedin_link'
+        'linkedin_link',
+        'facebook_enabled',
+        'instagram_enabled',
+        'tiktok_enabled',
+        'x_enabled',
+        'linkedin_enabled'
       ]);
     if (error) {
       toast.pushToast('Unable to load settings.', 'error');
@@ -91,6 +101,14 @@ export default function Settings() {
     (data ?? []).forEach((row) => {
       map[row.key] = row.value;
     });
+    const parseSettingBool = (value: string | undefined, fallback: boolean) => {
+      if (value === undefined) return fallback;
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'false' || normalized === '0') return false;
+      if (normalized === 'true' || normalized === '1') return true;
+      return fallback;
+    };
+
     if (map.local_postcodes !== undefined) setLocalPostcodes(map.local_postcodes);
     if (map.booking_link !== undefined) setBookingLink(map.booking_link);
     if (map.venue_address !== undefined) setVenueAddress(map.venue_address);
@@ -100,6 +118,11 @@ export default function Settings() {
     if (map.tiktok_link !== undefined) setTiktokLink(map.tiktok_link);
     if (map.x_link !== undefined) setXLink(map.x_link);
     if (map.linkedin_link !== undefined) setLinkedinLink(map.linkedin_link);
+    setFacebookEnabled(parseSettingBool(map.facebook_enabled, true));
+    setInstagramEnabled(parseSettingBool(map.instagram_enabled, true));
+    setTiktokEnabled(parseSettingBool(map.tiktok_enabled, true));
+    setXEnabled(parseSettingBool(map.x_enabled, true));
+    setLinkedinEnabled(parseSettingBool(map.linkedin_enabled, true));
   }, [toast]);
 
   const loadAdmins = useCallback(async () => {
@@ -253,7 +276,12 @@ export default function Settings() {
       { key: 'instagram_link', value: instagramLink.trim() },
       { key: 'tiktok_link', value: tiktokLink.trim() },
       { key: 'x_link', value: xLink.trim() },
-      { key: 'linkedin_link', value: linkedinLink.trim() }
+      { key: 'linkedin_link', value: linkedinLink.trim() },
+      { key: 'facebook_enabled', value: String(facebookEnabled) },
+      { key: 'instagram_enabled', value: String(instagramEnabled) },
+      { key: 'tiktok_enabled', value: String(tiktokEnabled) },
+      { key: 'x_enabled', value: String(xEnabled) },
+      { key: 'linkedin_enabled', value: String(linkedinEnabled) }
     ];
     const { error } = await supabase
       .from('app_settings')
@@ -476,36 +504,86 @@ export default function Settings() {
         <h3 className="text-2xl font-display text-brand">Social links</h3>
         <p className="text-sm text-muted">Used in the email footer social icons.</p>
         <Card className="max-w-xl">
-          <Input
-            label="Facebook"
-            value={facebookLink}
-            onChange={(event) => setFacebookLink(event.target.value)}
-            placeholder="https://www.facebook.com/yourpage"
-          />
-          <Input
-            label="Instagram"
-            value={instagramLink}
-            onChange={(event) => setInstagramLink(event.target.value)}
-            placeholder="https://www.instagram.com/yourpage"
-          />
-          <Input
-            label="TikTok"
-            value={tiktokLink}
-            onChange={(event) => setTiktokLink(event.target.value)}
-            placeholder="https://www.tiktok.com/@yourpage"
-          />
-          <Input
-            label="X (Twitter)"
-            value={xLink}
-            onChange={(event) => setXLink(event.target.value)}
-            placeholder="https://x.com/yourpage"
-          />
-          <Input
-            label="LinkedIn"
-            value={linkedinLink}
-            onChange={(event) => setLinkedinLink(event.target.value)}
-            placeholder="https://www.linkedin.com/company/yourpage"
-          />
+          <div className="space-y-4">
+            <label className="flex items-center gap-3 text-sm text-muted">
+              <input
+                type="checkbox"
+                checked={facebookEnabled}
+                onChange={(event) => setFacebookEnabled(event.target.checked)}
+              />
+              <span>Show Facebook icon</span>
+            </label>
+            <Input
+              label="Facebook"
+              value={facebookLink}
+              onChange={(event) => setFacebookLink(event.target.value)}
+              placeholder="https://www.facebook.com/yourpage"
+            />
+          </div>
+          <div className="space-y-4 mt-4">
+            <label className="flex items-center gap-3 text-sm text-muted">
+              <input
+                type="checkbox"
+                checked={instagramEnabled}
+                onChange={(event) => setInstagramEnabled(event.target.checked)}
+              />
+              <span>Show Instagram icon</span>
+            </label>
+            <Input
+              label="Instagram"
+              value={instagramLink}
+              onChange={(event) => setInstagramLink(event.target.value)}
+              placeholder="https://www.instagram.com/yourpage"
+            />
+          </div>
+          <div className="space-y-4 mt-4">
+            <label className="flex items-center gap-3 text-sm text-muted">
+              <input
+                type="checkbox"
+                checked={tiktokEnabled}
+                onChange={(event) => setTiktokEnabled(event.target.checked)}
+              />
+              <span>Show TikTok icon</span>
+            </label>
+            <Input
+              label="TikTok"
+              value={tiktokLink}
+              onChange={(event) => setTiktokLink(event.target.value)}
+              placeholder="https://www.tiktok.com/@yourpage"
+            />
+          </div>
+          <div className="space-y-4 mt-4">
+            <label className="flex items-center gap-3 text-sm text-muted">
+              <input
+                type="checkbox"
+                checked={xEnabled}
+                onChange={(event) => setXEnabled(event.target.checked)}
+              />
+              <span>Show X icon</span>
+            </label>
+            <Input
+              label="X (Twitter)"
+              value={xLink}
+              onChange={(event) => setXLink(event.target.value)}
+              placeholder="https://x.com/yourpage"
+            />
+          </div>
+          <div className="space-y-4 mt-4">
+            <label className="flex items-center gap-3 text-sm text-muted">
+              <input
+                type="checkbox"
+                checked={linkedinEnabled}
+                onChange={(event) => setLinkedinEnabled(event.target.checked)}
+              />
+              <span>Show LinkedIn icon</span>
+            </label>
+            <Input
+              label="LinkedIn"
+              value={linkedinLink}
+              onChange={(event) => setLinkedinLink(event.target.value)}
+              placeholder="https://www.linkedin.com/company/yourpage"
+            />
+          </div>
           <Button className="mt-4" onClick={saveSocialLinks}>Save social links</Button>
         </Card>
       </div>
