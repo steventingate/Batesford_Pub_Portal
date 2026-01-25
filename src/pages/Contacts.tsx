@@ -189,11 +189,19 @@ export default function Contacts() {
     }
     setSending(true);
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        throw new Error('Missing session. Please sign in again.');
+      }
       const { error } = await supabase.functions.invoke('send-campaign-email', {
         body: {
           template_id: selectedTemplateId,
           mode: 'single',
           guest_id: sendGuest.guest_id
+        },
+        headers: {
+          Authorization: `Bearer ${accessToken}`
         }
       });
       if (error) throw error;

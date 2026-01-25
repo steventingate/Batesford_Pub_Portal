@@ -919,8 +919,16 @@ export default function Campaigns() {
   const resolvedFooterPreview = resolveStorageUrl(editor.footerImagePath ?? branding.footer_banner_path ?? '');
 
   const sendCampaignEmail = async (payload: Record<string, unknown>) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
+      throw new Error('Missing session. Please sign in again.');
+    }
     const { data, error } = await supabase.functions.invoke('send-campaign-email', {
-      body: payload
+      body: payload,
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
     });
     if (error) {
       throw error;
