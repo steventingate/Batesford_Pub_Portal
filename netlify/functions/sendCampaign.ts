@@ -30,10 +30,10 @@ type AdminProfile = {
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const provider = (process.env.EMAIL_PROVIDER || 'SMTP2GO').toUpperCase();
+const provider = (process.env.EMAIL_PROVIDER || 'RESEND').toUpperCase();
 const smtp2goKey = process.env.SMTP2GO_API_KEY || '';
 const resendKey = process.env.RESEND_API_KEY || '';
-const defaultFromEmail = process.env.DEFAULT_FROM_EMAIL || 'hello@thebatesfordhotel.com.au';
+const defaultFromEmail = process.env.DEFAULT_FROM_EMAIL || 'marketing@thebatesfordhotel.com.au';
 const defaultFromName = process.env.DEFAULT_FROM_NAME || 'Batesford Pub';
 
 const restBase = supabaseUrl ? `${supabaseUrl}/rest/v1` : '';
@@ -264,6 +264,10 @@ export const handler: Handler = async (event) => {
   }
 
   const campaign = campaignResult.data;
+  const resolvedFromEmail =
+    campaign.from_email?.trim().toLowerCase() === defaultFromEmail.toLowerCase()
+      ? campaign.from_email
+      : defaultFromEmail;
 
   if (mode === 'test') {
     if (!testEmail) {
@@ -278,7 +282,7 @@ export const handler: Handler = async (event) => {
       to: testEmail,
       subject: campaign.subject,
       html,
-      fromEmail: campaign.from_email || defaultFromEmail,
+      fromEmail: resolvedFromEmail,
       fromName: campaign.from_name || defaultFromName,
       replyTo: campaign.reply_to || undefined
     });
@@ -391,7 +395,7 @@ export const handler: Handler = async (event) => {
       to: record.to_email,
       subject: campaign.subject,
       html,
-      fromEmail: campaign.from_email || defaultFromEmail,
+      fromEmail: resolvedFromEmail,
       fromName: campaign.from_name || defaultFromName,
       replyTo: campaign.reply_to || undefined
     });

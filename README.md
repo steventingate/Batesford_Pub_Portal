@@ -35,7 +35,7 @@ Set the following environment variables in Netlify:
 - EMAIL_PROVIDER (SMTP2GO or RESEND)
 - SMTP2GO_API_KEY (if using SMTP2GO)
 - RESEND_API_KEY (if using Resend)
-- DEFAULT_FROM_EMAIL
+- DEFAULT_FROM_EMAIL (recommend marketing@thebatesfordhotel.com.au)
 - DEFAULT_FROM_NAME
 - APP_BASE_URL
 
@@ -48,6 +48,11 @@ Deploy:
 The function /.netlify/functions/sendCampaign sends email from a campaign.
 - It verifies the Supabase JWT and checks the admin profile table.
 - It resolves the segment, creates email_sends rows, then sends via SMTP2GO or Resend.
+
+## Supabase Edge Functions
+The send-campaign-email function (used for test/single sends) requires:
+- RESEND_API_KEY
+- RESEND_FROM (marketing@thebatesfordhotel.com.au)
 
 ## Merge tags
 Use these in campaign HTML:

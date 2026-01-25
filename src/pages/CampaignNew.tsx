@@ -17,8 +17,8 @@ export default function CampaignNew() {
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [fromName, setFromName] = useState('Batesford Pub');
-  const [fromEmail, setFromEmail] = useState('hello@thebatesfordhotel.com.au');
-  const [replyTo, setReplyTo] = useState('hello@thebatesfordhotel.com.au');
+  const [fromEmail, setFromEmail] = useState('marketing@thebatesfordhotel.com.au');
+  const [replyTo, setReplyTo] = useState('marketing@thebatesfordhotel.com.au');
   const [segment, setSegment] = useState<SegmentFilters>({});
   const [includeTags, setIncludeTags] = useState('');
   const [excludeTags, setExcludeTags] = useState('');
