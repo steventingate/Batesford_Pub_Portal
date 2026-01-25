@@ -7,8 +7,14 @@ export const invokeEdgeFunction = async <T>(
   name: string,
   payload: Record<string, unknown>
 ) => {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData.session?.access_token;
+  let session = (await supabase.auth.getSession()).data.session;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const expiresAt = session?.expires_at ?? 0;
+  if (!session || expiresAt - nowSeconds < 60) {
+    const refresh = await supabase.auth.refreshSession();
+    session = refresh.data.session ?? session;
+  }
+  const accessToken = session?.access_token;
   if (!accessToken) {
     throw new Error('Missing session. Please sign in again.');
   }
@@ -25,10 +31,13 @@ export const invokeEdgeFunction = async <T>(
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message =
+    const apiMessage =
       data && typeof data === 'object' && 'error' in data
-        ? String((data as { error?: string }).error || 'Request failed.')
-        : 'Request failed.';
+        ? String((data as { error?: string }).error || '')
+        : '';
+    const message = apiMessage || (response.status === 401
+      ? 'Unauthorized. Please sign out and back in.'
+      : `Request failed (status ${response.status}).`);
     throw new Error(message);
   }
 
