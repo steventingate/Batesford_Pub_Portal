@@ -6,6 +6,7 @@ import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
 import { formatDateTime, toCsv } from '../lib/format';
 import { useToast } from '../components/ToastProvider';
+import { invokeEdgeFunction } from '../lib/edgeFunctions';
 
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const formatDeviceLabel = (device: string | null, os: string | null) => {
@@ -189,22 +190,11 @@ export default function Contacts() {
     }
     setSending(true);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-      if (!accessToken) {
-        throw new Error('Missing session. Please sign in again.');
-      }
-      const { error } = await supabase.functions.invoke('send-campaign-email', {
-        body: {
-          template_id: selectedTemplateId,
-          mode: 'single',
-          guest_id: sendGuest.guest_id
-        },
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
+      await invokeEdgeFunction('send-campaign-email', {
+        template_id: selectedTemplateId,
+        mode: 'single',
+        guest_id: sendGuest.guest_id
       });
-      if (error) throw error;
       pushToast(`Sent to ${sendGuest.email}`, 'success');
       setSendModalOpen(false);
       setSendGuest(null);
