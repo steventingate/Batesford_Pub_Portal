@@ -496,6 +496,7 @@
         debug: debugEnabled
       };
 
+      let connectSuccess = false;
       try {
         const { data, error } = await invokeWifiConnect(payload);
         const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
@@ -521,23 +522,38 @@
           return;
         }
 
-        setStatus('Connected ✅');
+        // Mark success BEFORE timers so the finally block does not reset the
+        // button or text while the user is waiting for the redirect.
+        connectSuccess = true;
+        setStatus('Connected ✅ — Opening your internet connection…');
+
+        // Primary redirect: give the AP 5 seconds to propagate the
+        // authorisation before sending the OS captive-portal probe URL.
         setTimeout(() => {
           window.location.replace(redirectPlan.step1);
-        }, 500);
+        }, 5000);
+
+        // Fallback: if step1 somehow did not navigate the page away (e.g. an
+        // invalid URL or a browser that ignores the replace), try step2 at 7 s
+        // and attempt to close the captive-portal window.
         setTimeout(() => {
           window.location.replace(redirectPlan.step2);
           try {
             window.close();
           } catch (err) {
-            // Ignore close failures in captive portals.
+            // Ignore — captive portal WebViews typically block window.close().
           }
-        }, 1400);
+        }, 7000);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
-        submitButton.disabled = false;
-        submitButton.textContent = 'Connect and Agree';
+        // Only re-enable the form on failure. On success the user is about to
+        // be redirected — re-enabling the button here would make the page look
+        // like it reset and invite a double-submission.
+        if (!connectSuccess) {
+          submitButton.disabled = false;
+          submitButton.textContent = 'Connect and Agree';
+        }
       }
     });
   </script>
