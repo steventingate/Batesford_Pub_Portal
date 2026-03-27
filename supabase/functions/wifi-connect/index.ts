@@ -36,7 +36,9 @@ const isAllowedOrigin = (origin: string | null): boolean => {
     return (
       url.hostname.endsWith(".netlify.app") ||
       url.hostname === "localhost" ||
-      url.hostname === "127.0.0.1"
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "thebatesfordhotel.com.au" ||
+      url.hostname.endsWith(".thebatesfordhotel.com.au")
     );
   } catch {
     return false;

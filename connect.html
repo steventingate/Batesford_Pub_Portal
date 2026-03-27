@@ -410,9 +410,9 @@
         platform = detectFallbackPlatform();
       }
 
-      const step1 = redirectUrl || 'https://www.apple.com/library/test/success.html';
+      const step1 = redirectUrl || 'https://captive.apple.com/hotspot-detect.html';
       const step2 = platform === 'apple'
-        ? 'https://www.apple.com/library/test/success.html'
+        ? 'https://captive.apple.com/hotspot-detect.html'
         : 'https://www.thebatesfordhotel.com.au/';
 
       return { step1, step2, platform, hostname };
@@ -524,7 +524,7 @@
         setStatus('Connected ✅');
         setTimeout(() => {
           window.location.replace(redirectPlan.step1);
-        }, 500);
+        }, 3000);
         setTimeout(() => {
           window.location.replace(redirectPlan.step2);
           try {
@@ -532,7 +532,7 @@
           } catch (err) {
             // Ignore close failures in captive portals.
           }
-        }, 1400);
+        }, 4500);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
