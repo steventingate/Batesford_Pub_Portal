@@ -7,7 +7,12 @@
       "Bash(grep -l \"contact_submissions\\\\|wifi_connections\\\\|guests\" C:\\\\Dev\\\\Batesford_Pub_Portal\\\\supabase\\\\migrations\\\\*.sql)",
       "Bash(find C:/Dev/Batesford_Pub_Portal -name .env* -o -name *.env)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(find /c/Dev/Batesford_Pub_Portal -type f -name netlify.toml -o -name *.toml)",
+      "Bash(find /c/Dev/Batesford_Pub_Portal -type f \\\\\\(-name *.env* -o -name .env \\\\\\))",
+      "Bash(xargs ls:*)",
+      "Bash(grep -l \"contact_submissions\" /c/Dev/Batesford_Pub_Portal/supabase/migrations/*.sql)",
+      "Bash(connection…\" so users know the portal is working during the wait.:*)"
     ]
   }
 }
