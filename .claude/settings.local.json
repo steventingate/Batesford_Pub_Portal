@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(find C:DevBatesford_Pub_Portal -name *.env* -o -name *.config.*)",
+      "Bash(find C:DevBatesford_Pub_Portal -name *.sql)",
+      "Bash(grep -l \"contact_submissions\\\\|wifi_connections\\\\|guests\" C:\\\\Dev\\\\Batesford_Pub_Portal\\\\supabase\\\\migrations\\\\*.sql)",
+      "Bash(find C:/Dev/Batesford_Pub_Portal -name .env* -o -name *.env)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
