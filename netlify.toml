@@ -25,6 +25,24 @@
   status = 200
 
 [[redirects]]
+  from = "/connect/submit"
+  to = "/.netlify/functions/captiveConnect"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/connect/status"
+  to = "/.netlify/functions/captiveStatus"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/connect/health"
+  to = "/.netlify/functions/captiveHealth"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/guest/*"
   to = "/connect.html"
   status = 200

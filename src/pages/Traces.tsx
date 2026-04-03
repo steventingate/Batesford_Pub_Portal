@@ -21,6 +21,10 @@ type TraceRow = {
   frontend_duration_ms: number | null;
   outcome: string;
   notes: string | null;
+  redirect_mode: string | null;
+  verify_attempts: number | null;
+  release_result: string | null;
+  edge_route_id: string | null;
   metadata: Record<string, unknown> | null;
 };
 
@@ -121,7 +125,7 @@ export default function Traces() {
 
     let query = supabase
       .from('wifi_auth_traces')
-      .select('trace_id, venue_slug, site_id, client_mac, ssid, ap_mac, request_url, created_at, completed_at, total_duration_ms, backend_duration_ms, frontend_duration_ms, outcome, notes, metadata')
+      .select('trace_id, venue_slug, site_id, client_mac, ssid, ap_mac, request_url, created_at, completed_at, total_duration_ms, backend_duration_ms, frontend_duration_ms, outcome, notes, redirect_mode, verify_attempts, release_result, edge_route_id, metadata')
       .order('created_at', { ascending: false })
       .limit(TRACE_FETCH_LIMIT);
 
@@ -507,6 +511,10 @@ export default function Traces() {
                 <div><strong>Frontend:</strong> {selectedTrace.frontend_duration_ms ?? '-'} ms</div>
                 <div><strong>SSID:</strong> {selectedTrace.ssid || '-'}</div>
                 <div><strong>Client MAC:</strong> {selectedTrace.client_mac || '-'}</div>
+                <div><strong>Redirect mode:</strong> {selectedTrace.redirect_mode || '-'}</div>
+                <div><strong>Verify attempts:</strong> {selectedTrace.verify_attempts ?? '-'}</div>
+                <div><strong>Release result:</strong> {selectedTrace.release_result || '-'}</div>
+                <div><strong>Edge route:</strong> {selectedTrace.edge_route_id || '-'}</div>
                 <div><strong>Created:</strong> {formatDateTime(selectedTrace.created_at)}</div>
               </div>
 

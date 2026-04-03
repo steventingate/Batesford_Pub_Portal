@@ -22,6 +22,7 @@ type Payload = {
   unifi_ap?: string;
   unifi_id?: string;
   unifi_t?: string;
+  edge_route_id?: string;
   trace_context?: {
     request_url?: string;
     page_url?: string;
@@ -136,6 +137,10 @@ type AuthTraceUpsert = {
   frontend_duration_ms?: number | null;
   outcome?: string | null;
   notes?: string | null;
+  redirect_mode?: string | null;
+  verify_attempts?: number | null;
+  release_result?: string | null;
+  edge_route_id?: string | null;
   metadata?: Record<string, unknown>;
 };
 
@@ -938,6 +943,302 @@ const parseDevice = (userAgent: string | null) => {
   return { device_type: "unknown", os_family: "unknown" };
 };
 
+const WEBSITE_FALLBACK_URL = Deno.env.get("PORTAL_WEBSITE_URL") ||
+  "https://www.thebatesfordhotel.com.au/";
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const isProbeRedirectUrl = (value: string | null | undefined): boolean => {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    if (host.includes("captive.apple.com")) return true;
+    if (host.includes("connectivitycheck.gstatic.com")) return true;
+    if (host.includes("connectivitycheck.android.com")) return true;
+    if (host.includes("clients3.google.com") && path.includes("generate_204")) {
+      return true;
+    }
+    if (host.includes("google.com") && path.includes("gen_204")) return true;
+    if (host.includes("msftconnecttest.com")) return true;
+    if (host.includes("msftncsi.com")) return true;
+  } catch {
+    return false;
+  }
+  return false;
+};
+
+const isPrivateIpv4Host = (hostname: string): boolean => {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (!match) return false;
+  const octets = match.slice(1).map((item) => Number(item));
+  if (octets.some((item) => !Number.isFinite(item) || item < 0 || item > 255)) {
+    return true;
+  }
+  const [first, second] = octets;
+  if (first === 10 || first === 127) return true;
+  if (first === 169 && second === 254) return true;
+  if (first === 172 && second >= 16 && second <= 31) return true;
+  if (first === 192 && second === 168) return true;
+  return false;
+};
+
+const isSafeExternalUrl = (value: string | null | undefined): boolean => {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    const protocol = parsed.protocol.toLowerCase();
+    if (protocol !== "http:" && protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    if (!host || host === "localhost" || host.endsWith(".local")) return false;
+    if (isPrivateIpv4Host(host)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+type RedirectContract = {
+  redirect_mode: "probe_redirect" | "website_redirect" | "verify_timeout_success_page";
+  redirect_url: string | null;
+  website_url: string;
+  release_result: "authorized_verified" | "authorized_unverified_timeout";
+  verify_attempts: number;
+};
+
+const buildRedirectContract = (
+  redirectUrl: string | null | undefined,
+  verifyAuthorized: boolean,
+  verifyAttempts: number,
+): RedirectContract => {
+  const safeWebsite = isSafeExternalUrl(WEBSITE_FALLBACK_URL)
+    ? WEBSITE_FALLBACK_URL
+    : "https://www.thebatesfordhotel.com.au/";
+  const safeProbe = redirectUrl && isProbeRedirectUrl(redirectUrl) && isSafeExternalUrl(redirectUrl)
+    ? redirectUrl
+    : null;
+
+  if (verifyAuthorized) {
+    if (safeProbe) {
+      return {
+        redirect_mode: "probe_redirect",
+        redirect_url: safeProbe,
+        website_url: safeWebsite,
+        release_result: "authorized_verified",
+        verify_attempts: Math.max(1, verifyAttempts),
+      };
+    }
+    return {
+      redirect_mode: "website_redirect",
+      redirect_url: safeWebsite,
+      website_url: safeWebsite,
+      release_result: "authorized_verified",
+      verify_attempts: Math.max(1, verifyAttempts),
+    };
+  }
+
+  return {
+    redirect_mode: "verify_timeout_success_page",
+    redirect_url: null,
+    website_url: safeWebsite,
+    release_result: "authorized_unverified_timeout",
+    verify_attempts: Math.max(1, verifyAttempts),
+  };
+};
+
+const readResponseJson = async (res: Response): Promise<unknown> => {
+  const text = await res.text().catch(() => "");
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+
+const asArray = (value: unknown): Array<Record<string, unknown>> => {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is Record<string, unknown> =>
+      entry !== null && typeof entry === "object"
+    );
+  }
+  if (value && typeof value === "object" && Array.isArray((value as { data?: unknown }).data)) {
+    return ((value as { data: unknown[] }).data).filter((entry): entry is Record<string, unknown> =>
+      entry !== null && typeof entry === "object"
+    );
+  }
+  return [];
+};
+
+const resolveV1SiteId = async (
+  baseUrl: string,
+  apiKey: string,
+  siteHint: string,
+  timeoutMs: number,
+): Promise<string> => {
+  if (siteHint) return siteHint;
+  const url = `${baseUrl}/v1/sites`;
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      url,
+      {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+      },
+      timeoutMs,
+      "UniFi v1 get sites",
+    );
+  } catch (err) {
+    throw wrapUnifiError(url, err);
+  }
+
+  if (!res.ok) {
+    const body = await readResponseText(res, 1000);
+    throw new Error(`UniFi v1 get sites failed status=${res.status} body=${body}`);
+  }
+
+  const payload = await readResponseJson(res);
+  const rows = asArray(payload);
+  const first = rows[0];
+  if (!first || typeof first.id !== "string" || !first.id) {
+    throw new Error("UniFi v1 site id could not be resolved.");
+  }
+  return first.id;
+};
+
+const resolveV1Client = async (
+  baseUrl: string,
+  apiKey: string,
+  siteId: string,
+  macAddress: string,
+  timeoutMs: number,
+): Promise<{ clientId: string; endpointUsed: string }> => {
+  const normalizedMac = normalizeMac(macAddress);
+  const filterValue = `macAddress.eq('${normalizedMac.toUpperCase()}')`;
+  const path = `/v1/sites/${encodeURIComponent(siteId)}/clients?filter=${encodeURIComponent(filterValue)}`;
+  const url = `${baseUrl}${path}`;
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      url,
+      {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+      },
+      timeoutMs,
+      "UniFi v1 get clients",
+    );
+  } catch (err) {
+    throw wrapUnifiError(url, err);
+  }
+
+  if (!res.ok) {
+    const body = await readResponseText(res, 1000);
+    throw new Error(`UniFi v1 get clients failed status=${res.status} body=${body}`);
+  }
+
+  const payload = await readResponseJson(res);
+  const rows = asArray(payload);
+  const matched = rows.find((row) => normalizeMac(String(row.macAddress ?? "")) === normalizedMac) ||
+    rows[0];
+  if (!matched || typeof matched.id !== "string" || !matched.id) {
+    throw new Error(`UniFi v1 client not found for MAC ${normalizedMac}`);
+  }
+  return { clientId: matched.id, endpointUsed: path };
+};
+
+const authorizeV1Client = async (
+  baseUrl: string,
+  apiKey: string,
+  siteId: string,
+  clientId: string,
+  timeoutMs: number,
+) => {
+  const path = `/v1/sites/${encodeURIComponent(siteId)}/clients/${encodeURIComponent(clientId)}/actions`;
+  const url = `${baseUrl}${path}`;
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          action: "AUTHORIZE_GUEST_ACCESS",
+          timeLimitMinutes: 480,
+        }),
+      },
+      timeoutMs,
+      "UniFi v1 authorize client",
+    );
+  } catch (err) {
+    throw wrapUnifiError(url, err);
+  }
+
+  const body = await readResponseText(res, 1200);
+  if (!res.ok) {
+    throw new Error(`UniFi v1 authorize failed status=${res.status} body=${body}`);
+  }
+  return { endpointUsed: path, body };
+};
+
+const readV1ClientAuthorized = async (
+  baseUrl: string,
+  apiKey: string,
+  siteId: string,
+  clientId: string,
+  timeoutMs: number,
+): Promise<{ authorized: boolean; endpointUsed: string }> => {
+  const path = `/v1/sites/${encodeURIComponent(siteId)}/clients/${encodeURIComponent(clientId)}`;
+  const url = `${baseUrl}${path}`;
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      url,
+      {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+      },
+      timeoutMs,
+      "UniFi v1 read client",
+    );
+  } catch (err) {
+    throw wrapUnifiError(url, err);
+  }
+
+  if (!res.ok) {
+    const body = await readResponseText(res, 1000);
+    throw new Error(`UniFi v1 read client failed status=${res.status} body=${body}`);
+  }
+
+  const payload = await readResponseJson(res);
+  const rows = asArray(payload);
+  const row = rows[0] || (payload && typeof payload === "object"
+    ? payload as Record<string, unknown>
+    : null);
+  const access = row && typeof row.access === "object"
+    ? row.access as Record<string, unknown>
+    : null;
+  const authorized = access?.authorized === true || access?.authorized === 1;
+  return { authorized, endpointUsed: path };
+};
+
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("origin");
   const corsHeaders = buildCorsHeaders(origin);
@@ -1012,6 +1313,13 @@ Deno.serve(async (req: Request) => {
   let serverStatusMs: number | null = null;
   let statusEndpointUsed: string | null = null;
   let cookieCacheHit = false;
+  let redirectMode: string | null = null;
+  let verifyAttempts: number | null = null;
+  let releaseResult: string | null = null;
+  const edgeRouteId = payload.edge_route_id ||
+    req.headers.get("x-nf-request-id") ||
+    req.headers.get("cf-ray") ||
+    null;
   const backendTraceEvents: AuthTraceEventUpsert[] = [];
 
   const pushBackendPointEvent = (
@@ -1064,6 +1372,9 @@ Deno.serve(async (req: Request) => {
     attempt_no: attemptNo,
   }, requestStartMs);
   pushBackendPointEvent("request_parsed", "ok");
+  if (action === "connect") {
+    pushBackendPointEvent("connect_received", "ok");
+  }
   pushBackendPointEvent("unifi_site_lookup_started", "ok", null, { site_id: site });
   pushBackendSpanEvent(
     "unifi_site_lookup_finished",
@@ -1112,6 +1423,7 @@ Deno.serve(async (req: Request) => {
       status_mode: statusMode,
       session_id: sessionId,
       attempt_no: attemptNo,
+      edge_route_id: edgeRouteId,
       unifi_t: payload.unifi_t ?? null,
       unifi_id: payload.unifi_id ?? null,
       unifi_ap: payload.unifi_ap ?? payload.ap_mac ?? null,
@@ -1121,6 +1433,9 @@ Deno.serve(async (req: Request) => {
       server_total_ms: Date.now() - requestStartMs,
       status_endpoint_used: statusEndpointUsed,
       cookie_cache_hit: cookieCacheHit,
+      redirect_mode: redirectMode,
+      verify_attempts: verifyAttempts,
+      release_result: releaseResult,
       trace_context: payload.trace_context ?? null,
       ...extraMetadata,
     };
@@ -1160,6 +1475,10 @@ Deno.serve(async (req: Request) => {
       frontend_duration_ms: frontendDurationMs,
       outcome,
       notes: notes ?? null,
+      redirect_mode: redirectMode,
+      verify_attempts: verifyAttempts,
+      release_result: releaseResult,
+      edge_route_id: edgeRouteId,
       metadata: baseMetadata,
     };
 
@@ -1350,6 +1669,11 @@ Deno.serve(async (req: Request) => {
       dbError ? "error" : "ok",
       dbError ? dbError.message : null,
     );
+    if (!dbError) {
+      pushBackendPointEvent("db_saved", "ok", null, {
+        duration_ms: Math.max(0, Math.round(dbInsertEndMs - dbInsertStartMs)),
+      });
+    }
 
     if (dbError) {
       console.log("DB insert warning", dbError.message, {
@@ -1472,8 +1796,20 @@ Deno.serve(async (req: Request) => {
   );
   const timeoutMs = action === "status" ? statusTimeoutMs : connectTimeoutMs;
   const includeGuestListFallback = Deno.env.get("UNIFI_STATUS_LIST_FALLBACK") === "true";
+  const unifiBaseUrl = (unifiBaseUrlRaw || "").replace(/\/$/, "");
+  const unifiAuthMode = (Deno.env.get("UNIFI_AUTH_MODE") || "v1_fallback").toLowerCase();
+  const unifiV1ApiKey = (Deno.env.get("UNIFI_V1_API_KEY") || "").trim();
+  const verifyAttemptsLimit = Math.max(
+    1,
+    parseTimeoutMs(Deno.env.get("UNIFI_VERIFY_ATTEMPTS"), 5),
+  );
+  const verifyDelayMs = parseTimeoutMs(Deno.env.get("UNIFI_VERIFY_DELAY_MS"), 500);
+  const canUseV1 = Boolean(unifiBaseUrl && unifiV1ApiKey) &&
+    (unifiAuthMode === "v1" || unifiAuthMode === "v1_fallback");
+  const canUseLegacy = Boolean(unifiBaseUrl && unifiUsername && unifiPassword) &&
+    (unifiAuthMode === "legacy" || unifiAuthMode === "v1_fallback");
 
-  if (!unifiBaseUrlRaw || !unifiUsername || !unifiPassword) {
+  if (!canUseV1 && !canUseLegacy) {
     pushBackendPointEvent("response_build_started", "error");
     pushBackendPointEvent("response_sent", "error", "Missing UniFi configuration");
     await persistTraceSummaryAndEvents("error", "Missing UniFi configuration");
@@ -1483,7 +1819,334 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  const unifiBaseUrl = unifiBaseUrlRaw.replace(/\/$/, "");
+  if (canUseV1) {
+    try {
+      const v1SiteIdHint = (Deno.env.get("UNIFI_V1_SITE_ID") || site).trim();
+      const siteId = await resolveV1SiteId(unifiBaseUrl, unifiV1ApiKey, v1SiteIdHint, timeoutMs);
+      const clientLookup = await resolveV1Client(
+        unifiBaseUrl,
+        unifiV1ApiKey,
+        siteId,
+        payload.unifi_id || payload.client_mac,
+        timeoutMs,
+      );
+      statusEndpointUsed = clientLookup.endpointUsed;
+      pushBackendPointEvent("unifi_login_started", "ok", null, { mode: "v1" });
+      pushBackendPointEvent("unifi_login_finished", "ok", null, {
+        mode: "v1",
+        endpoint: clientLookup.endpointUsed,
+      });
+
+      if (action === "status") {
+        const statusStartedAtMs = Date.now();
+        pushBackendPointEvent("status_check_started", "ok");
+        const statusRead = await readV1ClientAuthorized(
+          unifiBaseUrl,
+          unifiV1ApiKey,
+          siteId,
+          clientLookup.clientId,
+          timeoutMs,
+        );
+        serverStatusMs = Date.now() - statusStartedAtMs;
+        statusEndpointUsed = statusRead.endpointUsed;
+        pushBackendSpanEvent(
+          "status_check_finished",
+          statusStartedAtMs,
+          Date.now(),
+          "ok",
+          null,
+          { endpoint: statusEndpointUsed, mode: "v1" },
+        );
+
+        let recentAuthorized = false;
+        if (supabase && payload.unifi_t) {
+          try {
+            const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+            const { data: authEvents } = await supabase
+              .from("wifi_authorization_events")
+              .select("authorized_at")
+              .eq("client_mac", payload.client_mac.toLowerCase())
+              .eq("unifi_t", payload.unifi_t)
+              .gte("authorized_at", cutoff)
+              .limit(1);
+            recentAuthorized = Array.isArray(authEvents) && authEvents.length > 0;
+          } catch {
+            recentAuthorized = false;
+          }
+        }
+
+        const authorizedUnifi = statusRead.authorized;
+        const authorizedFallback = recentAuthorized;
+        const resolvedAuthorized = statusMode === "strict"
+          ? authorizedUnifi
+          : authorizedUnifi || authorizedFallback;
+        const statusSource = authorizedUnifi
+          ? "unifi"
+          : authorizedFallback
+          ? "fallback"
+          : "none";
+
+        if (supabase && payload.unifi_t) {
+          await upsertAttemptTrace(supabase, {
+            client_mac: payload.client_mac.toLowerCase(),
+            unifi_t: payload.unifi_t,
+            unifi_site: site || null,
+            session_id: sessionId,
+            attempt_no: attemptNo,
+            device_user_agent: req.headers.get("user-agent"),
+            last_action: "status",
+            server_login_ms: serverLoginMs,
+            server_authorize_ms: serverAuthorizeMs,
+            server_status_ms: serverStatusMs,
+            server_total_ms: Date.now() - requestStartMs,
+            status_endpoint_used: statusEndpointUsed,
+            cookie_cache_hit: false,
+            updated_at: new Date().toISOString(),
+          });
+        }
+
+        pushBackendPointEvent("response_build_started", "ok");
+        pushBackendPointEvent("response_sent", "ok");
+        await persistTraceSummaryAndEvents(
+          resolvedAuthorized ? "status_authorized" : "status_pending",
+          null,
+          {
+            resolved_authorized: resolvedAuthorized,
+            authorized_unifi: authorizedUnifi,
+            authorized_fallback: authorizedFallback,
+            status_source: statusSource,
+            unifi_api_mode: "v1",
+          },
+        );
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            trace_id: traceId,
+            authorized: resolvedAuthorized,
+            authorized_unifi: authorizedUnifi,
+            authorized_fallback: authorizedFallback,
+            status_source: statusSource,
+            status_mode: statusMode,
+            checked_mac: payload.unifi_id || payload.client_mac,
+            status_endpoint_used: statusEndpointUsed,
+            timing: {
+              login_ms: serverLoginMs,
+              authorize_ms: serverAuthorizeMs,
+              status_ms: serverStatusMs,
+              total_ms: Date.now() - requestStartMs,
+              cache_hit: false,
+            },
+            debug: debugEnabled ? debugInfo : undefined,
+          }),
+          { status: 200, headers: corsHeaders },
+        );
+      }
+
+      const authorizeStartedAtMs = Date.now();
+      pushBackendPointEvent("unifi_authorize_started", "ok", null, { mode: "v1" });
+      pushBackendPointEvent("unifi_authorize_start", "ok", null, { mode: "v1" });
+      await authorizeV1Client(
+        unifiBaseUrl,
+        unifiV1ApiKey,
+        siteId,
+        clientLookup.clientId,
+        timeoutMs,
+      );
+      serverAuthorizeMs = Date.now() - authorizeStartedAtMs;
+      pushBackendSpanEvent(
+        "unifi_authorize_finished",
+        authorizeStartedAtMs,
+        Date.now(),
+        "ok",
+        null,
+        { mode: "v1" },
+      );
+      pushBackendSpanEvent(
+        "unifi_authorize_finish",
+        authorizeStartedAtMs,
+        Date.now(),
+        "ok",
+        null,
+        { mode: "v1" },
+      );
+
+      const verifyStartedAtMs = Date.now();
+      let verifyAuthorized = false;
+      verifyAttempts = 0;
+      pushBackendPointEvent("verify_started", "ok", null, { mode: "v1" });
+      pushBackendPointEvent("verify_start", "ok", null, { mode: "v1" });
+      pushBackendPointEvent("optional_unifi_verify_started", "ok", null, { mode: "v1" });
+      for (let attempt = 0; attempt < verifyAttemptsLimit; attempt += 1) {
+        verifyAttempts += 1;
+        const statusRead = await readV1ClientAuthorized(
+          unifiBaseUrl,
+          unifiV1ApiKey,
+          siteId,
+          clientLookup.clientId,
+          timeoutMs,
+        );
+        statusEndpointUsed = statusRead.endpointUsed;
+        if (statusRead.authorized) {
+          verifyAuthorized = true;
+          break;
+        }
+        if (attempt < verifyAttemptsLimit - 1) {
+          await sleep(verifyDelayMs);
+        }
+      }
+      serverStatusMs = Date.now() - verifyStartedAtMs;
+      pushBackendSpanEvent(
+        "verify_finished",
+        verifyStartedAtMs,
+        Date.now(),
+        verifyAuthorized ? "ok" : "timeout",
+        verifyAuthorized ? null : "Authorization not observed during verify window",
+        { mode: "v1", attempts: verifyAttempts },
+      );
+      pushBackendSpanEvent(
+        "optional_unifi_verify_finished",
+        verifyStartedAtMs,
+        Date.now(),
+        verifyAuthorized ? "ok" : "timeout",
+        verifyAuthorized ? null : "Authorization not observed during verify window",
+        { mode: "v1", attempts: verifyAttempts },
+      );
+
+      const redirectContract = buildRedirectContract(
+        payload.redirect_url,
+        verifyAuthorized,
+        verifyAttempts ?? 1,
+      );
+      redirectMode = redirectContract.redirect_mode;
+      releaseResult = redirectContract.release_result;
+
+      if (supabase) {
+        try {
+          const { error: authEventError } = await supabase
+            .from("wifi_authorization_events")
+            .insert({
+              client_mac: payload.client_mac.toLowerCase(),
+              unifi_site: site,
+              unifi_t: payload.unifi_t ?? null,
+              authorized_at: new Date().toISOString(),
+            });
+          if (authEventError) {
+            console.log("Authorization event insert warning", authEventError.message);
+          }
+        } catch (err) {
+          console.log(
+            "Authorization event insert warning",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+
+      if (supabase && payload.unifi_t) {
+        await upsertAttemptTrace(supabase, {
+          client_mac: payload.client_mac.toLowerCase(),
+          unifi_t: payload.unifi_t,
+          unifi_site: site || null,
+          session_id: sessionId,
+          attempt_no: attemptNo,
+          device_user_agent: req.headers.get("user-agent"),
+          last_action: "connect",
+          server_login_ms: serverLoginMs,
+          server_authorize_ms: serverAuthorizeMs,
+          server_status_ms: serverStatusMs,
+          server_total_ms: Date.now() - requestStartMs,
+          status_endpoint_used: statusEndpointUsed,
+          cookie_cache_hit: false,
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      pushBackendPointEvent("redirect_issued", "ok", null, {
+        redirect_mode: redirectContract.redirect_mode,
+      });
+      pushBackendPointEvent("response_build_started", "ok");
+      pushBackendPointEvent("response_sent", "ok");
+      await persistTraceSummaryAndEvents(
+        verifyAuthorized ? "authorized" : "authorized_pending_release",
+        null,
+        {
+          stage: "unifi_authorize",
+          unifi_api_mode: "v1",
+          redirect_mode: redirectContract.redirect_mode,
+          verify_attempts: verifyAttempts,
+          release_result: redirectContract.release_result,
+        },
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          trace_id: traceId,
+          verify_authorized: verifyAuthorized,
+          verify_attempts: verifyAttempts,
+          release_result: redirectContract.release_result,
+          redirect_contract: redirectContract,
+          timing: {
+            login_ms: serverLoginMs,
+            authorize_ms: serverAuthorizeMs,
+            status_ms: serverStatusMs,
+            total_ms: Date.now() - requestStartMs,
+            cache_hit: false,
+          },
+          debug: debugEnabled ? debugInfo : undefined,
+        }),
+        { status: 200, headers: corsHeaders },
+      );
+    } catch (err) {
+      if (unifiAuthMode === "v1") {
+        const details = parseUnifiError(err);
+        pushBackendPointEvent("response_build_started", "error");
+        pushBackendPointEvent("response_sent", "error", details.message);
+        await persistTraceSummaryAndEvents("error", details.message, {
+          stage: "unifi_v1",
+          unifi_api_mode: "v1",
+        });
+        return new Response(
+          JSON.stringify({
+            error: details.message,
+            trace_id: traceId,
+            unifi_error: details.message,
+            unifi_url: details.url,
+            debug: debugEnabled ? debugInfo : undefined,
+          }),
+          { status: 502, headers: corsHeaders },
+        );
+      }
+      console.log("UniFi v1 failed, falling back to legacy", {
+        trace_id: traceId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      pushBackendPointEvent("unifi_v1_fallback", "ok", null, {
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  if (!canUseLegacy) {
+    pushBackendPointEvent("response_build_started", "error");
+    pushBackendPointEvent(
+      "response_sent",
+      "error",
+      "UniFi v1 failed and legacy fallback is not configured",
+    );
+    await persistTraceSummaryAndEvents(
+      "error",
+      "UniFi v1 failed and legacy fallback is not configured",
+      { unifi_api_mode: "v1" },
+    );
+    return new Response(
+      JSON.stringify({
+        error: "UniFi v1 failed and legacy fallback is not configured.",
+        trace_id: traceId,
+      }),
+      { status: 502, headers: corsHeaders },
+    );
+  }
 
   let loginResult: LoginResult;
   const loginStageStartMs = Date.now();
@@ -1542,6 +2205,8 @@ Deno.serve(async (req: Request) => {
   if (action !== "status") {
     const verifyStartMs = Date.now();
     pushBackendPointEvent("optional_unifi_verify_started", "ok");
+    pushBackendPointEvent("verify_started", "ok");
+    pushBackendPointEvent("verify_start", "ok");
     let sessionCheck;
     try {
       sessionCheck = await verifyUnifiSession(
@@ -1604,10 +2269,19 @@ Deno.serve(async (req: Request) => {
       Date.now(),
       "ok",
     );
+    pushBackendSpanEvent(
+      "verify_finished",
+      verifyStartMs,
+      Date.now(),
+      "ok",
+    );
   } else if (debugEnabled) {
     debugInfo.unifi_session_verify = { skipped: true, reason: "status_fast_path" };
     pushBackendPointEvent("optional_unifi_verify_started", "skipped");
+    pushBackendPointEvent("verify_started", "skipped");
+    pushBackendPointEvent("verify_start", "skipped");
     pushBackendPointEvent("optional_unifi_verify_finished", "skipped");
+    pushBackendPointEvent("verify_finished", "skipped");
   }
 
   if (action === "status") {
@@ -1864,6 +2538,7 @@ Deno.serve(async (req: Request) => {
   let authorizeResult;
   const authorizeStartedAtMs = Date.now();
   pushBackendPointEvent("unifi_authorize_started", "ok");
+  pushBackendPointEvent("unifi_authorize_start", "ok");
   try {
     const authorizeApMac = normalizeMac(payload.unifi_ap || payload.ap_mac || "");
     authorizeResult = await authorizeGuestMac(
@@ -1881,10 +2556,23 @@ Deno.serve(async (req: Request) => {
       Date.now(),
       "ok",
     );
+    pushBackendSpanEvent(
+      "unifi_authorize_finish",
+      authorizeStartedAtMs,
+      Date.now(),
+      "ok",
+    );
   } catch (err) {
     serverAuthorizeMs = Date.now() - authorizeStartedAtMs;
     pushBackendSpanEvent(
       "unifi_authorize_finished",
+      authorizeStartedAtMs,
+      Date.now(),
+      "error",
+      err instanceof Error ? err.message : String(err),
+    );
+    pushBackendSpanEvent(
+      "unifi_authorize_finish",
       authorizeStartedAtMs,
       Date.now(),
       "error",
@@ -2005,6 +2693,64 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  const verifyStartedAtMs = Date.now();
+  let verifyAuthorized = false;
+  verifyAttempts = 0;
+  pushBackendPointEvent("optional_unifi_verify_started", "ok");
+  pushBackendPointEvent("verify_started", "ok");
+  pushBackendPointEvent("verify_start", "ok");
+  for (let attempt = 0; attempt < verifyAttemptsLimit; attempt += 1) {
+    verifyAttempts += 1;
+    try {
+      const verifyResult = await checkGuestAuthorization(
+        unifiBaseUrl,
+        site,
+        loginResult.cookie,
+        payload.unifi_id || payload.client_mac,
+        timeoutMs,
+        includeGuestListFallback,
+      );
+      statusEndpointUsed = verifyResult.endpointUsed || statusEndpointUsed;
+      if (verifyResult.authorized) {
+        verifyAuthorized = true;
+        break;
+      }
+    } catch (err) {
+      if (debugEnabled) {
+        debugInfo.unifi_verify_error = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    if (attempt < verifyAttemptsLimit - 1) {
+      await sleep(verifyDelayMs);
+    }
+  }
+  serverStatusMs = Date.now() - verifyStartedAtMs;
+  pushBackendSpanEvent(
+    "optional_unifi_verify_finished",
+    verifyStartedAtMs,
+    Date.now(),
+    verifyAuthorized ? "ok" : "timeout",
+    verifyAuthorized ? null : "Authorization not observed during verify window",
+    { attempts: verifyAttempts },
+  );
+  pushBackendSpanEvent(
+    "verify_finished",
+    verifyStartedAtMs,
+    Date.now(),
+    verifyAuthorized ? "ok" : "timeout",
+    verifyAuthorized ? null : "Authorization not observed during verify window",
+    { attempts: verifyAttempts },
+  );
+
+  const redirectContract = buildRedirectContract(
+    payload.redirect_url,
+    verifyAuthorized,
+    verifyAttempts ?? 1,
+  );
+  redirectMode = redirectContract.redirect_mode;
+  releaseResult = redirectContract.release_result;
+
   if (supabase) {
     try {
       const { error: authEventError } = await supabase
@@ -2044,16 +2790,29 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  pushBackendPointEvent("redirect_issued", "ok", null, {
+    redirect_mode: redirectContract.redirect_mode,
+  });
   pushBackendPointEvent("response_build_started", "ok");
   pushBackendPointEvent("response_sent", "ok");
-  await persistTraceSummaryAndEvents("authorized", null, {
+  await persistTraceSummaryAndEvents(
+    verifyAuthorized ? "authorized" : "authorized_pending_release",
+    null,
+    {
     stage: "unifi_authorize",
+    redirect_mode: redirectContract.redirect_mode,
+    verify_attempts: verifyAttempts,
+    release_result: redirectContract.release_result,
   });
 
   return new Response(
     JSON.stringify({
       success: true,
       trace_id: traceId,
+      verify_authorized: verifyAuthorized,
+      verify_attempts: verifyAttempts,
+      release_result: redirectContract.release_result,
+      redirect_contract: redirectContract,
       timing: {
         login_ms: serverLoginMs,
         authorize_ms: serverAuthorizeMs,
