@@ -1475,12 +1475,12 @@ Deno.serve(async (req: Request) => {
       frontend_duration_ms: frontendDurationMs,
       outcome,
       notes: notes ?? null,
-      redirect_mode: redirectMode,
-      verify_attempts: verifyAttempts,
-      release_result: releaseResult,
-      edge_route_id: edgeRouteId,
       metadata: baseMetadata,
     };
+    if (redirectMode !== null) traceSummaryPayload.redirect_mode = redirectMode;
+    if (verifyAttempts !== null) traceSummaryPayload.verify_attempts = verifyAttempts;
+    if (releaseResult !== null) traceSummaryPayload.release_result = releaseResult;
+    if (edgeRouteId !== null) traceSummaryPayload.edge_route_id = edgeRouteId;
 
     const allEvents = [
       ...backendTraceEvents,
