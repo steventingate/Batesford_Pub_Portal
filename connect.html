@@ -346,6 +346,25 @@
       return { values, debugEnabled };
     };
 
+    const getQueryParamSnapshot = () => {
+      const result = {};
+      if (typeof URLSearchParams !== 'undefined') {
+        const params = new URLSearchParams(window.location.search || '');
+        params.forEach((value, key) => {
+          result[key] = safeDecode(value);
+        });
+      } else {
+        const query = (window.location.search || '').replace(/^\?/, '');
+        query.split('&').forEach((pair) => {
+          if (!pair) return;
+          const [key, value] = pair.split('=');
+          if (!key) return;
+          result[safeDecode(key)] = safeDecode(value || '');
+        });
+      }
+      return result;
+    };
+
     const storage = (() => {
       try {
         const testKey = '__unifi_test';
@@ -441,6 +460,7 @@
     })();
     const sessionStorageKey = `wifi_trace_session_${traceKeySeed}`;
     const attemptStorageKey = `wifi_trace_attempt_${traceKeySeed}`;
+    const traceBaseIdStorageKey = `wifi_trace_base_${traceKeySeed}`;
 
     let traceSessionId = storage ? storage.getItem(sessionStorageKey) : '';
     if (!traceSessionId) {
@@ -457,6 +477,17 @@
       if (!Number.isFinite(parsed) || parsed < 0) return 0;
       return Math.floor(parsed);
     })();
+
+    let traceBaseId = storage ? storage.getItem(traceBaseIdStorageKey) : '';
+    if (!traceBaseId) {
+      traceBaseId = makeSessionId();
+      if (storage) {
+        storage.setItem(traceBaseIdStorageKey, traceBaseId);
+      }
+    }
+
+    const buildTraceId = (attemptNo) => `${traceBaseId}-a${attemptNo}`;
+    let currentTraceId = buildTraceId(traceAttemptNo);
 
     const debugEnabled = (() => {
       const parsed = parseUnifiParams();
@@ -679,6 +710,14 @@
       }
     };
 
+    const attemptCloseWindow = (reason) => {
+      const closeAt = markStage('captive_window_close_attempted', 't_captive_window_close_attempted', null, {
+        trigger: reason || 'auto'
+      });
+      persistTimingSnapshot({ t_captive_window_close_attempted: closeAt }, { keepalive: true });
+      tryClosePortalWindow();
+    };
+
     const openWebsite = (destinationUrl) => {
       const safeDestination = destinationUrl || PUBLIC_FALLBACK_URL;
       try {
@@ -708,7 +747,12 @@
         continueLink.setAttribute('href', safeDestination);
         continueLink.onclick = (event) => {
           event.preventDefault();
-          const redirectNow = Date.now();
+          const redirectNow = markStage('redirect_started', 't_redirect_started', null, {
+            trigger: 'continue_button',
+            destination_url: safeDestination
+          });
+          timingState.t_redirect_called = redirectNow;
+          timingState.t_website_redirect = redirectNow;
           persistTimingSnapshot({
             t_redirect_called: redirectNow,
             t_website_redirect: redirectNow
@@ -718,12 +762,12 @@
       }
       if (closeWindowButton) {
         closeWindowButton.onclick = () => {
-          tryClosePortalWindow();
+          attemptCloseWindow('close_button');
           setTimeout(() => {
-            tryClosePortalWindow();
+            attemptCloseWindow('close_button_retry_1');
           }, 250);
           setTimeout(() => {
-            tryClosePortalWindow();
+            attemptCloseWindow('close_button_retry_2');
           }, 1000);
         };
       }
@@ -776,7 +820,58 @@
       return { data, error: null };
     };
 
+    const perfAvailable = typeof performance !== 'undefined' && typeof performance.now === 'function';
+    const pagePerfStart = perfAvailable ? performance.now() : 0;
+    const queryParamsSnapshot = getQueryParamSnapshot();
+
+    const detectClientOs = () => {
+      const ua = navigator.userAgent || '';
+      if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+      if (/Android/i.test(ua)) return 'android';
+      if (/Windows/i.test(ua)) return 'windows';
+      if (/Mac OS X/i.test(ua)) return 'macos';
+      if (/Linux/i.test(ua)) return 'linux';
+      return 'unknown';
+    };
+
+    const detectCaptiveAssistant = () => {
+      const ua = navigator.userAgent || '';
+      if (/CaptiveNetworkSupport|wispr|hotspot|captive/i.test(ua)) {
+        return true;
+      }
+      const hasUnifiParams = Boolean(queryParamsSnapshot.id || queryParamsSnapshot.ap || queryParamsSnapshot.t);
+      const unifiPath = (window.location.pathname || '').indexOf('/guest/') !== -1;
+      return hasUnifiParams || unifiPath;
+    };
+
+    const performanceNowMs = () => (perfAvailable ? performance.now() : 0);
+    const performanceSinceLoadMs = () => Math.max(0, performanceNowMs() - pagePerfStart);
+
+    const buildTraceContext = () => ({
+      request_url: window.location.href,
+      page_url: window.location.href,
+      query_params: queryParamsSnapshot,
+      user_agent: navigator.userAgent || '',
+      platform: navigator.platform || '',
+      device_os: detectClientOs(),
+      is_captive_assistant: detectCaptiveAssistant(),
+      performance_now_ms: performanceNowMs(),
+      performance_since_load_ms: performanceSinceLoadMs()
+    });
+
     const timingState = {
+      t_portal_loaded: null,
+      t_form_submit_clicked: null,
+      t_client_validation_started: null,
+      t_client_validation_finished: null,
+      t_guest_details_post_started: null,
+      t_guest_details_post_finished: null,
+      t_auth_request_started: null,
+      t_auth_response_received: null,
+      t_success_ui_rendered: null,
+      t_redirect_started: null,
+      t_redirect_finished: null,
+      t_captive_window_close_attempted: null,
       t_submit: null,
       t_submit_clicked: null,
       t_connect_response: null,
@@ -791,6 +886,30 @@
       t_website_redirect: null,
       t_page_hidden: null,
       t_page_unload: null
+    };
+
+    const traceEvents = [];
+    const appendTraceEvent = (stageName, options) => {
+      const opts = options || {};
+      const startedAt = Number(opts.started_at || Date.now());
+      const endedAt = Number(opts.ended_at || startedAt);
+      const event = {
+        stage_name: stageName,
+        started_at: startedAt,
+        ended_at: endedAt,
+        status: opts.status || 'ok',
+        message: opts.message || null,
+        metadata: {
+          source: 'client',
+          performance_now_ms: performanceNowMs(),
+          performance_since_load_ms: performanceSinceLoadMs(),
+          ...(opts.metadata || {})
+        }
+      };
+      traceEvents.push(event);
+      if (traceEvents.length > 200) {
+        traceEvents.shift();
+      }
     };
 
     const persistTimingSnapshot = (partial, options) => {
@@ -809,6 +928,8 @@
 
       const timingPayload = {
         action: 'timing',
+        trace_id: currentTraceId,
+        venue_slug: unifiState.unifi_site || null,
         session_id: traceSessionId,
         attempt_no: traceAttemptNo,
         client_mac: unifiState.client_mac,
@@ -817,6 +938,8 @@
         ap_mac: unifiState.ap_mac || unifiState.unifi_ap,
         unifi_ap: unifiState.unifi_ap,
         unifi_t: unifiState.unifi_t,
+        trace_context: buildTraceContext(),
+        trace_events: traceEvents,
         timings: timingState
       };
 
@@ -825,20 +948,52 @@
       });
     };
 
+    const markStage = (stageName, timingKey, message, metadata) => {
+      const now = Date.now();
+      if (timingKey && Object.prototype.hasOwnProperty.call(timingState, timingKey)) {
+        timingState[timingKey] = now;
+      }
+      appendTraceEvent(stageName, {
+        started_at: now,
+        ended_at: now,
+        message: message || null,
+        metadata: metadata || null
+      });
+      return now;
+    };
+
+    const markStageSpan = (stageName, startMs, endMs, metadata) => {
+      appendTraceEvent(stageName, {
+        started_at: startMs,
+        ended_at: endMs,
+        metadata: metadata || null
+      });
+    };
+
+    const portalLoadedAt = markStage('portal_loaded', 't_portal_loaded', null, {
+      location_path: window.location.pathname || '',
+      has_unifi_mac: Boolean(unifiState.client_mac)
+    });
+    persistTimingSnapshot({ t_portal_loaded: portalLoadedAt }, { keepalive: false });
+
     let pageHiddenRecorded = false;
     let pageUnloadRecorded = false;
 
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden' && !pageHiddenRecorded) {
         pageHiddenRecorded = true;
-        persistTimingSnapshot({ t_page_hidden: Date.now() }, { keepalive: true });
+        const hiddenAt = markStage('redirect_finished', 't_redirect_finished', null, { via: 'visibilitychange' });
+        timingState.t_page_hidden = hiddenAt;
+        persistTimingSnapshot({ t_page_hidden: hiddenAt }, { keepalive: true });
       }
     });
 
     window.addEventListener('pagehide', () => {
       if (pageUnloadRecorded) return;
       pageUnloadRecorded = true;
-      persistTimingSnapshot({ t_page_unload: Date.now() }, { keepalive: true });
+      const unloadAt = markStage('redirect_finished', 't_redirect_finished', null, { via: 'pagehide' });
+      timingState.t_page_unload = unloadAt;
+      persistTimingSnapshot({ t_page_unload: unloadAt }, { keepalive: true });
     });
 
     const pingProbeUrl = async (probeUrl) => {
@@ -867,7 +1022,7 @@
       });
     };
 
-    const finalizeAndRedirect = async () => {
+    const finalizeAndRedirect = async (destinationUrl) => {
       const hasSessionToken = Boolean(unifiState.unifi_t);
       if (hasSessionToken && hasFinalizeRunForSession(unifiState.unifi_t, traceSessionId)) {
         return false;
@@ -875,11 +1030,17 @@
       if (hasSessionToken) {
         markFinalizeRunForSession(unifiState.unifi_t, traceSessionId);
       }
-      persistTimingSnapshot({
-        t_redirect_called: Date.now(),
-        t_website_redirect: Date.now()
+      const redirectAt = markStage('redirect_started', 't_redirect_started', null, {
+        trigger: 'auto_finalize',
+        destination_url: destinationUrl || PUBLIC_FALLBACK_URL
       });
-      openWebsite(PUBLIC_FALLBACK_URL);
+      timingState.t_redirect_called = redirectAt;
+      timingState.t_website_redirect = redirectAt;
+      persistTimingSnapshot({
+        t_redirect_called: redirectAt,
+        t_website_redirect: redirectAt
+      });
+      openWebsite(destinationUrl || PUBLIC_FALLBACK_URL);
       return true;
     };
 
@@ -953,7 +1114,7 @@
         const ok = await runProbeLoopUntil(Date.now() + PROBE_LOOP_INTERVAL_MS, redirectPlan);
         if (ok) {
           clearInterval(interval);
-          await finalizeAndRedirect();
+          await finalizeAndRedirect(redirectPlan.safeRedirect);
         }
       }, BACKGROUND_RETRY_INTERVAL_MS);
     };
@@ -973,6 +1134,8 @@
       const statusPayload = {
         action: 'status',
         status_mode: opts.strict ? 'strict' : 'compat',
+        trace_id: currentTraceId,
+        venue_slug: unifiState.unifi_site || null,
         session_id: traceSessionId,
         attempt_no: traceAttemptNo,
         client_mac: unifiState.client_mac,
@@ -981,6 +1144,8 @@
         ap_mac: unifiState.ap_mac || unifiState.unifi_ap,
         unifi_ap: unifiState.unifi_ap,
         unifi_t: unifiState.unifi_t,
+        trace_context: buildTraceContext(),
+        trace_events: traceEvents,
         debug: debugEnabled
       };
 
@@ -1006,6 +1171,10 @@
           };
         }
 
+        if (data.trace_id && typeof data.trace_id === 'string') {
+          currentTraceId = data.trace_id;
+        }
+
         const authorizedUnifi = data.authorized_unifi === true;
         const authorizedFallback = data.authorized_fallback === true;
         const authorized = opts.strict ? authorizedUnifi : data.authorized === true;
@@ -1017,13 +1186,13 @@
             markRecentlyConnected(unifiState.client_mac);
             showConnectedState('Already connected. You can close this window.', PUBLIC_FALLBACK_URL);
             setTimeout(() => {
-              tryClosePortalWindow();
+              attemptCloseWindow('already_connected_auto_1');
             }, 150);
             setTimeout(() => {
-              tryClosePortalWindow();
+              attemptCloseWindow('already_connected_auto_2');
             }, 1000);
             setTimeout(() => {
-              tryClosePortalWindow();
+              attemptCloseWindow('already_connected_auto_3');
             }, 2500);
           }
         }
@@ -1044,13 +1213,13 @@
     } else if (wasRecentlyConnected(unifiState.client_mac)) {
       showConnectedState('Connected. You can close this page now or continue to the website.', PUBLIC_FALLBACK_URL);
       setTimeout(() => {
-        tryClosePortalWindow();
+        attemptCloseWindow('recently_connected_auto_1');
       }, 150);
       setTimeout(() => {
-        tryClosePortalWindow();
+        attemptCloseWindow('recently_connected_auto_2');
       }, 1000);
       setTimeout(() => {
-        tryClosePortalWindow();
+        attemptCloseWindow('recently_connected_auto_3');
       }, 2500);
     } else {
       submitButton.disabled = true;
@@ -1070,6 +1239,8 @@
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
+      const submitClickedAt = markStage('form_submit_clicked', 't_form_submit_clicked');
+      markStage('client_validation_started', 't_client_validation_started');
       if (postcodeError) {
         postcodeError.style.display = 'none';
       }
@@ -1079,12 +1250,30 @@
         if (postcodeError) {
           postcodeError.style.display = 'block';
         }
+        const validationFinishedAt = Date.now();
+        timingState.t_client_validation_finished = validationFinishedAt;
+        appendTraceEvent('client_validation_finished', {
+          started_at: validationFinishedAt,
+          ended_at: validationFinishedAt,
+          status: 'error',
+          message: 'Invalid postcode format'
+        });
         return;
       }
 
       if (!form.reportValidity()) {
+        const validationFinishedAt = Date.now();
+        timingState.t_client_validation_finished = validationFinishedAt;
+        appendTraceEvent('client_validation_finished', {
+          started_at: validationFinishedAt,
+          ended_at: validationFinishedAt,
+          status: 'error',
+          message: 'Form validity failed'
+        });
         return;
       }
+
+      markStage('client_validation_finished', 't_client_validation_finished');
 
       if (!unifiState.client_mac) {
         setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
@@ -1099,8 +1288,9 @@
       if (storage) {
         storage.setItem(attemptStorageKey, String(traceAttemptNo));
       }
+      currentTraceId = buildTraceId(traceAttemptNo);
 
-      const submitNow = Date.now();
+      const submitNow = submitClickedAt || Date.now();
       persistTimingSnapshot({
         t_submit: submitNow,
         t_submit_clicked: submitNow
@@ -1112,6 +1302,8 @@
 
       const payload = {
         action: 'connect',
+        trace_id: currentTraceId,
+        venue_slug: unifiState.unifi_site || null,
         session_id: traceSessionId,
         attempt_no: traceAttemptNo,
         name: form.elements.name.value.trim(),
@@ -1128,12 +1320,24 @@
         unifi_id: unifiState.unifi_id,
         unifi_ap: unifiState.unifi_ap,
         unifi_t: unifiState.unifi_t,
+        trace_context: buildTraceContext(),
+        trace_events: traceEvents,
         debug: debugEnabled
       };
 
       let connectSuccess = false;
       try {
+        const authRequestStart = markStage('guest_details_post_started', 't_guest_details_post_started');
+        markStage('auth_request_started', 't_auth_request_started', null, {
+          endpoint: 'wifi-connect.connect'
+        });
         const { data, error } = await invokeWifiConnect(payload);
+        const authResponseAt = Date.now();
+        timingState.t_guest_details_post_finished = authResponseAt;
+        timingState.t_auth_response_received = authResponseAt;
+        markStageSpan('guest_details_post', authRequestStart, authResponseAt, { endpoint: 'wifi-connect.connect' });
+        markStage('guest_details_post_finished', 't_guest_details_post_finished');
+        markStage('auth_response_received', 't_auth_response_received');
 
         if (debugEnabled && debugPanel) {
           debugPanel.style.display = 'block';
@@ -1155,6 +1359,10 @@
           return;
         }
 
+        if (data.trace_id && typeof data.trace_id === 'string') {
+          currentTraceId = data.trace_id;
+        }
+
         // Mark success so finally keeps the form disabled and avoids
         // duplicate submissions while captive browsers transition.
         connectSuccess = true;
@@ -1163,21 +1371,22 @@
           t_connect_response: connectResponseNow,
           t_connect_success: connectResponseNow
         });
+        markStage('success_ui_rendered', 't_success_ui_rendered');
         setStatus('Connected. Finalizing Wi-Fi access...');
 
         markRecentlyConnected(unifiState.client_mac);
         showConnectedState('Successfully connected. Finalizing Wi-Fi access...', PUBLIC_FALLBACK_URL);
 
         // Attempt close immediately and shortly after for captive webviews.
-        tryClosePortalWindow();
+        attemptCloseWindow('connect_success_auto_0');
         setTimeout(() => {
-          tryClosePortalWindow();
+          attemptCloseWindow('connect_success_auto_1');
         }, 250);
         setTimeout(() => {
-          tryClosePortalWindow();
+          attemptCloseWindow('connect_success_auto_2');
         }, 1200);
         setTimeout(() => {
-          tryClosePortalWindow();
+          attemptCloseWindow('connect_success_auto_3');
         }, 3000);
 
         const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
@@ -1186,7 +1395,7 @@
         const probeReady = await runProbeLoopUntil(deadlineMs, redirectPlan);
 
         if (probeReady) {
-          await finalizeAndRedirect();
+          await finalizeAndRedirect(redirectPlan.safeRedirect);
         } else {
           const strictReady = await strictPromise;
           showConnectedState(

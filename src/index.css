@@ -175,3 +175,79 @@ a {
     padding: 20px;
   }
 }
+
+.trace-row-slow {
+  box-shadow: inset 4px 0 0 rgba(180, 35, 24, 0.6);
+}
+
+.trace-note-slow {
+  border: 1px solid rgba(180, 35, 24, 0.25);
+  background: rgba(252, 229, 226, 0.7);
+  color: #8f1d14;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.trace-context-box {
+  border: 1px solid rgba(26, 71, 42, 0.15);
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.trace-context-box pre {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.trace-stage-row {
+  border: 1px solid rgba(26, 71, 42, 0.14);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.trace-stage-slow {
+  border-color: rgba(180, 35, 24, 0.35);
+  background: rgba(252, 229, 226, 0.6);
+}
+
+.trace-stage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.trace-stage-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 5px;
+  gap: 12px;
+}
+
+.trace-bar-track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(20, 51, 33, 0.12);
+  overflow: hidden;
+}
+
+.trace-bar-fill {
+  position: absolute;
+  top: 1px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #1a472a 0%, #2d5a3d 100%);
+  min-width: 2px;
+}
+
+.trace-bar-fill-slow {
+  background: linear-gradient(90deg, #b42318 0%, #d6473b 100%);
+}

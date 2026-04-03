@@ -10,6 +10,7 @@ import CampaignNew from './pages/CampaignNew';
 import CampaignDetail from './pages/CampaignDetail';
 import Settings from './pages/Settings';
 import Debug from './pages/Debug';
+import Traces from './pages/Traces';
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="campaigns" element={<Campaigns />} />
           <Route path="campaigns/new" element={<CampaignNew />} />
           <Route path="campaigns/:id" element={<CampaignDetail />} />
+          <Route path="traces" element={<Traces />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Route>

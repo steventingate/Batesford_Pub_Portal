@@ -4,6 +4,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 type Payload = {
   action?: "connect" | "status" | "timing";
   status_mode?: "strict" | "compat";
+  trace_id?: string;
+  venue_slug?: string;
   session_id?: string;
   attempt_no?: number;
   name?: string;
@@ -20,7 +22,38 @@ type Payload = {
   unifi_ap?: string;
   unifi_id?: string;
   unifi_t?: string;
+  trace_context?: {
+    request_url?: string;
+    page_url?: string;
+    query_params?: Record<string, string>;
+    user_agent?: string;
+    platform?: string;
+    device_os?: string;
+    is_captive_assistant?: boolean;
+    performance_now_ms?: number;
+    performance_since_load_ms?: number;
+  };
+  trace_events?: Array<{
+    stage_name: string;
+    started_at?: number | string;
+    ended_at?: number | string;
+    status?: string;
+    message?: string;
+    metadata?: Record<string, unknown>;
+  }>;
   timings?: {
+    t_portal_loaded?: number | string;
+    t_form_submit_clicked?: number | string;
+    t_client_validation_started?: number | string;
+    t_client_validation_finished?: number | string;
+    t_guest_details_post_started?: number | string;
+    t_guest_details_post_finished?: number | string;
+    t_auth_request_started?: number | string;
+    t_auth_response_received?: number | string;
+    t_success_ui_rendered?: number | string;
+    t_redirect_started?: number | string;
+    t_redirect_finished?: number | string;
+    t_captive_window_close_attempted?: number | string;
     t_submit?: number | string;
     t_submit_clicked?: number | string;
     t_connect_response?: number | string;
@@ -84,6 +117,40 @@ type AttemptTraceUpsert = {
   updated_at: string;
 };
 
+type AuthTraceUpsert = {
+  trace_id: string;
+  venue_slug?: string | null;
+  site_id?: string | null;
+  client_mac?: string | null;
+  ssid?: string | null;
+  ap_mac?: string | null;
+  request_url?: string | null;
+  user_agent?: string | null;
+  device_os?: string | null;
+  client_platform?: string | null;
+  captive_context?: string | null;
+  created_at?: string | null;
+  completed_at?: string | null;
+  total_duration_ms?: number | null;
+  backend_duration_ms?: number | null;
+  frontend_duration_ms?: number | null;
+  outcome?: string | null;
+  notes?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+type AuthTraceEventUpsert = {
+  trace_id: string;
+  stage_name: string;
+  started_at: string;
+  ended_at?: string | null;
+  duration_ms?: number | null;
+  status?: string | null;
+  message?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+};
+
 const MAC_REGEX = /^([0-9A-Fa-f]{2}([-:])){5}([0-9A-Fa-f]{2})$/;
 
 const normalizeMac = (value: string | null | undefined): string => {
@@ -94,6 +161,19 @@ const parseTimeoutMs = (raw: string | undefined, fallback: number): number => {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return parsed;
+};
+
+const compactObject = <T extends Record<string, unknown>>(obj: T): Partial<T> => {
+  const entries = Object.entries(obj).filter(([, value]) => value !== undefined);
+  return Object.fromEntries(entries) as Partial<T>;
+};
+
+const toDurationMs = (startedAtIso: string | null, endedAtIso: string | null): number | null => {
+  if (!startedAtIso || !endedAtIso) return null;
+  const start = Date.parse(startedAtIso);
+  const end = Date.parse(endedAtIso);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return Math.max(0, Math.round(end - start));
 };
 
 let cachedUnifiSession:
@@ -572,6 +652,8 @@ const sanitizePayload = (payload: Payload) => {
   return {
     action: payload.action,
     status_mode: payload.status_mode,
+    trace_id: payload.trace_id,
+    venue_slug: payload.venue_slug,
     session_id: payload.session_id,
     attempt_no: payload.attempt_no,
     client_mac: payload.client_mac,
@@ -605,6 +687,16 @@ const normalizeSessionId = (raw: string | undefined, fallbackSeed: string): stri
   const candidate = String(raw || "").trim();
   if (candidate.length > 0) return candidate.slice(0, 120);
   return `legacy-${fallbackSeed}`;
+};
+
+const normalizeTraceId = (
+  traceId: string | undefined,
+  sessionId: string | undefined,
+  fallbackSeed: string,
+): string => {
+  const candidate = String(traceId || sessionId || "").trim();
+  if (candidate.length > 0) return candidate.slice(0, 120);
+  return `trace-${fallbackSeed}`;
 };
 
 const isLoginRequiredResponse = (res: Response, body: string): boolean => {
@@ -662,6 +754,156 @@ const upsertAttemptTrace = async (
       attempt_no: row.attempt_no,
     });
   }
+};
+
+const upsertAuthTrace = async (
+  supabase: ReturnType<typeof createClient>,
+  row: AuthTraceUpsert,
+) => {
+  const payload = compactObject<AuthTraceUpsert>(row);
+  const { error } = await supabase
+    .from("wifi_auth_traces")
+    .upsert(payload, { onConflict: "trace_id" });
+
+  if (error) {
+    console.log("wifi_auth_traces upsert warning", error.message, {
+      trace_id: row.trace_id,
+      venue_slug: row.venue_slug,
+      outcome: row.outcome,
+    });
+  }
+};
+
+const upsertAuthTraceEvents = async (
+  supabase: ReturnType<typeof createClient>,
+  events: AuthTraceEventUpsert[],
+) => {
+  if (!events.length) return;
+  const rows = events.map((event) => ({
+    trace_id: event.trace_id,
+    stage_name: event.stage_name,
+    started_at: event.started_at,
+    ended_at: event.ended_at ?? event.started_at,
+    duration_ms: event.duration_ms ??
+      toDurationMs(event.started_at, event.ended_at ?? event.started_at),
+    status: event.status ?? "ok",
+    message: event.message ?? null,
+    metadata: event.metadata ?? {},
+    created_at: event.created_at ?? new Date().toISOString(),
+  }));
+
+  const { error } = await supabase
+    .from("wifi_auth_trace_events")
+    .upsert(rows, { onConflict: "trace_id,stage_name,started_at" });
+
+  if (error) {
+    console.log("wifi_auth_trace_events upsert warning", error.message, {
+      trace_id: rows[0]?.trace_id ?? null,
+      events: rows.length,
+    });
+  }
+};
+
+const mapTimingStagesToAuthEvents = (
+  traceId: string,
+  timingData: Payload["timings"] | undefined,
+): AuthTraceEventUpsert[] => {
+  const timings = timingData ?? {};
+  const pointStageMap: Array<{ stage: string; value?: number | string }> = [
+    { stage: "portal_loaded", value: timings.t_portal_loaded },
+    { stage: "form_submit_clicked", value: timings.t_form_submit_clicked || timings.t_submit_clicked || timings.t_submit },
+    { stage: "client_validation_started", value: timings.t_client_validation_started },
+    { stage: "client_validation_finished", value: timings.t_client_validation_finished },
+    { stage: "guest_details_post_started", value: timings.t_guest_details_post_started },
+    { stage: "guest_details_post_finished", value: timings.t_guest_details_post_finished },
+    { stage: "auth_request_started", value: timings.t_auth_request_started || timings.t_connect_response || timings.t_connect_success },
+    { stage: "auth_response_received", value: timings.t_auth_response_received || timings.t_connect_response || timings.t_connect_success },
+    { stage: "success_ui_rendered", value: timings.t_success_ui_rendered || timings.t_connect_success },
+    { stage: "redirect_started", value: timings.t_redirect_started || timings.t_redirect_called || timings.t_website_redirect },
+    { stage: "redirect_finished", value: timings.t_redirect_finished || timings.t_page_hidden || timings.t_page_unload },
+    { stage: "captive_window_close_attempted", value: timings.t_captive_window_close_attempted },
+  ];
+
+  const events: AuthTraceEventUpsert[] = [];
+  for (const item of pointStageMap) {
+    const iso = parseTimingToIso(item.value);
+    if (!iso) continue;
+    events.push({
+      trace_id: traceId,
+      stage_name: item.stage,
+      started_at: iso,
+      ended_at: iso,
+      duration_ms: 0,
+      status: "ok",
+      metadata: { source: "client" },
+    });
+  }
+
+  const spanStageMap: Array<{
+    stage: string;
+    start?: number | string;
+    end?: number | string;
+  }> = [
+    {
+      stage: "client_validation",
+      start: timings.t_client_validation_started,
+      end: timings.t_client_validation_finished,
+    },
+    {
+      stage: "guest_details_post",
+      start: timings.t_guest_details_post_started,
+      end: timings.t_guest_details_post_finished,
+    },
+    {
+      stage: "auth_request",
+      start: timings.t_auth_request_started || timings.t_guest_details_post_started,
+      end: timings.t_auth_response_received || timings.t_guest_details_post_finished,
+    },
+    {
+      stage: "strict_poll",
+      start: timings.t_strict_poll_start,
+      end: timings.t_strict_poll_end || timings.t_strict_ready,
+    },
+    {
+      stage: "probe_finalize",
+      start: timings.t_probe_start || timings.t_probe_redirect,
+      end: timings.t_probe_end,
+    },
+    {
+      stage: "redirect",
+      start: timings.t_redirect_started || timings.t_redirect_called || timings.t_website_redirect,
+      end: timings.t_redirect_finished || timings.t_page_hidden || timings.t_page_unload,
+    },
+  ];
+
+  for (const span of spanStageMap) {
+    const startIso = parseTimingToIso(span.start);
+    const endIso = parseTimingToIso(span.end);
+    if (!startIso || !endIso) continue;
+    events.push({
+      trace_id: traceId,
+      stage_name: span.stage,
+      started_at: startIso,
+      ended_at: endIso,
+      duration_ms: toDurationMs(startIso, endIso),
+      status: "ok",
+      metadata: { source: "client" },
+    });
+  }
+
+  return events;
+};
+
+const dedupeAuthTraceEvents = (events: AuthTraceEventUpsert[]): AuthTraceEventUpsert[] => {
+  const seen = new Set<string>();
+  const deduped: AuthTraceEventUpsert[] = [];
+  for (const event of events) {
+    const key = `${event.stage_name}|${event.started_at}|${event.ended_at ?? event.started_at}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(event);
+  }
+  return deduped;
 };
 
 const parseUnifiError = (err: unknown) => {
@@ -746,6 +988,8 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  const siteLookupStartMs = Date.now();
+
   const debugEnabled = payload.debug === true ||
     Deno.env.get("UNIFI_DEBUG") === "true";
   const debugInfo: Record<string, unknown> = {};
@@ -757,12 +1001,78 @@ Deno.serve(async (req: Request) => {
     : "connect";
   const statusMode = payload.status_mode === "strict" ? "strict" : "compat";
   const sessionId = normalizeSessionId(payload.session_id, payload.unifi_t || payload.client_mac);
+  const traceId = normalizeTraceId(
+    payload.trace_id,
+    payload.session_id,
+    payload.unifi_t || payload.client_mac,
+  );
   const attemptNo = parseAttemptNo(payload.attempt_no);
   let serverLoginMs: number | null = null;
   let serverAuthorizeMs: number | null = null;
   let serverStatusMs: number | null = null;
   let statusEndpointUsed: string | null = null;
   let cookieCacheHit = false;
+  const backendTraceEvents: AuthTraceEventUpsert[] = [];
+
+  const pushBackendPointEvent = (
+    stageName: string,
+    status = "ok",
+    message: string | null = null,
+    metadata?: Record<string, unknown>,
+    eventTimeMs?: number,
+  ) => {
+    const atIso = new Date(eventTimeMs ?? Date.now()).toISOString();
+    backendTraceEvents.push({
+      trace_id: traceId,
+      stage_name: stageName,
+      started_at: atIso,
+      ended_at: atIso,
+      duration_ms: 0,
+      status,
+      message,
+      metadata: { source: "backend", ...(metadata || {}) },
+    });
+  };
+
+  const pushBackendSpanEvent = (
+    stageName: string,
+    startMs: number,
+    endMs: number,
+    status = "ok",
+    message: string | null = null,
+    metadata?: Record<string, unknown>,
+  ) => {
+    const startedAt = new Date(startMs).toISOString();
+    const endedAt = new Date(endMs).toISOString();
+    backendTraceEvents.push({
+      trace_id: traceId,
+      stage_name: stageName,
+      started_at: startedAt,
+      ended_at: endedAt,
+      duration_ms: Math.max(0, Math.round(endMs - startMs)),
+      status,
+      message,
+      metadata: { source: "backend", ...(metadata || {}) },
+    });
+  };
+
+  pushBackendPointEvent("request_received", "ok", null, {
+    action,
+    status_mode: statusMode,
+    trace_id: traceId,
+    session_id: sessionId,
+    attempt_no: attemptNo,
+  }, requestStartMs);
+  pushBackendPointEvent("request_parsed", "ok");
+  pushBackendPointEvent("unifi_site_lookup_started", "ok", null, { site_id: site });
+  pushBackendSpanEvent(
+    "unifi_site_lookup_finished",
+    siteLookupStartMs,
+    Date.now(),
+    "ok",
+    null,
+    { site_id: site },
+  );
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -785,9 +1095,90 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  const requestUserAgent = req.headers.get("user-agent");
+  const requestDevice = parseDevice(requestUserAgent);
+
+  const persistTraceSummaryAndEvents = async (
+    outcome: string,
+    notes?: string | null,
+    extraMetadata?: Record<string, unknown>,
+    extraEvents?: AuthTraceEventUpsert[],
+  ) => {
+    if (!supabase) return;
+
+    const nowIso = new Date().toISOString();
+    const baseMetadata: Record<string, unknown> = {
+      action,
+      status_mode: statusMode,
+      session_id: sessionId,
+      attempt_no: attemptNo,
+      unifi_t: payload.unifi_t ?? null,
+      unifi_id: payload.unifi_id ?? null,
+      unifi_ap: payload.unifi_ap ?? payload.ap_mac ?? null,
+      server_login_ms: serverLoginMs,
+      server_authorize_ms: serverAuthorizeMs,
+      server_status_ms: serverStatusMs,
+      server_total_ms: Date.now() - requestStartMs,
+      status_endpoint_used: statusEndpointUsed,
+      cookie_cache_hit: cookieCacheHit,
+      trace_context: payload.trace_context ?? null,
+      ...extraMetadata,
+    };
+
+    const requestUrl = payload.trace_context?.request_url ||
+      payload.trace_context?.page_url ||
+      payload.redirect_url ||
+      null;
+    const frontendSubmitIso = parseTimingToIso(payload.timings?.t_submit) ||
+      parseTimingToIso(payload.timings?.t_submit_clicked);
+    const frontendRedirectIso = parseTimingToIso(payload.timings?.t_redirect_finished) ||
+      parseTimingToIso(payload.timings?.t_page_unload) ||
+      parseTimingToIso(payload.timings?.t_page_hidden) ||
+      parseTimingToIso(payload.timings?.t_website_redirect) ||
+      parseTimingToIso(payload.timings?.t_redirect_called);
+    const frontendDurationMs = toDurationMs(frontendSubmitIso, frontendRedirectIso);
+
+    const traceSummaryPayload: AuthTraceUpsert = {
+      trace_id: traceId,
+      venue_slug: payload.venue_slug ?? site ?? null,
+      site_id: site ?? null,
+      client_mac: payload.client_mac?.toLowerCase() ?? null,
+      ssid: payload.ssid ?? null,
+      ap_mac: payload.ap_mac ?? payload.unifi_ap ?? null,
+      request_url: requestUrl,
+      user_agent: payload.trace_context?.user_agent ?? requestUserAgent,
+      device_os: payload.trace_context?.device_os ?? requestDevice.os_family,
+      client_platform: payload.trace_context?.platform ?? null,
+      captive_context: payload.trace_context?.is_captive_assistant === true
+        ? "captive_assistant"
+        : payload.trace_context?.is_captive_assistant === false
+        ? "standard_browser"
+        : null,
+      completed_at: outcome === "in_progress" ? null : nowIso,
+      total_duration_ms: Date.now() - requestStartMs,
+      backend_duration_ms: Date.now() - requestStartMs,
+      frontend_duration_ms: frontendDurationMs,
+      outcome,
+      notes: notes ?? null,
+      metadata: baseMetadata,
+    };
+
+    const allEvents = [
+      ...backendTraceEvents,
+      ...(extraEvents ?? []),
+    ];
+    const writes: Promise<void>[] = [
+      upsertAuthTrace(supabase, traceSummaryPayload),
+    ];
+    if (allEvents.length > 0) {
+      writes.push(upsertAuthTraceEvents(supabase, allEvents));
+    }
+    await Promise.allSettled(writes);
+  };
+
   if ((action === "connect" || action === "timing") && !supabase) {
     return new Response(
-      JSON.stringify({ error: "Missing Supabase configuration." }),
+      JSON.stringify({ error: "Missing Supabase configuration.", trace_id: traceId }),
       { status: 500, headers: corsHeaders },
     );
   }
@@ -795,12 +1186,35 @@ Deno.serve(async (req: Request) => {
   if (action === "timing" && supabase) {
     if (!payload.unifi_t) {
       return new Response(
-        JSON.stringify({ error: "unifi_t is required for timing events." }),
+        JSON.stringify({ error: "unifi_t is required for timing events.", trace_id: traceId }),
         { status: 400, headers: corsHeaders },
       );
     }
 
     const timingData = payload.timings ?? {};
+    const clientEvents = dedupeAuthTraceEvents([
+      ...mapTimingStagesToAuthEvents(traceId, timingData),
+      ...((payload.trace_events ?? []).flatMap((event) => {
+        if (!event.stage_name) return [];
+        const startIso = parseTimingToIso(event.started_at || event.ended_at);
+        const endIso = parseTimingToIso(event.ended_at || event.started_at);
+        if (!startIso) return [];
+        return [{
+          trace_id: traceId,
+          stage_name: event.stage_name,
+          started_at: startIso,
+          ended_at: endIso || startIso,
+          duration_ms: toDurationMs(startIso, endIso || startIso),
+          status: event.status ?? "ok",
+          message: event.message ?? null,
+          metadata: { source: "client", ...(event.metadata ?? {}) },
+        }];
+      })),
+    ]);
+
+    pushBackendPointEvent("response_build_started", "ok");
+    pushBackendPointEvent("response_sent", "ok");
+
     const traceRow: AttemptTraceUpsert = {
       client_mac: payload.client_mac.toLowerCase(),
       unifi_t: payload.unifi_t,
@@ -871,9 +1285,18 @@ Deno.serve(async (req: Request) => {
     }
 
     await upsertAttemptTrace(supabase, traceRow);
+    await persistTraceSummaryAndEvents(
+      websiteRedirectIso || pageUnloadIso || pageHiddenIso ? "completed" : "in_progress",
+      null,
+      {
+        source: "client_timing",
+        client_events_count: clientEvents.length,
+      },
+      clientEvents,
+    );
 
     return new Response(
-      JSON.stringify({ success: true }),
+      JSON.stringify({ success: true, trace_id: traceId }),
       { status: 200, headers: corsHeaders },
     );
   }
@@ -914,9 +1337,19 @@ Deno.serve(async (req: Request) => {
       created_at: now.toISOString(),
     };
 
+    const dbInsertStartMs = Date.now();
+    pushBackendPointEvent("db_insert_started", "ok");
     const { error: dbError } = await supabase
       .from("contact_submissions")
       .insert(insertData);
+    const dbInsertEndMs = Date.now();
+    pushBackendSpanEvent(
+      "db_insert_finished",
+      dbInsertStartMs,
+      dbInsertEndMs,
+      dbError ? "error" : "ok",
+      dbError ? dbError.message : null,
+    );
 
     if (dbError) {
       console.log("DB insert warning", dbError.message, {
@@ -1041,8 +1474,11 @@ Deno.serve(async (req: Request) => {
   const includeGuestListFallback = Deno.env.get("UNIFI_STATUS_LIST_FALLBACK") === "true";
 
   if (!unifiBaseUrlRaw || !unifiUsername || !unifiPassword) {
+    pushBackendPointEvent("response_build_started", "error");
+    pushBackendPointEvent("response_sent", "error", "Missing UniFi configuration");
+    await persistTraceSummaryAndEvents("error", "Missing UniFi configuration");
     return new Response(
-      JSON.stringify({ error: "Missing UniFi configuration." }),
+      JSON.stringify({ error: "Missing UniFi configuration.", trace_id: traceId }),
       { status: 500, headers: corsHeaders },
     );
   }
@@ -1050,6 +1486,8 @@ Deno.serve(async (req: Request) => {
   const unifiBaseUrl = unifiBaseUrlRaw.replace(/\/$/, "");
 
   let loginResult: LoginResult;
+  const loginStageStartMs = Date.now();
+  pushBackendPointEvent("unifi_login_started", "ok");
   try {
     const session = await getUnifiSession(
       unifiBaseUrl,
@@ -1061,6 +1499,14 @@ Deno.serve(async (req: Request) => {
     loginResult = session.loginResult;
     cookieCacheHit = session.cacheHit;
     serverLoginMs = session.loginMs;
+    pushBackendSpanEvent(
+      "unifi_login_finished",
+      loginStageStartMs,
+      Date.now(),
+      "ok",
+      null,
+      { cache_hit: cookieCacheHit, endpoint: loginResult.endpoint },
+    );
     if (debugEnabled) {
       debugInfo.unifi_login = {
         endpoint: loginResult.endpoint,
@@ -1071,7 +1517,17 @@ Deno.serve(async (req: Request) => {
       };
     }
   } catch (err) {
+    pushBackendSpanEvent(
+      "unifi_login_finished",
+      loginStageStartMs,
+      Date.now(),
+      "error",
+      err instanceof Error ? err.message : String(err),
+    );
     const details = parseUnifiError(err);
+    pushBackendPointEvent("response_build_started", "error");
+    pushBackendPointEvent("response_sent", "error", details.message);
+    await persistTraceSummaryAndEvents("error", details.message);
     return new Response(
       JSON.stringify({
         error: details.message,
@@ -1084,6 +1540,8 @@ Deno.serve(async (req: Request) => {
   }
 
   if (action !== "status") {
+    const verifyStartMs = Date.now();
+    pushBackendPointEvent("optional_unifi_verify_started", "ok");
     let sessionCheck;
     try {
       sessionCheck = await verifyUnifiSession(
@@ -1092,8 +1550,18 @@ Deno.serve(async (req: Request) => {
         timeoutMs,
       );
     } catch (err) {
+      pushBackendSpanEvent(
+        "optional_unifi_verify_finished",
+        verifyStartMs,
+        Date.now(),
+        "error",
+        err instanceof Error ? err.message : String(err),
+      );
       clearCachedUnifiCookie();
       const details = parseUnifiError(err);
+      pushBackendPointEvent("response_build_started", "error");
+      pushBackendPointEvent("response_sent", "error", details.message);
+      await persistTraceSummaryAndEvents("error", details.message);
       return new Response(
         JSON.stringify({
           error: "UniFi session not established (proxy/cookie issue)",
@@ -1109,7 +1577,17 @@ Deno.serve(async (req: Request) => {
       sessionCheck.res.status !== 200 ||
       sessionCheck.body.includes("LoginRequired")
     ) {
+      pushBackendSpanEvent(
+        "optional_unifi_verify_finished",
+        verifyStartMs,
+        Date.now(),
+        "error",
+        "UniFi session not established",
+      );
       clearCachedUnifiCookie();
+      pushBackendPointEvent("response_build_started", "error");
+      pushBackendPointEvent("response_sent", "error", sessionCheck.body);
+      await persistTraceSummaryAndEvents("error", "UniFi session not established");
       return new Response(
         JSON.stringify({
           error: "UniFi session not established (proxy/cookie issue)",
@@ -1120,8 +1598,16 @@ Deno.serve(async (req: Request) => {
         { status: 502, headers: corsHeaders },
       );
     }
+    pushBackendSpanEvent(
+      "optional_unifi_verify_finished",
+      verifyStartMs,
+      Date.now(),
+      "ok",
+    );
   } else if (debugEnabled) {
     debugInfo.unifi_session_verify = { skipped: true, reason: "status_fast_path" };
+    pushBackendPointEvent("optional_unifi_verify_started", "skipped");
+    pushBackendPointEvent("optional_unifi_verify_finished", "skipped");
   }
 
   if (action === "status") {
@@ -1151,6 +1637,7 @@ Deno.serve(async (req: Request) => {
 
     let statusResult;
     const statusStartedAtMs = Date.now();
+    pushBackendPointEvent("status_check_started", "ok");
     try {
       statusResult = await checkGuestAuthorization(
         unifiBaseUrl,
@@ -1185,8 +1672,23 @@ Deno.serve(async (req: Request) => {
       }
       serverStatusMs = Date.now() - statusStartedAtMs;
       statusEndpointUsed = statusResult.endpointUsed || null;
+      pushBackendSpanEvent(
+        "status_check_finished",
+        statusStartedAtMs,
+        Date.now(),
+        "ok",
+        null,
+        { endpoint: statusEndpointUsed },
+      );
     } catch (err) {
       serverStatusMs = Date.now() - statusStartedAtMs;
+      pushBackendSpanEvent(
+        "status_check_finished",
+        statusStartedAtMs,
+        Date.now(),
+        "error",
+        err instanceof Error ? err.message : String(err),
+      );
       const details = parseUnifiError(err);
       const authorizedUnifi = false;
       const authorizedFallback = recentAuthorized;
@@ -1238,9 +1740,19 @@ Deno.serve(async (req: Request) => {
         });
       }
 
+      pushBackendPointEvent("response_build_started", "ok");
+      pushBackendPointEvent("response_sent", "ok");
+      await persistTraceSummaryAndEvents("status_error", details.message, {
+        resolved_authorized: resolvedAuthorized,
+        authorized_unifi: authorizedUnifi,
+        authorized_fallback: authorizedFallback,
+        status_source: statusSource,
+      });
+
       return new Response(
         JSON.stringify({
           success: true,
+          trace_id: traceId,
           authorized: resolvedAuthorized,
           authorized_unifi: authorizedUnifi,
           authorized_fallback: authorizedFallback,
@@ -1312,9 +1824,23 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    pushBackendPointEvent("response_build_started", "ok");
+    pushBackendPointEvent("response_sent", "ok");
+    await persistTraceSummaryAndEvents(
+      resolvedAuthorized ? "status_authorized" : "status_pending",
+      null,
+      {
+        resolved_authorized: resolvedAuthorized,
+        authorized_unifi: authorizedUnifi,
+        authorized_fallback: authorizedFallback,
+        status_source: statusSource,
+      },
+    );
+
     return new Response(
       JSON.stringify({
         success: true,
+        trace_id: traceId,
         authorized: resolvedAuthorized,
         authorized_unifi: authorizedUnifi,
         authorized_fallback: authorizedFallback,
@@ -1337,6 +1863,7 @@ Deno.serve(async (req: Request) => {
 
   let authorizeResult;
   const authorizeStartedAtMs = Date.now();
+  pushBackendPointEvent("unifi_authorize_started", "ok");
   try {
     const authorizeApMac = normalizeMac(payload.unifi_ap || payload.ap_mac || "");
     authorizeResult = await authorizeGuestMac(
@@ -1348,8 +1875,21 @@ Deno.serve(async (req: Request) => {
       timeoutMs,
     );
     serverAuthorizeMs = Date.now() - authorizeStartedAtMs;
+    pushBackendSpanEvent(
+      "unifi_authorize_finished",
+      authorizeStartedAtMs,
+      Date.now(),
+      "ok",
+    );
   } catch (err) {
     serverAuthorizeMs = Date.now() - authorizeStartedAtMs;
+    pushBackendSpanEvent(
+      "unifi_authorize_finished",
+      authorizeStartedAtMs,
+      Date.now(),
+      "error",
+      err instanceof Error ? err.message : String(err),
+    );
     clearCachedUnifiCookie();
     const details = parseUnifiError(err);
     if (debugEnabled) {
@@ -1383,9 +1923,15 @@ Deno.serve(async (req: Request) => {
         updated_at: new Date().toISOString(),
       });
     }
+    pushBackendPointEvent("response_build_started", "error");
+    pushBackendPointEvent("response_sent", "error", details.message);
+    await persistTraceSummaryAndEvents("error", details.message, {
+      stage: "unifi_authorize",
+    });
     return new Response(
       JSON.stringify({
         error: details.message,
+        trace_id: traceId,
         unifi_error: details.message,
         unifi_url: details.url,
         timing: {
@@ -1434,9 +1980,16 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    pushBackendPointEvent("response_build_started", "error");
+    pushBackendPointEvent("response_sent", "error", "UniFi authorization failed");
+    await persistTraceSummaryAndEvents("error", "UniFi authorization failed", {
+      stage: "unifi_authorize",
+    });
+
     return new Response(
       JSON.stringify({
         error: "UniFi authorization failed.",
+        trace_id: traceId,
         unifi_error: "UniFi authorization failed.",
         unifi_url: authorizeResult.url,
         timing: {
@@ -1491,9 +2044,16 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  pushBackendPointEvent("response_build_started", "ok");
+  pushBackendPointEvent("response_sent", "ok");
+  await persistTraceSummaryAndEvents("authorized", null, {
+    stage: "unifi_authorize",
+  });
+
   return new Response(
     JSON.stringify({
       success: true,
+      trace_id: traceId,
       timing: {
         login_ms: serverLoginMs,
         authorize_ms: serverAuthorizeMs,

@@ -6,6 +6,7 @@ const navItems = [
   { path: '/', label: 'Dashboard' },
   { path: '/contacts', label: 'Contacts' },
   { path: '/campaigns', label: 'Campaigns' },
+  { path: '/traces', label: 'Traces' },
   { path: '/settings', label: 'Settings' }
 ];
 
