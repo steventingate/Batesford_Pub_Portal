@@ -124,6 +124,24 @@
       display: none;
     }
 
+    .success-actions {
+      display: none;
+      margin-top: 12px;
+    }
+
+    .success-link {
+      display: inline-block;
+      width: 100%;
+      text-align: center;
+      text-decoration: none;
+      background: #1a472a;
+      color: #fff;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
     .note {
       margin-top: 14px;
       font-size: 12px;
@@ -228,6 +246,9 @@
 
       <button type="submit">Connect and Agree</button>
       <div class="status" id="status">Thanks. Connecting you now.</div>
+      <div class="success-actions" id="success-actions">
+        <a id="continue-link" class="success-link" href="https://www.thebatesfordhotel.com.au/" target="_blank" rel="noopener">Continue to Batesford Pub website</a>
+      </div>
       <p class="note">By connecting you accept the acceptable use policy and consent to receiving occasional offers. We never share your details with third parties.</p>
     </form>
 
@@ -248,6 +269,8 @@
     const submitButton = form.querySelector('button[type="submit"]');
     const postcodeInput = document.getElementById('postcode');
     const postcodeError = document.getElementById('postcode-error');
+    const successActions = document.getElementById('success-actions');
+    const continueLink = document.getElementById('continue-link');
 
     const setStatus = (message, isError) => {
       status.style.display = 'block';
@@ -308,6 +331,17 @@
         return sessionStorage;
       } catch (err) {
         return null;
+      }
+    })();
+
+    const persistentStorage = (() => {
+      try {
+        const testKey = '__unifi_persist_test';
+        localStorage.setItem(testKey, '1');
+        localStorage.removeItem(testKey);
+        return localStorage;
+      } catch (err) {
+        return storage;
       }
     })();
 
@@ -381,7 +415,29 @@
     };
 
     const isAndroidHost = (hostname) => {
-      return hostname.indexOf('gstatic.com') !== -1;
+      return hostname.indexOf('gstatic.com') !== -1 ||
+        hostname.indexOf('google.com') !== -1;
+    };
+
+    const isProbeUrl = (value) => {
+      if (!value) return false;
+      let url;
+      try {
+        url = new URL(value);
+      } catch (err) {
+        return false;
+      }
+
+      const host = url.hostname.toLowerCase();
+      const path = url.pathname.toLowerCase();
+      if (host.indexOf('captive.apple.com') !== -1) return true;
+      if (host.indexOf('connectivitycheck.gstatic.com') !== -1) return true;
+      if (host.indexOf('connectivitycheck.android.com') !== -1) return true;
+      if (host.indexOf('clients3.google.com') !== -1 && path.indexOf('generate_204') !== -1) return true;
+      if (host.indexOf('google.com') !== -1 && path.indexOf('gen_204') !== -1) return true;
+      if (host.indexOf('msftconnecttest.com') !== -1) return true;
+      if (host.indexOf('msftncsi.com') !== -1) return true;
+      return false;
     };
 
     const detectFallbackPlatform = () => {
@@ -394,6 +450,9 @@
       }
       return 'other';
     };
+
+    const PUBLIC_FALLBACK_URL = 'https://www.thebatesfordhotel.com.au/';
+    const CONNECTION_TTL_MS = 2 * 60 * 1000;
 
     const chooseRedirectPlan = (redirectUrl) => {
       const hostname = getHostname(redirectUrl);
@@ -410,12 +469,95 @@
         platform = detectFallbackPlatform();
       }
 
-      const step1 = redirectUrl || 'https://www.apple.com/library/test/success.html';
-      const step2 = platform === 'apple'
-        ? 'https://www.apple.com/library/test/success.html'
-        : 'https://www.thebatesfordhotel.com.au/';
+      const probeRedirect = isProbeUrl(redirectUrl || '');
+      const safeRedirect = redirectUrl && !probeRedirect
+        ? redirectUrl
+        : PUBLIC_FALLBACK_URL;
 
-      return { step1, step2, platform, hostname };
+      return {
+        platform,
+        hostname,
+        probeRedirect,
+        safeRedirect,
+        originalRedirect: redirectUrl || ''
+      };
+    };
+
+    const connectedKeyForMac = (mac) => {
+      const normalized = (mac || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+      return normalized ? `wifi_connected_${normalized}` : '';
+    };
+
+    const setConnectedCookie = (mac) => {
+      const key = connectedKeyForMac(mac);
+      if (!key) return;
+      const maxAgeSeconds = Math.floor(CONNECTION_TTL_MS / 1000);
+      document.cookie = `${key}=1; Max-Age=${maxAgeSeconds}; Path=/; SameSite=Lax`;
+    };
+
+    const hasConnectedCookie = (mac) => {
+      const key = connectedKeyForMac(mac);
+      if (!key) return false;
+      const encodedPrefix = `${encodeURIComponent(key)}=`;
+      return document.cookie.split(';').some((entry) => entry.trim().indexOf(encodedPrefix) === 0);
+    };
+
+    const markRecentlyConnected = (mac) => {
+      const key = connectedKeyForMac(mac);
+      if (!key) return;
+      if (persistentStorage) {
+        persistentStorage.setItem(key, String(Date.now()));
+      }
+      setConnectedCookie(mac);
+    };
+
+    const wasRecentlyConnected = (mac) => {
+      if (hasConnectedCookie(mac)) return true;
+      if (!persistentStorage) return false;
+      const key = connectedKeyForMac(mac);
+      if (!key) return false;
+      const raw = persistentStorage.getItem(key);
+      if (!raw) return false;
+      const timestamp = Number(raw);
+      if (!Number.isFinite(timestamp)) {
+        persistentStorage.removeItem(key);
+        return false;
+      }
+      if (Date.now() - timestamp > CONNECTION_TTL_MS) {
+        persistentStorage.removeItem(key);
+        return false;
+      }
+      return true;
+    };
+
+    const tryClosePortalWindow = () => {
+      try {
+        window.close();
+      } catch (err) {
+        // Ignore - captive portal webviews usually restrict close behavior.
+      }
+    };
+
+    const showConnectedState = (message, destinationUrl) => {
+      const safeDestination = destinationUrl || PUBLIC_FALLBACK_URL;
+      setStatus(message || 'Connected. You can close this page now.');
+
+      if (continueLink) {
+        continueLink.setAttribute('href', safeDestination);
+      }
+      if (successActions) {
+        successActions.style.display = 'block';
+      }
+
+      submitButton.disabled = true;
+      submitButton.textContent = 'Connected';
+
+      const formElements = form.querySelectorAll('input, button, select, textarea');
+      formElements.forEach((element) => {
+        if (element !== continueLink) {
+          element.disabled = true;
+        }
+      });
     };
 
     const hasSupabase = typeof supabase !== 'undefined' &&
@@ -424,6 +566,7 @@
       ? supabase.createClient(supabaseUrl, supabaseKey)
       : null;
     const functionUrl = `${supabaseUrl}/functions/v1/wifi-connect`;
+    let statusCheckInFlight = false;
 
     const invokeWifiConnect = async (payload) => {
       if (supabaseClient) {
@@ -447,8 +590,84 @@
       return { data, error: null };
     };
 
+    const checkAuthorizationStatus = async () => {
+      if (!unifiState.client_mac || !unifiState.unifi_site) {
+        return false;
+      }
+
+      const statusPayload = {
+        action: 'status',
+        client_mac: unifiState.client_mac,
+        unifi_site: unifiState.unifi_site,
+        unifi_id: unifiState.unifi_id,
+        unifi_ap: unifiState.unifi_ap,
+        unifi_t: unifiState.unifi_t,
+        debug: debugEnabled
+      };
+
+      try {
+        const { data, error } = await invokeWifiConnect(statusPayload);
+
+        if (debugEnabled && debugPanel) {
+          debugPanel.style.display = 'block';
+          debugPanel.textContent = JSON.stringify({
+            status_check_payload: statusPayload,
+            status_check_response: data || null,
+            status_check_error: error || null
+          }, null, 2);
+        }
+
+        if (error || !data || data.success !== true) {
+          return false;
+        }
+
+        if (data.authorized === true) {
+          markRecentlyConnected(unifiState.client_mac);
+          showConnectedState('Already connected. You can close this window.', PUBLIC_FALLBACK_URL);
+          setTimeout(() => {
+            tryClosePortalWindow();
+          }, 150);
+          setTimeout(() => {
+            tryClosePortalWindow();
+          }, 1000);
+          setTimeout(() => {
+            tryClosePortalWindow();
+          }, 2500);
+          return true;
+        }
+      } catch (err) {
+        return false;
+      }
+
+      return false;
+    };
+
     if (!unifiState.client_mac) {
       setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
+    } else if (wasRecentlyConnected(unifiState.client_mac)) {
+      showConnectedState('Connected. You can close this page now or continue to the website.', PUBLIC_FALLBACK_URL);
+      setTimeout(() => {
+        tryClosePortalWindow();
+      }, 150);
+      setTimeout(() => {
+        tryClosePortalWindow();
+      }, 1000);
+      setTimeout(() => {
+        tryClosePortalWindow();
+      }, 2500);
+    } else {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Checking...';
+      statusCheckInFlight = true;
+      (async () => {
+        const alreadyConnected = await checkAuthorizationStatus();
+        statusCheckInFlight = false;
+        if (!alreadyConnected) {
+          submitButton.disabled = false;
+          submitButton.textContent = 'Connect and Agree';
+          status.style.display = 'none';
+        }
+      })();
     }
 
     form.addEventListener('submit', async (event) => {
@@ -474,11 +693,16 @@
         return;
       }
 
+      if (statusCheckInFlight) {
+        return;
+      }
+
       submitButton.disabled = true;
       submitButton.textContent = 'Connecting...';
       setStatus('Connecting you to Wi-Fi...');
 
       const payload = {
+        action: 'connect',
         name: form.elements.name.value.trim(),
         email: form.elements.email.value.trim(),
         mobile: form.elements.phone.value.trim(),
@@ -522,34 +746,25 @@
           return;
         }
 
-        // Mark success BEFORE timers so the finally block does not reset the
-        // button or text while the user is waiting for the redirect.
+        // Mark success so finally keeps the form disabled and avoids
+        // duplicate submissions while captive browsers transition.
         connectSuccess = true;
-        setStatus('Connected ✅ — Opening your internet connection…');
+        markRecentlyConnected(unifiState.client_mac);
+        showConnectedState('Successfully connected. You can close this window.', PUBLIC_FALLBACK_URL);
 
-        // Primary redirect: give the AP 5 seconds to propagate the
-        // authorisation before sending the OS captive-portal probe URL.
+        // Attempt close immediately and shortly after for captive webviews.
+        tryClosePortalWindow();
         setTimeout(() => {
-          window.location.replace(redirectPlan.step1);
-        }, 5000);
-
-        // Fallback: if step1 somehow did not navigate the page away (e.g. an
-        // invalid URL or a browser that ignores the replace), try step2 at 7 s
-        // and attempt to close the captive-portal window.
+          tryClosePortalWindow();
+        }, 250);
         setTimeout(() => {
-          window.location.replace(redirectPlan.step2);
-          try {
-            window.close();
-          } catch (err) {
-            // Ignore — captive portal WebViews typically block window.close().
-          }
-        }, 7000);
+          tryClosePortalWindow();
+        }, 1200);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
-        // Only re-enable the form on failure. On success the user is about to
-        // be redirected — re-enabling the button here would make the page look
-        // like it reset and invite a double-submission.
+        // Re-enable only on failure. On success, keep disabled to prevent
+        // accidental retries after captive-browser reloads.
         if (!connectSuccess) {
           submitButton.disabled = false;
           submitButton.textContent = 'Connect and Agree';
