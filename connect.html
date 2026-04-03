@@ -595,8 +595,8 @@
     const PUBLIC_FALLBACK_URL = 'https://www.thebatesfordhotel.com.au/';
     const WEBSITE_PROBE_URL = 'https://www.thebatesfordhotel.com.au/favicon.ico';
     const CONNECTION_TTL_MS = 2 * 60 * 1000;
-    const FAST_PATH_MAX_WAIT_MS = 3000;
-    const PROBE_LOOP_INTERVAL_MS = 400;
+    const FAST_PATH_MAX_WAIT_MS = 8000;
+    const PROBE_LOOP_INTERVAL_MS = 500;
 
     const chooseRedirectPlan = (redirectUrl) => {
       const hostname = getHostname(redirectUrl);
@@ -745,7 +745,7 @@
       persistTimingSnapshot({
         t_redirect_called: redirectAt,
         t_website_redirect: redirectAt
-      });
+      }, { keepalive: true });
       openWebsite(safeDestination);
     };
 
@@ -1027,7 +1027,12 @@
       });
     };
 
-    const finalizeAndRedirect = async (destinationUrl) => {
+    const finalizeAndRedirect = async (redirectPlan) => {
+      const plan = redirectPlan || chooseRedirectPlan(unifiState.redirect_url);
+      if (plan.probeFinalizeUrl) {
+        return triggerProbeFinalizeNavigation(plan);
+      }
+
       const hasSessionToken = Boolean(unifiState.unifi_t);
       if (hasSessionToken && hasFinalizeRunForSession(unifiState.unifi_t, traceSessionId, traceAttemptNo)) {
         return false;
@@ -1035,16 +1040,12 @@
       if (hasSessionToken) {
         markFinalizeRunForSession(unifiState.unifi_t, traceSessionId, traceAttemptNo);
       }
-      redirectToWebsite(destinationUrl || PUBLIC_FALLBACK_URL, 'auto_finalize');
+      redirectToWebsite(plan.safeRedirect || PUBLIC_FALLBACK_URL, 'auto_finalize_website');
       return true;
     };
 
-    const runProbeLoopUntil = async (deadlineMs, redirectPlan) => {
-      const probeTargets = [];
-      if (redirectPlan.probeFinalizeUrl) {
-        probeTargets.push(redirectPlan.probeFinalizeUrl);
-      }
-      probeTargets.push(WEBSITE_PROBE_URL);
+    const runProbeLoopUntil = async (deadlineMs) => {
+      const probeTargets = [WEBSITE_PROBE_URL];
 
       let probeStartMarked = false;
       while (Date.now() < deadlineMs) {
@@ -1107,7 +1108,7 @@
         t_probe_redirect: probeAt,
         t_redirect_called: probeAt,
         t_website_redirect: probeAt
-      });
+      }, { keepalive: true });
       const targetUrl = appendCacheBust(redirectPlan.probeFinalizeUrl, '_finalize');
       try {
         window.location.replace(targetUrl);
@@ -1209,16 +1210,13 @@
     if (!unifiState.client_mac) {
       setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
     } else if (hasFinalizeRunForSession(unifiState.unifi_t, traceSessionId, traceAttemptNo)) {
-      showConnectedState('Connected. Finalizing Wi-Fi access...', PUBLIC_FALLBACK_URL);
+      showConnectedState('Connected. Finalizing Wi-Fi access. If this page stays open, tap Continue.', PUBLIC_FALLBACK_URL);
       setTimeout(() => {
         attemptCloseWindow('finalize_restore_auto_1');
       }, 150);
       setTimeout(() => {
         attemptCloseWindow('finalize_restore_auto_2');
       }, 1000);
-      setTimeout(() => {
-        redirectToWebsite(PUBLIC_FALLBACK_URL, 'finalize_restore_redirect');
-      }, 1200);
     } else if (wasRecentlyConnected(unifiState.client_mac)) {
       showConnectedState('Connected. You can close this page now or continue to the website.', PUBLIC_FALLBACK_URL);
       setTimeout(() => {
@@ -1400,12 +1398,17 @@
 
         const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
         const deadlineMs = Date.now() + FAST_PATH_MAX_WAIT_MS;
-        const probeReady = await runProbeLoopUntil(deadlineMs, redirectPlan);
+        const probeReady = await runProbeLoopUntil(deadlineMs);
 
-        if (probeReady && triggerProbeFinalizeNavigation(redirectPlan)) {
+        if (probeReady) {
+          if (await finalizeAndRedirect(redirectPlan)) {
+            return;
+          }
+          redirectToWebsite(redirectPlan.safeRedirect, 'auto_finalize_fallback');
           return;
         }
-        await finalizeAndRedirect(redirectPlan.safeRedirect);
+
+        setStatus('Successfully connected. Finalizing Wi-Fi access... If this page stays open, tap Continue.', false);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
