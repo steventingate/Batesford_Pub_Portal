@@ -142,6 +142,13 @@
       font-weight: 600;
     }
 
+    .close-link {
+      margin-top: 10px;
+      background: #ffffff;
+      color: #1a472a;
+      border: 1px solid #1a472a;
+    }
+
     .note {
       margin-top: 14px;
       font-size: 12px;
@@ -247,7 +254,8 @@
       <button type="submit">Connect and Agree</button>
       <div class="status" id="status">Thanks. Connecting you now.</div>
       <div class="success-actions" id="success-actions">
-        <a id="continue-link" class="success-link" href="https://www.thebatesfordhotel.com.au/" target="_blank" rel="noopener">Continue to Batesford Pub website</a>
+        <a id="continue-link" class="success-link" href="https://www.thebatesfordhotel.com.au/" target="_self">Continue to Batesford Pub website</a>
+        <button id="close-window-btn" type="button" class="success-link close-link">Close this window</button>
       </div>
       <p class="note">By connecting you accept the acceptable use policy and consent to receiving occasional offers. We never share your details with third parties.</p>
     </form>
@@ -271,6 +279,7 @@
     const postcodeError = document.getElementById('postcode-error');
     const successActions = document.getElementById('success-actions');
     const continueLink = document.getElementById('continue-link');
+    const closeWindowButton = document.getElementById('close-window-btn');
 
     const setStatus = (message, isError) => {
       status.style.display = 'block';
@@ -453,6 +462,7 @@
 
     const PUBLIC_FALLBACK_URL = 'https://www.thebatesfordhotel.com.au/';
     const CONNECTION_TTL_MS = 2 * 60 * 1000;
+    const AUTO_NAV_TTL_MS = 90 * 1000;
 
     const chooseRedirectPlan = (redirectUrl) => {
       const hostname = getHostname(redirectUrl);
@@ -488,6 +498,11 @@
       return normalized ? `wifi_connected_${normalized}` : '';
     };
 
+    const autoNavigateKeyForMac = (mac) => {
+      const normalized = (mac || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+      return normalized ? `wifi_auto_nav_${normalized}` : '';
+    };
+
     const setConnectedCookie = (mac) => {
       const key = connectedKeyForMac(mac);
       if (!key) return;
@@ -500,6 +515,31 @@
       if (!key) return false;
       const encodedPrefix = `${encodeURIComponent(key)}=`;
       return document.cookie.split(';').some((entry) => entry.trim().indexOf(encodedPrefix) === 0);
+    };
+
+    const markAutoNavigateAttempted = (mac) => {
+      if (!persistentStorage) return;
+      const key = autoNavigateKeyForMac(mac);
+      if (!key) return;
+      persistentStorage.setItem(key, String(Date.now()));
+    };
+
+    const hasRecentAutoNavigateAttempt = (mac) => {
+      if (!persistentStorage) return false;
+      const key = autoNavigateKeyForMac(mac);
+      if (!key) return false;
+      const raw = persistentStorage.getItem(key);
+      if (!raw) return false;
+      const timestamp = Number(raw);
+      if (!Number.isFinite(timestamp)) {
+        persistentStorage.removeItem(key);
+        return false;
+      }
+      if (Date.now() - timestamp > AUTO_NAV_TTL_MS) {
+        persistentStorage.removeItem(key);
+        return false;
+      }
+      return true;
     };
 
     const markRecentlyConnected = (mac) => {
@@ -538,12 +578,41 @@
       }
     };
 
-    const showConnectedState = (message, destinationUrl) => {
+    const openWebsite = (destinationUrl) => {
       const safeDestination = destinationUrl || PUBLIC_FALLBACK_URL;
+      try {
+        window.location.assign(safeDestination);
+        return;
+      } catch (err) {
+        // Ignore and try fallback assignment.
+      }
+
+      try {
+        window.location.href = safeDestination;
+      } catch (err) {
+        // Ignore - captive portals may block navigation.
+      }
+    };
+
+    const showConnectedState = (message, destinationUrl, options = {}) => {
+      const safeDestination = destinationUrl || PUBLIC_FALLBACK_URL;
+      const autoNavigate = options.autoNavigate === true;
       setStatus(message || 'Connected. You can close this page now.');
 
       if (continueLink) {
         continueLink.setAttribute('href', safeDestination);
+        continueLink.onclick = (event) => {
+          event.preventDefault();
+          openWebsite(safeDestination);
+        };
+      }
+      if (closeWindowButton) {
+        closeWindowButton.onclick = () => {
+          tryClosePortalWindow();
+          setTimeout(() => {
+            tryClosePortalWindow();
+          }, 250);
+        };
       }
       if (successActions) {
         successActions.style.display = 'block';
@@ -554,10 +623,21 @@
 
       const formElements = form.querySelectorAll('input, button, select, textarea');
       formElements.forEach((element) => {
-        if (element !== continueLink) {
+        if (element !== continueLink && element !== closeWindowButton) {
           element.disabled = true;
         }
       });
+
+      if (
+        autoNavigate &&
+        unifiState.client_mac &&
+        !hasRecentAutoNavigateAttempt(unifiState.client_mac)
+      ) {
+        markAutoNavigateAttempted(unifiState.client_mac);
+        setTimeout(() => {
+          openWebsite(safeDestination);
+        }, 1600);
+      }
     };
 
     const hasSupabase = typeof supabase !== 'undefined' &&
@@ -623,7 +703,7 @@
 
         if (data.authorized === true) {
           markRecentlyConnected(unifiState.client_mac);
-          showConnectedState('Already connected. You can close this window.', PUBLIC_FALLBACK_URL);
+          showConnectedState('Already connected. You can close this window.', PUBLIC_FALLBACK_URL, { autoNavigate: true });
           setTimeout(() => {
             tryClosePortalWindow();
           }, 150);
@@ -645,7 +725,7 @@
     if (!unifiState.client_mac) {
       setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
     } else if (wasRecentlyConnected(unifiState.client_mac)) {
-      showConnectedState('Connected. You can close this page now or continue to the website.', PUBLIC_FALLBACK_URL);
+      showConnectedState('Connected. You can close this page now or continue to the website.', PUBLIC_FALLBACK_URL, { autoNavigate: true });
       setTimeout(() => {
         tryClosePortalWindow();
       }, 150);
@@ -750,7 +830,7 @@
         // duplicate submissions while captive browsers transition.
         connectSuccess = true;
         markRecentlyConnected(unifiState.client_mac);
-        showConnectedState('Successfully connected. You can close this window.', PUBLIC_FALLBACK_URL);
+        showConnectedState('Successfully connected. You can close this window.', PUBLIC_FALLBACK_URL, { autoNavigate: true });
 
         // Attempt close immediately and shortly after for captive webviews.
         tryClosePortalWindow();
