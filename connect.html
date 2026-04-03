@@ -749,7 +749,6 @@
 
         if (data.authorized === true) {
           if (!opts.silent) {
-            const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
             markRecentlyConnected(unifiState.client_mac);
             showConnectedState('Already connected. You can close this window.', PUBLIC_FALLBACK_URL);
             setTimeout(() => {
@@ -761,7 +760,6 @@
             setTimeout(() => {
               tryClosePortalWindow();
             }, 2500);
-            finalizeCaptivePortal(redirectPlan);
           }
           return true;
         }
@@ -775,7 +773,6 @@
     if (!unifiState.client_mac) {
       setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
     } else if (wasRecentlyConnected(unifiState.client_mac)) {
-      const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
       showConnectedState('Connected. You can close this page now or continue to the website.', PUBLIC_FALLBACK_URL);
       setTimeout(() => {
         tryClosePortalWindow();
@@ -786,7 +783,6 @@
       setTimeout(() => {
         tryClosePortalWindow();
       }, 2500);
-      finalizeCaptivePortal(redirectPlan);
     } else {
       submitButton.disabled = true;
       submitButton.textContent = 'Checking...';
