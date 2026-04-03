@@ -597,6 +597,8 @@
     const CONNECTION_TTL_MS = 2 * 60 * 1000;
     const FAST_PATH_MAX_WAIT_MS = 8000;
     const PROBE_LOOP_INTERVAL_MS = 500;
+    const DEFERRED_FINALIZE_TOTAL_MS = 45000;
+    const DEFERRED_FINALIZE_INTERVAL_MS = 2000;
 
     const chooseRedirectPlan = (redirectUrl) => {
       const hostname = getHostname(redirectUrl);
@@ -731,6 +733,14 @@
         window.location.href = safeDestination;
       } catch (err) {
         // Ignore - captive portals may block navigation.
+      }
+    };
+
+    let deferredFinalizeTimer = null;
+    const clearDeferredFinalizeTimer = () => {
+      if (deferredFinalizeTimer !== null) {
+        clearTimeout(deferredFinalizeTimer);
+        deferredFinalizeTimer = null;
       }
     };
 
@@ -1118,6 +1128,72 @@
       return true;
     };
 
+    const scheduleDeferredFinalize = (redirectPlan, reason) => {
+      const plan = redirectPlan || chooseRedirectPlan(unifiState.redirect_url);
+      const startedAt = Date.now();
+      let attemptCount = 0;
+      clearDeferredFinalizeTimer();
+      appendTraceEvent('deferred_finalize_started', {
+        started_at: startedAt,
+        ended_at: startedAt,
+        metadata: {
+          source: 'client',
+          reason: reason || 'unknown',
+          max_wait_ms: DEFERRED_FINALIZE_TOTAL_MS,
+          interval_ms: DEFERRED_FINALIZE_INTERVAL_MS
+        }
+      });
+      persistTimingSnapshot({}, { keepalive: false });
+
+      const tick = async () => {
+        const now = Date.now();
+        const elapsedMs = now - startedAt;
+        if (elapsedMs >= DEFERRED_FINALIZE_TOTAL_MS) {
+          const timeoutAt = Date.now();
+          appendTraceEvent('deferred_finalize_timeout', {
+            started_at: timeoutAt,
+            ended_at: timeoutAt,
+            status: 'timeout',
+            metadata: {
+              source: 'client',
+              elapsed_ms: elapsedMs
+            }
+          });
+          persistTimingSnapshot({}, { keepalive: true });
+          clearDeferredFinalizeTimer();
+          return;
+        }
+
+        attemptCount += 1;
+        const probeOk = await pingProbeUrl(WEBSITE_PROBE_URL);
+        if (probeOk) {
+          const readyAt = Date.now();
+          appendTraceEvent('deferred_finalize_probe_ready', {
+            started_at: readyAt,
+            ended_at: readyAt,
+            metadata: {
+              source: 'client',
+              attempt_no: attemptCount,
+              elapsed_ms: readyAt - startedAt
+            }
+          });
+          persistTimingSnapshot({
+            t_probe_end: readyAt
+          }, { keepalive: true });
+          clearDeferredFinalizeTimer();
+          if (await finalizeAndRedirect(plan)) {
+            return;
+          }
+          redirectToWebsite(plan.safeRedirect, 'deferred_finalize_fallback');
+          return;
+        }
+
+        deferredFinalizeTimer = window.setTimeout(tick, DEFERRED_FINALIZE_INTERVAL_MS);
+      };
+
+      deferredFinalizeTimer = window.setTimeout(tick, DEFERRED_FINALIZE_INTERVAL_MS);
+    };
+
     const checkAuthorizationStatus = async (options) => {
       const opts = options || {};
       if (!unifiState.client_mac || !unifiState.unifi_site) {
@@ -1217,6 +1293,7 @@
       setTimeout(() => {
         attemptCloseWindow('finalize_restore_auto_2');
       }, 1000);
+      scheduleDeferredFinalize(chooseRedirectPlan(unifiState.redirect_url), 'finalize_restore');
     } else if (wasRecentlyConnected(unifiState.client_mac)) {
       showConnectedState('Connected. You can close this page now or continue to the website.', PUBLIC_FALLBACK_URL);
       setTimeout(() => {
@@ -1409,6 +1486,10 @@
         }
 
         setStatus('Successfully connected. Finalizing Wi-Fi access... If this page stays open, tap Continue.', false);
+        if (triggerProbeFinalizeNavigation(redirectPlan)) {
+          return;
+        }
+        scheduleDeferredFinalize(redirectPlan, 'initial_probe_timeout');
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
