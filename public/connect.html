@@ -428,6 +428,36 @@
       return values;
     })();
 
+    const makeSessionId = () => {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+      }
+      return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    };
+
+    const traceKeySeed = (() => {
+      const raw = unifiState.unifi_t || unifiState.client_mac || 'unknown';
+      return String(raw).toLowerCase().replace(/[^a-z0-9]/g, '_');
+    })();
+    const sessionStorageKey = `wifi_trace_session_${traceKeySeed}`;
+    const attemptStorageKey = `wifi_trace_attempt_${traceKeySeed}`;
+
+    let traceSessionId = storage ? storage.getItem(sessionStorageKey) : '';
+    if (!traceSessionId) {
+      traceSessionId = makeSessionId();
+      if (storage) {
+        storage.setItem(sessionStorageKey, traceSessionId);
+      }
+    }
+
+    let traceAttemptNo = (() => {
+      if (!storage) return 0;
+      const raw = storage.getItem(attemptStorageKey);
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || parsed < 0) return 0;
+      return Math.floor(parsed);
+    })();
+
     const debugEnabled = (() => {
       const parsed = parseUnifiParams();
       return parsed.debugEnabled;
@@ -532,11 +562,13 @@
     };
 
     const PUBLIC_FALLBACK_URL = 'https://www.thebatesfordhotel.com.au/';
+    const WEBSITE_PROBE_URL = 'https://www.thebatesfordhotel.com.au/favicon.ico';
     const CONNECTION_TTL_MS = 2 * 60 * 1000;
-    const STRICT_STATUS_MAX_ATTEMPTS = 12;
-    const STRICT_STATUS_INTERVAL_MS = 1000;
-    const PROBE_FINALIZE_DELAY_MS = 250;
-    const WEBSITE_REDIRECT_DELAY_MS = 1500;
+    const FAST_PATH_MAX_WAIT_MS = 8000;
+    const PROBE_LOOP_INTERVAL_MS = 500;
+    const STRICT_LOOP_INTERVAL_MS = 700;
+    const BACKGROUND_RETRY_INTERVAL_MS = 2000;
+    const BACKGROUND_RETRY_MAX_MS = 30000;
 
     const chooseRedirectPlan = (redirectUrl) => {
       const hostname = getHostname(redirectUrl);
@@ -576,19 +608,21 @@
       return normalized ? `wifi_connected_${normalized}` : '';
     };
 
-    const finalizeKeyForSession = (unifiT) => {
-      const normalized = (unifiT || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
-      return normalized ? `wifi_finalize_once_${normalized}` : '';
+    const finalizeKeyForSession = (unifiT, sessionId) => {
+      const normalizedT = (unifiT || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const normalizedSession = (sessionId || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+      if (!normalizedT && !normalizedSession) return '';
+      return `wifi_finalize_once_${normalizedT}_${normalizedSession}`;
     };
 
-    const hasFinalizeRunForSession = (unifiT) => {
-      const key = finalizeKeyForSession(unifiT);
+    const hasFinalizeRunForSession = (unifiT, sessionId) => {
+      const key = finalizeKeyForSession(unifiT, sessionId);
       if (!key || !storage) return false;
       return storage.getItem(key) === '1';
     };
 
-    const markFinalizeRunForSession = (unifiT) => {
-      const key = finalizeKeyForSession(unifiT);
+    const markFinalizeRunForSession = (unifiT, sessionId) => {
+      const key = finalizeKeyForSession(unifiT, sessionId);
       if (!key || !storage) return;
       storage.setItem(key, '1');
     };
@@ -674,7 +708,11 @@
         continueLink.setAttribute('href', safeDestination);
         continueLink.onclick = (event) => {
           event.preventDefault();
-          persistTimingSnapshot({ t_website_redirect: Date.now() });
+          const redirectNow = Date.now();
+          persistTimingSnapshot({
+            t_redirect_called: redirectNow,
+            t_website_redirect: redirectNow
+          });
           openWebsite(safeDestination);
         };
       }
@@ -712,13 +750,17 @@
     const functionUrl = `${supabaseUrl}/functions/v1/wifi-connect`;
     let statusCheckInFlight = false;
 
-    const invokeWifiConnect = async (payload) => {
+    const invokeWifiConnect = async (payload, options) => {
+      const opts = options || {};
+      const useKeepalive = opts.keepalive === true;
+
       if (supabaseClient) {
         return supabaseClient.functions.invoke('wifi-connect', { body: payload });
       }
 
       const response = await fetch(functionUrl, {
         method: 'POST',
+        keepalive: useKeepalive,
         headers: {
           'Content-Type': 'application/json',
           'apikey': supabaseKey,
@@ -735,14 +777,24 @@
     };
 
     const timingState = {
+      t_submit: null,
       t_submit_clicked: null,
+      t_connect_response: null,
       t_connect_success: null,
+      t_strict_poll_start: null,
+      t_strict_poll_end: null,
       t_strict_ready: null,
+      t_probe_start: null,
+      t_probe_end: null,
       t_probe_redirect: null,
-      t_website_redirect: null
+      t_redirect_called: null,
+      t_website_redirect: null,
+      t_page_hidden: null,
+      t_page_unload: null
     };
 
-    const persistTimingSnapshot = (partial) => {
+    const persistTimingSnapshot = (partial, options) => {
+      const opts = options || {};
       if (partial && typeof partial === 'object') {
         Object.assign(timingState, partial);
       }
@@ -757,6 +809,8 @@
 
       const timingPayload = {
         action: 'timing',
+        session_id: traceSessionId,
+        attempt_no: traceAttemptNo,
         client_mac: unifiState.client_mac,
         unifi_site: unifiState.unifi_site,
         unifi_id: unifiState.unifi_id,
@@ -766,10 +820,26 @@
         timings: timingState
       };
 
-      invokeWifiConnect(timingPayload).catch(() => {
+      invokeWifiConnect(timingPayload, { keepalive: opts.keepalive === true }).catch(() => {
         // Ignore telemetry errors; never block captive flow.
       });
     };
+
+    let pageHiddenRecorded = false;
+    let pageUnloadRecorded = false;
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && !pageHiddenRecorded) {
+        pageHiddenRecorded = true;
+        persistTimingSnapshot({ t_page_hidden: Date.now() }, { keepalive: true });
+      }
+    });
+
+    window.addEventListener('pagehide', () => {
+      if (pageUnloadRecorded) return;
+      pageUnloadRecorded = true;
+      persistTimingSnapshot({ t_page_unload: Date.now() }, { keepalive: true });
+    });
 
     const pingProbeUrl = async (probeUrl) => {
       if (!probeUrl) return false;
@@ -797,28 +867,95 @@
       });
     };
 
-    const runOneShotFinalizationAndRedirect = async () => {
-      const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
-      const probeUrl = redirectPlan.probeFinalizeUrl;
+    const finalizeAndRedirect = async () => {
       const hasSessionToken = Boolean(unifiState.unifi_t);
-
-      if (hasSessionToken && hasFinalizeRunForSession(unifiState.unifi_t)) {
+      if (hasSessionToken && hasFinalizeRunForSession(unifiState.unifi_t, traceSessionId)) {
         return false;
       }
       if (hasSessionToken) {
-        markFinalizeRunForSession(unifiState.unifi_t);
+        markFinalizeRunForSession(unifiState.unifi_t, traceSessionId);
       }
-
-      if (probeUrl) {
-        persistTimingSnapshot({ t_probe_redirect: Date.now() });
-        await pingProbeUrl(probeUrl);
-      }
-
-      const redirectDelay = probeUrl ? WEBSITE_REDIRECT_DELAY_MS : PROBE_FINALIZE_DELAY_MS;
-      await sleep(redirectDelay);
-      persistTimingSnapshot({ t_website_redirect: Date.now() });
+      persistTimingSnapshot({
+        t_redirect_called: Date.now(),
+        t_website_redirect: Date.now()
+      });
       openWebsite(PUBLIC_FALLBACK_URL);
       return true;
+    };
+
+    const runProbeLoopUntil = async (deadlineMs, redirectPlan) => {
+      const probeTargets = [];
+      if (redirectPlan.probeFinalizeUrl) {
+        probeTargets.push(redirectPlan.probeFinalizeUrl);
+      }
+      probeTargets.push(WEBSITE_PROBE_URL);
+
+      let probeStartMarked = false;
+      while (Date.now() < deadlineMs) {
+        if (!probeStartMarked) {
+          probeStartMarked = true;
+          persistTimingSnapshot({
+            t_probe_start: Date.now(),
+            t_probe_redirect: Date.now()
+          });
+        }
+
+        for (let i = 0; i < probeTargets.length; i += 1) {
+          const target = probeTargets[i];
+          const ok = await pingProbeUrl(target);
+          if (ok) {
+            persistTimingSnapshot({ t_probe_end: Date.now() });
+            return true;
+          }
+        }
+
+        const remainingMs = deadlineMs - Date.now();
+        if (remainingMs <= 0) {
+          break;
+        }
+        await sleep(Math.min(PROBE_LOOP_INTERVAL_MS, remainingMs));
+      }
+      persistTimingSnapshot({ t_probe_end: Date.now() });
+      return false;
+    };
+
+    const runStrictStatusLoopUntil = async (deadlineMs) => {
+      persistTimingSnapshot({ t_strict_poll_start: Date.now() });
+
+      while (Date.now() < deadlineMs) {
+        const statusResult = await checkAuthorizationStatus({ silent: true, strict: true });
+        if (statusResult.authorized) {
+          const now = Date.now();
+          persistTimingSnapshot({
+            t_strict_ready: now,
+            t_strict_poll_end: now
+          });
+          return true;
+        }
+        const remainingMs = deadlineMs - Date.now();
+        if (remainingMs <= 0) {
+          break;
+        }
+        await sleep(Math.min(STRICT_LOOP_INTERVAL_MS, remainingMs));
+      }
+
+      persistTimingSnapshot({ t_strict_poll_end: Date.now() });
+      return false;
+    };
+
+    const startBackgroundProbeRetries = (redirectPlan) => {
+      const startAt = Date.now();
+      const interval = setInterval(async () => {
+        if (Date.now() - startAt > BACKGROUND_RETRY_MAX_MS) {
+          clearInterval(interval);
+          return;
+        }
+        const ok = await runProbeLoopUntil(Date.now() + PROBE_LOOP_INTERVAL_MS, redirectPlan);
+        if (ok) {
+          clearInterval(interval);
+          await finalizeAndRedirect();
+        }
+      }, BACKGROUND_RETRY_INTERVAL_MS);
     };
 
     const checkAuthorizationStatus = async (options) => {
@@ -836,6 +973,8 @@
       const statusPayload = {
         action: 'status',
         status_mode: opts.strict ? 'strict' : 'compat',
+        session_id: traceSessionId,
+        attempt_no: traceAttemptNo,
         client_mac: unifiState.client_mac,
         unifi_site: unifiState.unifi_site,
         unifi_id: unifiState.unifi_id,
@@ -956,7 +1095,16 @@
         return;
       }
 
-      persistTimingSnapshot({ t_submit_clicked: Date.now() });
+      traceAttemptNo += 1;
+      if (storage) {
+        storage.setItem(attemptStorageKey, String(traceAttemptNo));
+      }
+
+      const submitNow = Date.now();
+      persistTimingSnapshot({
+        t_submit: submitNow,
+        t_submit_clicked: submitNow
+      });
 
       submitButton.disabled = true;
       submitButton.textContent = 'Connecting...';
@@ -964,6 +1112,8 @@
 
       const payload = {
         action: 'connect',
+        session_id: traceSessionId,
+        attempt_no: traceAttemptNo,
         name: form.elements.name.value.trim(),
         email: form.elements.email.value.trim(),
         mobile: form.elements.phone.value.trim(),
@@ -1008,42 +1158,44 @@
         // Mark success so finally keeps the form disabled and avoids
         // duplicate submissions while captive browsers transition.
         connectSuccess = true;
-        persistTimingSnapshot({ t_connect_success: Date.now() });
-        setStatus('Connected. Verifying network readiness...');
-
-        let strictReady = false;
-        for (let attempt = 0; attempt < STRICT_STATUS_MAX_ATTEMPTS; attempt += 1) {
-          const statusResult = await checkAuthorizationStatus({ silent: true, strict: true });
-          if (statusResult.authorized) {
-            strictReady = true;
-            break;
-          }
-          await sleep(STRICT_STATUS_INTERVAL_MS);
-        }
+        const connectResponseNow = Date.now();
+        persistTimingSnapshot({
+          t_connect_response: connectResponseNow,
+          t_connect_success: connectResponseNow
+        });
+        setStatus('Connected. Finalizing Wi-Fi access...');
 
         markRecentlyConnected(unifiState.client_mac);
-        if (strictReady) {
-          persistTimingSnapshot({ t_strict_ready: Date.now() });
-          showConnectedState('Successfully connected. Finishing secure Wi-Fi access...', PUBLIC_FALLBACK_URL);
+        showConnectedState('Successfully connected. Finalizing Wi-Fi access...', PUBLIC_FALLBACK_URL);
 
-          // Attempt close immediately and shortly after for captive webviews.
+        // Attempt close immediately and shortly after for captive webviews.
+        tryClosePortalWindow();
+        setTimeout(() => {
           tryClosePortalWindow();
-          setTimeout(() => {
-            tryClosePortalWindow();
-          }, 250);
-          setTimeout(() => {
-            tryClosePortalWindow();
-          }, 1200);
-          setTimeout(() => {
-            tryClosePortalWindow();
-          }, 3000);
+        }, 250);
+        setTimeout(() => {
+          tryClosePortalWindow();
+        }, 1200);
+        setTimeout(() => {
+          tryClosePortalWindow();
+        }, 3000);
 
-          await runOneShotFinalizationAndRedirect();
+        const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
+        const deadlineMs = Date.now() + FAST_PATH_MAX_WAIT_MS;
+        const strictPromise = runStrictStatusLoopUntil(deadlineMs);
+        const probeReady = await runProbeLoopUntil(deadlineMs, redirectPlan);
+
+        if (probeReady) {
+          await finalizeAndRedirect();
         } else {
+          const strictReady = await strictPromise;
           showConnectedState(
-            'Connected. Network access is still finalizing. Tap Continue in a few seconds.',
+            strictReady
+              ? 'Connected. Network access is still finalizing. Tap Continue, or wait a moment.'
+              : 'Connected. Network access is still finalizing. Tap Continue in a few seconds.',
             PUBLIC_FALLBACK_URL
           );
+          startBackgroundProbeRetries(redirectPlan);
         }
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);

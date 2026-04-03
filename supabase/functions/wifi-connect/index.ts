@@ -4,6 +4,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 type Payload = {
   action?: "connect" | "status" | "timing";
   status_mode?: "strict" | "compat";
+  session_id?: string;
+  attempt_no?: number;
   name?: string;
   email?: string;
   mobile?: string;
@@ -19,11 +21,20 @@ type Payload = {
   unifi_id?: string;
   unifi_t?: string;
   timings?: {
+    t_submit?: number | string;
     t_submit_clicked?: number | string;
+    t_connect_response?: number | string;
     t_connect_success?: number | string;
+    t_strict_poll_start?: number | string;
+    t_strict_poll_end?: number | string;
     t_strict_ready?: number | string;
+    t_probe_start?: number | string;
+    t_probe_end?: number | string;
     t_probe_redirect?: number | string;
+    t_redirect_called?: number | string;
     t_website_redirect?: number | string;
+    t_page_hidden?: number | string;
+    t_page_unload?: number | string;
   };
 };
 
@@ -34,7 +45,44 @@ type LoginResult = {
   body: string;
 };
 
+type LoginSessionResult = {
+  loginResult: LoginResult;
+  cacheHit: boolean;
+  loginMs: number;
+};
+
 type UnifiError = Error & { unifiUrl?: string };
+
+type AttemptTraceUpsert = {
+  client_mac: string;
+  unifi_t: string;
+  unifi_site: string | null;
+  session_id: string;
+  attempt_no: number;
+  device_user_agent: string | null;
+  last_action: string;
+  t_submit?: string | null;
+  t_submit_clicked?: string | null;
+  t_connect_response?: string | null;
+  t_connect_success?: string | null;
+  t_strict_poll_start?: string | null;
+  t_strict_poll_end?: string | null;
+  t_strict_ready?: string | null;
+  t_probe_start?: string | null;
+  t_probe_end?: string | null;
+  t_probe_redirect?: string | null;
+  t_redirect_called?: string | null;
+  t_website_redirect?: string | null;
+  t_page_hidden?: string | null;
+  t_page_unload?: string | null;
+  server_login_ms?: number | null;
+  server_authorize_ms?: number | null;
+  server_status_ms?: number | null;
+  server_total_ms?: number | null;
+  status_endpoint_used?: string | null;
+  cookie_cache_hit?: boolean | null;
+  updated_at: string;
+};
 
 const MAC_REGEX = /^([0-9A-Fa-f]{2}([-:])){5}([0-9A-Fa-f]{2})$/;
 
@@ -46,6 +94,42 @@ const parseTimeoutMs = (raw: string | undefined, fallback: number): number => {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return parsed;
+};
+
+let cachedUnifiSession:
+  | { cacheKey: string; cookie: string; expiresAtMs: number }
+  | null = null;
+
+const getSessionCacheKey = (baseUrl: string, username: string): string => {
+  return `${baseUrl}|${username}`;
+};
+
+const getCachedUnifiCookie = (
+  baseUrl: string,
+  username: string,
+): string | null => {
+  if (!cachedUnifiSession) return null;
+  const cacheKey = getSessionCacheKey(baseUrl, username);
+  if (cachedUnifiSession.cacheKey !== cacheKey) return null;
+  if (cachedUnifiSession.expiresAtMs <= Date.now()) return null;
+  return cachedUnifiSession.cookie;
+};
+
+const setCachedUnifiCookie = (
+  baseUrl: string,
+  username: string,
+  cookie: string,
+  ttlMs: number,
+) => {
+  cachedUnifiSession = {
+    cacheKey: getSessionCacheKey(baseUrl, username),
+    cookie,
+    expiresAtMs: Date.now() + ttlMs,
+  };
+};
+
+const clearCachedUnifiCookie = () => {
+  cachedUnifiSession = null;
 };
 
 const isAllowedOrigin = (origin: string | null): boolean => {
@@ -407,6 +491,7 @@ const checkGuestAuthorization = async (
   let lastRes: Response | null = null;
   let lastBody = "";
   let lastUrl = "";
+  let lastPath = "";
   let firstError: UnifiError | null = null;
 
   for (const result of results) {
@@ -421,6 +506,7 @@ const checkGuestAuthorization = async (
     lastRes = result.res;
     lastBody = result.bodyText;
     lastUrl = result.url;
+    lastPath = result.path;
 
     if (
       result.res.status === 404 ||
@@ -438,12 +524,21 @@ const checkGuestAuthorization = async (
       parsedBody = null;
     }
 
+    const dataRows = parsedBody?.data || [];
     const row = result.kind === "list"
-      ? (parsedBody?.data || []).find((entry) => {
+      ? dataRows.find((entry) => {
         const rowMac = normalizeMac(String(entry["mac"] ?? ""));
         return rowMac === normalizedMac;
       }) ?? null
-      : parsedBody?.data?.[0] ?? null;
+      : dataRows.find((entry) => {
+        const rowMac = normalizeMac(String(entry["mac"] ?? ""));
+        return rowMac === normalizedMac;
+      }) ?? dataRows[0] ?? null;
+
+    const rowMac = row ? normalizeMac(String(row["mac"] ?? "")) : "";
+    if (row && rowMac && rowMac !== normalizedMac) {
+      continue;
+    }
     const authorized = deriveAuthorizedFromRow(row);
     if (authorized) {
       return {
@@ -451,12 +546,19 @@ const checkGuestAuthorization = async (
         body: result.bodyText,
         authorized: true,
         url: result.url,
+        endpointUsed: result.path,
       };
     }
   }
 
   if (lastRes) {
-    return { res: lastRes, body: lastBody, authorized: false, url: lastUrl };
+    return {
+      res: lastRes,
+      body: lastBody,
+      authorized: false,
+      url: lastUrl,
+      endpointUsed: lastPath,
+    };
   }
 
   if (firstError) {
@@ -470,6 +572,8 @@ const sanitizePayload = (payload: Payload) => {
   return {
     action: payload.action,
     status_mode: payload.status_mode,
+    session_id: payload.session_id,
+    attempt_no: payload.attempt_no,
     client_mac: payload.client_mac,
     unifi_id: payload.unifi_id,
     unifi_ap: payload.unifi_ap,
@@ -488,6 +592,76 @@ const parseTimingToIso = (
   const date = new Date(numeric);
   if (!Number.isFinite(date.getTime())) return null;
   return date.toISOString();
+};
+
+const parseAttemptNo = (raw: unknown): number => {
+  const numeric = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(numeric)) return 0;
+  const normalized = Math.floor(numeric);
+  return normalized >= 0 ? normalized : 0;
+};
+
+const normalizeSessionId = (raw: string | undefined, fallbackSeed: string): string => {
+  const candidate = String(raw || "").trim();
+  if (candidate.length > 0) return candidate.slice(0, 120);
+  return `legacy-${fallbackSeed}`;
+};
+
+const isLoginRequiredResponse = (res: Response, body: string): boolean => {
+  if (res.status === 401 || res.status === 403) return true;
+  if (body.includes("LoginRequired")) return true;
+  return false;
+};
+
+const getUnifiSession = async (
+  baseUrl: string,
+  username: string,
+  password: string,
+  timeoutMs: number,
+  cacheTtlMs: number,
+  forceRefresh = false,
+): Promise<LoginSessionResult> => {
+  if (!forceRefresh) {
+    const cachedCookie = getCachedUnifiCookie(baseUrl, username);
+    if (cachedCookie) {
+      return {
+        loginResult: {
+          cookie: cachedCookie,
+          endpoint: "cache",
+          status: 200,
+          body: "",
+        },
+        cacheHit: true,
+        loginMs: 0,
+      };
+    }
+  }
+
+  const loginStart = Date.now();
+  const loginResult = await unifiLogin(baseUrl, username, password, timeoutMs);
+  const loginMs = Date.now() - loginStart;
+  setCachedUnifiCookie(baseUrl, username, loginResult.cookie, cacheTtlMs);
+  return { loginResult, cacheHit: false, loginMs };
+};
+
+const upsertAttemptTrace = async (
+  supabase: ReturnType<typeof createClient>,
+  row: AttemptTraceUpsert,
+) => {
+  const { error } = await supabase
+    .from("wifi_portal_attempt_traces")
+    .upsert(row, {
+      onConflict: "client_mac,unifi_t,session_id,attempt_no",
+    });
+
+  if (error) {
+    console.log("wifi_portal_attempt_traces upsert warning", error.message, {
+      client_mac: row.client_mac,
+      unifi_t: row.unifi_t,
+      session_id: row.session_id,
+      attempt_no: row.attempt_no,
+    });
+  }
 };
 
 const parseUnifiError = (err: unknown) => {
@@ -575,12 +749,20 @@ Deno.serve(async (req: Request) => {
   const debugEnabled = payload.debug === true ||
     Deno.env.get("UNIFI_DEBUG") === "true";
   const debugInfo: Record<string, unknown> = {};
+  const requestStartMs = Date.now();
   const action = payload.action === "status"
     ? "status"
     : payload.action === "timing"
     ? "timing"
     : "connect";
   const statusMode = payload.status_mode === "strict" ? "strict" : "compat";
+  const sessionId = normalizeSessionId(payload.session_id, payload.unifi_t || payload.client_mac);
+  const attemptNo = parseAttemptNo(payload.attempt_no);
+  let serverLoginMs: number | null = null;
+  let serverAuthorizeMs: number | null = null;
+  let serverStatusMs: number | null = null;
+  let statusEndpointUsed: string | null = null;
+  let cookieCacheHit = false;
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -619,25 +801,63 @@ Deno.serve(async (req: Request) => {
     }
 
     const timingData = payload.timings ?? {};
+    const traceRow: AttemptTraceUpsert = {
+      client_mac: payload.client_mac.toLowerCase(),
+      unifi_t: payload.unifi_t,
+      unifi_site: site || null,
+      session_id: sessionId,
+      attempt_no: attemptNo,
+      device_user_agent: req.headers.get("user-agent"),
+      last_action: "timing",
+      updated_at: new Date().toISOString(),
+    };
+
     const upsertRow: Record<string, string | null> = {
       client_mac: payload.client_mac.toLowerCase(),
       unifi_t: payload.unifi_t,
       unifi_site: site || null,
       device_user_agent: req.headers.get("user-agent"),
-      updated_at: new Date().toISOString(),
+      updated_at: traceRow.updated_at,
     };
 
-    const submitClickedIso = parseTimingToIso(timingData.t_submit_clicked);
-    const connectSuccessIso = parseTimingToIso(timingData.t_connect_success);
+    const submitIso = parseTimingToIso(timingData.t_submit) ||
+      parseTimingToIso(timingData.t_submit_clicked);
+    const submitClickedIso = parseTimingToIso(timingData.t_submit_clicked) || submitIso;
+    const connectResponseIso = parseTimingToIso(timingData.t_connect_response) ||
+      parseTimingToIso(timingData.t_connect_success);
+    const connectSuccessIso = parseTimingToIso(timingData.t_connect_success) || connectResponseIso;
+    const strictPollStartIso = parseTimingToIso(timingData.t_strict_poll_start);
+    const strictPollEndIso = parseTimingToIso(timingData.t_strict_poll_end);
     const strictReadyIso = parseTimingToIso(timingData.t_strict_ready);
-    const probeRedirectIso = parseTimingToIso(timingData.t_probe_redirect);
-    const websiteRedirectIso = parseTimingToIso(timingData.t_website_redirect);
+    const probeStartIso = parseTimingToIso(timingData.t_probe_start) ||
+      parseTimingToIso(timingData.t_probe_redirect);
+    const probeEndIso = parseTimingToIso(timingData.t_probe_end);
+    const probeRedirectIso = parseTimingToIso(timingData.t_probe_redirect) || probeStartIso;
+    const redirectCalledIso = parseTimingToIso(timingData.t_redirect_called) ||
+      parseTimingToIso(timingData.t_website_redirect);
+    const websiteRedirectIso = parseTimingToIso(timingData.t_website_redirect) || redirectCalledIso;
+    const pageHiddenIso = parseTimingToIso(timingData.t_page_hidden);
+    const pageUnloadIso = parseTimingToIso(timingData.t_page_unload);
 
+    if (submitIso) traceRow.t_submit = submitIso;
     if (submitClickedIso) upsertRow.t_submit_clicked = submitClickedIso;
+    if (submitClickedIso) traceRow.t_submit_clicked = submitClickedIso;
+    if (connectResponseIso) traceRow.t_connect_response = connectResponseIso;
     if (connectSuccessIso) upsertRow.t_connect_success = connectSuccessIso;
+    if (connectSuccessIso) traceRow.t_connect_success = connectSuccessIso;
+    if (strictPollStartIso) traceRow.t_strict_poll_start = strictPollStartIso;
+    if (strictPollEndIso) traceRow.t_strict_poll_end = strictPollEndIso;
     if (strictReadyIso) upsertRow.t_strict_ready = strictReadyIso;
+    if (strictReadyIso) traceRow.t_strict_ready = strictReadyIso;
+    if (probeStartIso) traceRow.t_probe_start = probeStartIso;
+    if (probeEndIso) traceRow.t_probe_end = probeEndIso;
     if (probeRedirectIso) upsertRow.t_probe_redirect = probeRedirectIso;
+    if (probeRedirectIso) traceRow.t_probe_redirect = probeRedirectIso;
+    if (redirectCalledIso) traceRow.t_redirect_called = redirectCalledIso;
     if (websiteRedirectIso) upsertRow.t_website_redirect = websiteRedirectIso;
+    if (websiteRedirectIso) traceRow.t_website_redirect = websiteRedirectIso;
+    if (pageHiddenIso) traceRow.t_page_hidden = pageHiddenIso;
+    if (pageUnloadIso) traceRow.t_page_unload = pageUnloadIso;
 
     const { error: timingError } = await supabase
       .from("wifi_portal_timings")
@@ -649,6 +869,8 @@ Deno.serve(async (req: Request) => {
         unifi_t: payload.unifi_t,
       });
     }
+
+    await upsertAttemptTrace(supabase, traceRow);
 
     return new Response(
       JSON.stringify({ success: true }),
@@ -811,6 +1033,10 @@ Deno.serve(async (req: Request) => {
     Deno.env.get("UNIFI_STATUS_TIMEOUT_MS"),
     2500,
   );
+  const sessionCacheTtlMs = parseTimeoutMs(
+    Deno.env.get("UNIFI_SESSION_CACHE_TTL_MS"),
+    60000,
+  );
   const timeoutMs = action === "status" ? statusTimeoutMs : connectTimeoutMs;
   const includeGuestListFallback = Deno.env.get("UNIFI_STATUS_LIST_FALLBACK") === "true";
 
@@ -825,17 +1051,23 @@ Deno.serve(async (req: Request) => {
 
   let loginResult: LoginResult;
   try {
-    loginResult = await unifiLogin(
+    const session = await getUnifiSession(
       unifiBaseUrl,
       unifiUsername,
       unifiPassword,
       timeoutMs,
+      sessionCacheTtlMs,
     );
+    loginResult = session.loginResult;
+    cookieCacheHit = session.cacheHit;
+    serverLoginMs = session.loginMs;
     if (debugEnabled) {
       debugInfo.unifi_login = {
         endpoint: loginResult.endpoint,
         status: loginResult.status,
         body: loginResult.body,
+        cache_hit: cookieCacheHit,
+        login_ms: serverLoginMs,
       };
     }
   } catch (err) {
@@ -860,6 +1092,7 @@ Deno.serve(async (req: Request) => {
         timeoutMs,
       );
     } catch (err) {
+      clearCachedUnifiCookie();
       const details = parseUnifiError(err);
       return new Response(
         JSON.stringify({
@@ -876,6 +1109,7 @@ Deno.serve(async (req: Request) => {
       sessionCheck.res.status !== 200 ||
       sessionCheck.body.includes("LoginRequired")
     ) {
+      clearCachedUnifiCookie();
       return new Response(
         JSON.stringify({
           error: "UniFi session not established (proxy/cookie issue)",
@@ -916,6 +1150,7 @@ Deno.serve(async (req: Request) => {
     }
 
     let statusResult;
+    const statusStartedAtMs = Date.now();
     try {
       statusResult = await checkGuestAuthorization(
         unifiBaseUrl,
@@ -925,7 +1160,33 @@ Deno.serve(async (req: Request) => {
         timeoutMs,
         includeGuestListFallback,
       );
+
+      if (isLoginRequiredResponse(statusResult.res, statusResult.body)) {
+        clearCachedUnifiCookie();
+        const refreshedSession = await getUnifiSession(
+          unifiBaseUrl,
+          unifiUsername,
+          unifiPassword,
+          timeoutMs,
+          sessionCacheTtlMs,
+          true,
+        );
+        loginResult = refreshedSession.loginResult;
+        cookieCacheHit = false;
+        serverLoginMs = (serverLoginMs ?? 0) + refreshedSession.loginMs;
+        statusResult = await checkGuestAuthorization(
+          unifiBaseUrl,
+          site,
+          loginResult.cookie,
+          payload.unifi_id || payload.client_mac,
+          timeoutMs,
+          includeGuestListFallback,
+        );
+      }
+      serverStatusMs = Date.now() - statusStartedAtMs;
+      statusEndpointUsed = statusResult.endpointUsed || null;
     } catch (err) {
+      serverStatusMs = Date.now() - statusStartedAtMs;
       const details = parseUnifiError(err);
       const authorizedUnifi = false;
       const authorizedFallback = recentAuthorized;
@@ -942,12 +1203,39 @@ Deno.serve(async (req: Request) => {
         debugInfo.unifi_status = {
           error: details.message,
           url: details.url,
+          status_endpoint_used: statusEndpointUsed,
           status_mode: statusMode,
           authorized_unifi: authorizedUnifi,
           authorized_fallback: authorizedFallback,
           authorized: resolvedAuthorized,
           status_source: statusSource,
+          timing: {
+            login_ms: serverLoginMs,
+            authorize_ms: serverAuthorizeMs,
+            status_ms: serverStatusMs,
+            total_ms: Date.now() - requestStartMs,
+            cache_hit: cookieCacheHit,
+          },
         };
+      }
+
+      if (supabase && payload.unifi_t) {
+        await upsertAttemptTrace(supabase, {
+          client_mac: payload.client_mac.toLowerCase(),
+          unifi_t: payload.unifi_t,
+          unifi_site: site || null,
+          session_id: sessionId,
+          attempt_no: attemptNo,
+          device_user_agent: req.headers.get("user-agent"),
+          last_action: "status",
+          server_login_ms: serverLoginMs,
+          server_authorize_ms: serverAuthorizeMs,
+          server_status_ms: serverStatusMs,
+          server_total_ms: Date.now() - requestStartMs,
+          status_endpoint_used: statusEndpointUsed,
+          cookie_cache_hit: cookieCacheHit,
+          updated_at: new Date().toISOString(),
+        });
       }
 
       return new Response(
@@ -959,6 +1247,14 @@ Deno.serve(async (req: Request) => {
           status_source: statusSource,
           status_mode: statusMode,
           checked_mac: payload.unifi_id || payload.client_mac,
+          status_endpoint_used: statusEndpointUsed,
+          timing: {
+            login_ms: serverLoginMs,
+            authorize_ms: serverAuthorizeMs,
+            status_ms: serverStatusMs,
+            total_ms: Date.now() - requestStartMs,
+            cache_hit: cookieCacheHit,
+          },
           status_error: details.message,
           debug: debugEnabled ? debugInfo : undefined,
         }),
@@ -981,12 +1277,39 @@ Deno.serve(async (req: Request) => {
       debugInfo.unifi_status = {
         status: statusResult.res.status,
         body: statusResult.body,
+        status_endpoint_used: statusResult.endpointUsed || statusEndpointUsed,
         status_mode: statusMode,
         authorized_unifi: authorizedUnifi,
         authorized_fallback: authorizedFallback,
         resolved_authorized: resolvedAuthorized,
         status_source: statusSource,
+        timing: {
+          login_ms: serverLoginMs,
+          authorize_ms: serverAuthorizeMs,
+          status_ms: serverStatusMs,
+          total_ms: Date.now() - requestStartMs,
+          cache_hit: cookieCacheHit,
+        },
       };
+    }
+
+    if (supabase && payload.unifi_t) {
+      await upsertAttemptTrace(supabase, {
+        client_mac: payload.client_mac.toLowerCase(),
+        unifi_t: payload.unifi_t,
+        unifi_site: site || null,
+        session_id: sessionId,
+        attempt_no: attemptNo,
+        device_user_agent: req.headers.get("user-agent"),
+        last_action: "status",
+        server_login_ms: serverLoginMs,
+        server_authorize_ms: serverAuthorizeMs,
+        server_status_ms: serverStatusMs,
+        server_total_ms: Date.now() - requestStartMs,
+        status_endpoint_used: statusResult.endpointUsed || null,
+        cookie_cache_hit: cookieCacheHit,
+        updated_at: new Date().toISOString(),
+      });
     }
 
     return new Response(
@@ -998,6 +1321,14 @@ Deno.serve(async (req: Request) => {
         status_source: statusSource,
         status_mode: statusMode,
         checked_mac: payload.unifi_id || payload.client_mac,
+        status_endpoint_used: statusResult.endpointUsed || null,
+        timing: {
+          login_ms: serverLoginMs,
+          authorize_ms: serverAuthorizeMs,
+          status_ms: serverStatusMs,
+          total_ms: Date.now() - requestStartMs,
+          cache_hit: cookieCacheHit,
+        },
         debug: debugEnabled ? debugInfo : undefined,
       }),
       { status: 200, headers: corsHeaders },
@@ -1005,6 +1336,7 @@ Deno.serve(async (req: Request) => {
   }
 
   let authorizeResult;
+  const authorizeStartedAtMs = Date.now();
   try {
     const authorizeApMac = normalizeMac(payload.unifi_ap || payload.ap_mac || "");
     authorizeResult = await authorizeGuestMac(
@@ -1015,16 +1347,54 @@ Deno.serve(async (req: Request) => {
       authorizeApMac || null,
       timeoutMs,
     );
+    serverAuthorizeMs = Date.now() - authorizeStartedAtMs;
   } catch (err) {
+    serverAuthorizeMs = Date.now() - authorizeStartedAtMs;
+    clearCachedUnifiCookie();
     const details = parseUnifiError(err);
     if (debugEnabled) {
-      debugInfo.unifi_authorize = { error: details.message, url: details.url };
+      debugInfo.unifi_authorize = {
+        error: details.message,
+        url: details.url,
+        timing: {
+          login_ms: serverLoginMs,
+          authorize_ms: serverAuthorizeMs,
+          status_ms: serverStatusMs,
+          total_ms: Date.now() - requestStartMs,
+          cache_hit: cookieCacheHit,
+        },
+      };
+    }
+
+    if (supabase && payload.unifi_t) {
+      await upsertAttemptTrace(supabase, {
+        client_mac: payload.client_mac.toLowerCase(),
+        unifi_t: payload.unifi_t,
+        unifi_site: site || null,
+        session_id: sessionId,
+        attempt_no: attemptNo,
+        device_user_agent: req.headers.get("user-agent"),
+        last_action: "connect",
+        server_login_ms: serverLoginMs,
+        server_authorize_ms: serverAuthorizeMs,
+        server_status_ms: serverStatusMs,
+        server_total_ms: Date.now() - requestStartMs,
+        cookie_cache_hit: cookieCacheHit,
+        updated_at: new Date().toISOString(),
+      });
     }
     return new Response(
       JSON.stringify({
         error: details.message,
         unifi_error: details.message,
         unifi_url: details.url,
+        timing: {
+          login_ms: serverLoginMs,
+          authorize_ms: serverAuthorizeMs,
+          status_ms: serverStatusMs,
+          total_ms: Date.now() - requestStartMs,
+          cache_hit: cookieCacheHit,
+        },
         debug: debugEnabled ? debugInfo : undefined,
       }),
       { status: 502, headers: corsHeaders },
@@ -1035,15 +1405,47 @@ Deno.serve(async (req: Request) => {
     debugInfo.unifi_authorize = {
       status: authorizeResult.res.status,
       body: authorizeResult.body,
+      timing: {
+        login_ms: serverLoginMs,
+        authorize_ms: serverAuthorizeMs,
+        status_ms: serverStatusMs,
+        total_ms: Date.now() - requestStartMs,
+        cache_hit: cookieCacheHit,
+      },
     };
   }
 
   if (!authorizeResult.ok) {
+    if (supabase && payload.unifi_t) {
+      await upsertAttemptTrace(supabase, {
+        client_mac: payload.client_mac.toLowerCase(),
+        unifi_t: payload.unifi_t,
+        unifi_site: site || null,
+        session_id: sessionId,
+        attempt_no: attemptNo,
+        device_user_agent: req.headers.get("user-agent"),
+        last_action: "connect",
+        server_login_ms: serverLoginMs,
+        server_authorize_ms: serverAuthorizeMs,
+        server_status_ms: serverStatusMs,
+        server_total_ms: Date.now() - requestStartMs,
+        cookie_cache_hit: cookieCacheHit,
+        updated_at: new Date().toISOString(),
+      });
+    }
+
     return new Response(
       JSON.stringify({
         error: "UniFi authorization failed.",
         unifi_error: "UniFi authorization failed.",
         unifi_url: authorizeResult.url,
+        timing: {
+          login_ms: serverLoginMs,
+          authorize_ms: serverAuthorizeMs,
+          status_ms: serverStatusMs,
+          total_ms: Date.now() - requestStartMs,
+          cache_hit: cookieCacheHit,
+        },
         debug: debugEnabled ? debugInfo : undefined,
       }),
       { status: 502, headers: corsHeaders },
@@ -1071,8 +1473,36 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  if (supabase && payload.unifi_t) {
+    await upsertAttemptTrace(supabase, {
+      client_mac: payload.client_mac.toLowerCase(),
+      unifi_t: payload.unifi_t,
+      unifi_site: site || null,
+      session_id: sessionId,
+      attempt_no: attemptNo,
+      device_user_agent: req.headers.get("user-agent"),
+      last_action: "connect",
+      server_login_ms: serverLoginMs,
+      server_authorize_ms: serverAuthorizeMs,
+      server_status_ms: serverStatusMs,
+      server_total_ms: Date.now() - requestStartMs,
+      cookie_cache_hit: cookieCacheHit,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
   return new Response(
-    JSON.stringify({ success: true, debug: debugEnabled ? debugInfo : undefined }),
+    JSON.stringify({
+      success: true,
+      timing: {
+        login_ms: serverLoginMs,
+        authorize_ms: serverAuthorizeMs,
+        status_ms: serverStatusMs,
+        total_ms: Date.now() - requestStartMs,
+        cache_hit: cookieCacheHit,
+      },
+      debug: debugEnabled ? debugInfo : undefined,
+    }),
     { status: 200, headers: corsHeaders },
   );
 });
