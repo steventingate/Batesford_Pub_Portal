@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 type Payload = {
+  action?: "connect" | "status";
   name?: string;
   email?: string;
   mobile?: string;
@@ -275,8 +276,91 @@ const authorizeGuestMac = async (
   return { res, body: bodyText, ok, url };
 };
 
+const checkGuestAuthorization = async (
+  baseUrl: string,
+  site: string,
+  cookie: string,
+  mac: string,
+  timeoutMs: number,
+) => {
+  const headers = {
+    "Accept": "application/json",
+    "Cookie": cookie,
+  };
+
+  const normalizedMac = (mac || "").toLowerCase();
+  const paths = [
+    `/api/s/${encodeURIComponent(site)}/stat/user/${normalizedMac}`,
+    `/api/s/${encodeURIComponent(site)}/stat/sta/${normalizedMac}`,
+  ];
+
+  let lastRes: Response | null = null;
+  let lastBody = "";
+  let lastUrl = "";
+
+  for (const path of paths) {
+    const url = `${baseUrl}${path}`;
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(
+        url,
+        {
+          method: "GET",
+          headers,
+        },
+        timeoutMs,
+        "UniFi status check",
+      );
+    } catch (err) {
+      console.log("UniFi fetch failed", {
+        url,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw wrapUnifiError(url, err);
+    }
+
+    const bodyText = await readResponseText(res);
+    console.log("UniFi status check", { url, status: res.status, body: bodyText });
+
+    lastRes = res;
+    lastBody = bodyText;
+    lastUrl = url;
+
+    if (res.status === 404 || res.status === 405) {
+      continue;
+    }
+
+    let parsedBody: { data?: Array<Record<string, unknown>> } | null = null;
+    try {
+      parsedBody = bodyText ? JSON.parse(bodyText) : null;
+    } catch {
+      parsedBody = null;
+    }
+
+    const row = parsedBody?.data?.[0] ?? null;
+    const rawAuthorized = row
+      ? (row["authorized"] ?? row["is_authorized"] ?? row["isAuthorized"])
+      : null;
+
+    const authorized = rawAuthorized === true ||
+      rawAuthorized === 1 ||
+      rawAuthorized === "1" ||
+      rawAuthorized === "true" ||
+      rawAuthorized === "yes";
+
+    return { res, body: bodyText, authorized, url };
+  }
+
+  if (!lastRes) {
+    throw new Error("UniFi status check did not return a response.");
+  }
+
+  return { res: lastRes, body: lastBody, authorized: false, url: lastUrl };
+};
+
 const sanitizePayload = (payload: Payload) => {
   return {
+    action: payload.action,
     client_mac: payload.client_mac,
     unifi_id: payload.unifi_id,
     unifi_ap: payload.unifi_ap,
@@ -371,6 +455,7 @@ Deno.serve(async (req: Request) => {
   const debugEnabled = payload.debug === true ||
     Deno.env.get("UNIFI_DEBUG") === "true";
   const debugInfo: Record<string, unknown> = {};
+  const action = payload.action === "status" ? "status" : "connect";
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -386,156 +471,167 @@ Deno.serve(async (req: Request) => {
     has_unifi_password: Boolean(unifiPassword),
   });
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  let supabase: ReturnType<typeof createClient> | null = null;
+  if (supabaseUrl && serviceRoleKey) {
+    supabase = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false },
+    });
+  }
+
+  if (action === "connect" && !supabase) {
     return new Response(
       JSON.stringify({ error: "Missing Supabase configuration." }),
       { status: 500, headers: corsHeaders },
     );
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false },
-  });
+  if (action === "connect" && supabase) {
+    const userAgent = req.headers.get("user-agent");
+    const ipAddress = getRequestIp(req);
+    const now = new Date();
+    const weekday = now.getDay();
+    const hour = now.getHours();
+    const { device_type, os_family } = parseDevice(userAgent);
+    const normalizedEmail = payload.email?.trim().toLowerCase() || null;
+    const rawPostcode = payload.postcode?.trim() ?? "";
+    const normalizedPostcode = rawPostcode ? rawPostcode : null;
+    const postcodeValid = normalizedPostcode
+      ? /^\d{4}$/.test(normalizedPostcode)
+      : false;
 
-  const userAgent = req.headers.get("user-agent");
-  const ipAddress = getRequestIp(req);
-  const now = new Date();
-  const weekday = now.getDay();
-  const hour = now.getHours();
-  const { device_type, os_family } = parseDevice(userAgent);
-  const normalizedEmail = payload.email?.trim().toLowerCase() || null;
-  const rawPostcode = payload.postcode?.trim() ?? "";
-  const normalizedPostcode = rawPostcode ? rawPostcode : null;
-  const postcodeValid = normalizedPostcode ? /^\d{4}$/.test(normalizedPostcode) : false;
+    if (normalizedPostcode && !postcodeValid) {
+      console.log("Postcode ignored (invalid format)", normalizedPostcode);
+    }
 
-  if (normalizedPostcode && !postcodeValid) {
-    console.log("Postcode ignored (invalid format)", normalizedPostcode);
-  }
+    const insertData = {
+      full_name: payload.name ?? null,
+      email: payload.email ?? null,
+      phone: payload.mobile ?? null,
+      consent: payload.marketing_opt_in ?? false,
+      client_mac: payload.client_mac ?? null,
+      ap_mac: payload.ap_mac ?? null,
+      ssid: payload.ssid ?? null,
+      redirect_url: payload.redirect_url ?? null,
+      user_agent: userAgent,
+      ip_address: ipAddress,
+      unifi_site: payload.unifi_site ?? null,
+      unifi_ap: payload.unifi_ap ?? payload.ap_mac ?? null,
+      unifi_id: payload.unifi_id ?? payload.client_mac ?? null,
+      unifi_t: payload.unifi_t ?? null,
+      created_at: now.toISOString(),
+    };
 
-  const insertData = {
-    full_name: payload.name ?? null,
-    email: payload.email ?? null,
-    phone: payload.mobile ?? null,
-    consent: payload.marketing_opt_in ?? false,
-    client_mac: payload.client_mac ?? null,
-    ap_mac: payload.ap_mac ?? null,
-    ssid: payload.ssid ?? null,
-    redirect_url: payload.redirect_url ?? null,
-    user_agent: userAgent,
-    ip_address: ipAddress,
-    unifi_site: payload.unifi_site ?? null,
-    unifi_ap: payload.unifi_ap ?? payload.ap_mac ?? null,
-    unifi_id: payload.unifi_id ?? payload.client_mac ?? null,
-    unifi_t: payload.unifi_t ?? null,
-    created_at: now.toISOString(),
-  };
+    const { error: dbError } = await supabase
+      .from("contact_submissions")
+      .insert(insertData);
 
-  const { error: dbError } = await supabase
-    .from("contact_submissions")
-    .insert(insertData);
+    if (dbError) {
+      console.log("DB insert warning", dbError.message, {
+        unifi_site: site,
+        unifi_ap: payload.unifi_ap,
+        unifi_id: payload.unifi_id,
+        unifi_t: payload.unifi_t,
+      });
+    }
 
-  if (dbError) {
-    console.log("DB insert warning", dbError.message, {
-      unifi_site: site,
-      unifi_ap: payload.unifi_ap,
-      unifi_id: payload.unifi_id,
-      unifi_t: payload.unifi_t,
-    });
-  }
+    let guestId: string | null = null;
 
-  let guestId: string | null = null;
-
-  if (normalizedEmail) {
-    try {
-      const { data: existingGuest, error: existingError } = await supabase
-        .from("guests")
-        .select("id, full_name, mobile, postcode")
-        .eq("email", normalizedEmail)
-        .maybeSingle();
-
-      if (existingError) {
-        console.log("Guest lookup warning", existingError.message);
-      } else if (existingGuest?.id) {
-        guestId = existingGuest.id;
-        const updates: Record<string, string> = {};
-        if (payload.name && payload.name.trim()) {
-          updates.full_name = payload.name.trim();
-        }
-        if (payload.mobile && payload.mobile.trim()) {
-          updates.mobile = payload.mobile.trim();
-        }
-        if (postcodeValid && normalizedPostcode && normalizedPostcode !== existingGuest.postcode) {
-          updates.postcode = normalizedPostcode;
-          updates.postcode_updated_at = now.toISOString();
-        }
-        if (Object.keys(updates).length > 0) {
-          const { error: updateError } = await supabase
-            .from("guests")
-            .update({ ...updates, updated_at: now.toISOString() })
-            .eq("id", guestId);
-          if (updateError) {
-            console.log("Guest update warning", updateError.message);
-          }
-        }
-      } else {
-        const { error: insertGuestError } = await supabase
+    if (normalizedEmail) {
+      try {
+        const { data: existingGuest, error: existingError } = await supabase
           .from("guests")
-          .insert({
-            email: normalizedEmail,
-            full_name: payload.name?.trim() || null,
-            mobile: payload.mobile?.trim() || null,
-            postcode: postcodeValid ? normalizedPostcode : null,
-            postcode_updated_at: postcodeValid ? now.toISOString() : null,
-            created_at: now.toISOString(),
-            updated_at: now.toISOString(),
-          });
-        if (insertGuestError) {
-          console.log("Guest insert warning", insertGuestError.message);
-        }
-
-        const { data: newGuest, error: newGuestError } = await supabase
-          .from("guests")
-          .select("id")
+          .select("id, full_name, mobile, postcode")
           .eq("email", normalizedEmail)
           .maybeSingle();
-        if (newGuestError) {
-          console.log("Guest fetch warning", newGuestError.message);
-        } else {
-          guestId = newGuest?.id ?? null;
-        }
-      }
-    } catch (err) {
-      console.log(
-        "Guest upsert warning",
-        err instanceof Error ? err.message : String(err),
-      );
-    }
-  }
 
-  if (guestId) {
-    try {
-      const { error: connectionError } = await supabase
-        .from("wifi_connections")
-        .insert({
-          guest_id: guestId,
-          connected_at: now.toISOString(),
-          user_agent: userAgent,
-          device_type,
-          os_family,
-          weekday,
-          hour,
-        });
-      if (connectionError) {
+        if (existingError) {
+          console.log("Guest lookup warning", existingError.message);
+        } else if (existingGuest?.id) {
+          guestId = existingGuest.id;
+          const updates: Record<string, string> = {};
+          if (payload.name && payload.name.trim()) {
+            updates.full_name = payload.name.trim();
+          }
+          if (payload.mobile && payload.mobile.trim()) {
+            updates.mobile = payload.mobile.trim();
+          }
+          if (
+            postcodeValid &&
+            normalizedPostcode &&
+            normalizedPostcode !== existingGuest.postcode
+          ) {
+            updates.postcode = normalizedPostcode;
+            updates.postcode_updated_at = now.toISOString();
+          }
+          if (Object.keys(updates).length > 0) {
+            const { error: updateError } = await supabase
+              .from("guests")
+              .update({ ...updates, updated_at: now.toISOString() })
+              .eq("id", guestId);
+            if (updateError) {
+              console.log("Guest update warning", updateError.message);
+            }
+          }
+        } else {
+          const { error: insertGuestError } = await supabase
+            .from("guests")
+            .insert({
+              email: normalizedEmail,
+              full_name: payload.name?.trim() || null,
+              mobile: payload.mobile?.trim() || null,
+              postcode: postcodeValid ? normalizedPostcode : null,
+              postcode_updated_at: postcodeValid ? now.toISOString() : null,
+              created_at: now.toISOString(),
+              updated_at: now.toISOString(),
+            });
+          if (insertGuestError) {
+            console.log("Guest insert warning", insertGuestError.message);
+          }
+
+          const { data: newGuest, error: newGuestError } = await supabase
+            .from("guests")
+            .select("id")
+            .eq("email", normalizedEmail)
+            .maybeSingle();
+          if (newGuestError) {
+            console.log("Guest fetch warning", newGuestError.message);
+          } else {
+            guestId = newGuest?.id ?? null;
+          }
+        }
+      } catch (err) {
         console.log(
-          "wifi_connections insert warning",
-          connectionError.message,
+          "Guest upsert warning",
+          err instanceof Error ? err.message : String(err),
         );
       }
-    } catch (err) {
-      console.log(
-        "wifi_connections insert warning",
-        err instanceof Error ? err.message : String(err),
-      );
+    }
+
+    if (guestId) {
+      try {
+        const { error: connectionError } = await supabase
+          .from("wifi_connections")
+          .insert({
+            guest_id: guestId,
+            connected_at: now.toISOString(),
+            user_agent: userAgent,
+            device_type,
+            os_family,
+            weekday,
+            hour,
+          });
+        if (connectionError) {
+          console.log(
+            "wifi_connections insert warning",
+            connectionError.message,
+          );
+        }
+      } catch (err) {
+        console.log(
+          "wifi_connections insert warning",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
   }
 
@@ -613,6 +709,97 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  if (action === "status") {
+    let recentAuthorized = false;
+    if (supabase && payload.unifi_t) {
+      try {
+        const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+        const { data: authEvents, error: authEventError } = await supabase
+          .from("wifi_authorization_events")
+          .select("authorized_at")
+          .eq("client_mac", payload.client_mac.toLowerCase())
+          .eq("unifi_t", payload.unifi_t)
+          .gte("authorized_at", cutoff)
+          .limit(1);
+        if (authEventError) {
+          console.log("Authorization event lookup warning", authEventError.message);
+        } else {
+          recentAuthorized = Array.isArray(authEvents) && authEvents.length > 0;
+        }
+      } catch (err) {
+        console.log(
+          "Authorization event lookup warning",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    let statusResult;
+    try {
+      statusResult = await checkGuestAuthorization(
+        unifiBaseUrl,
+        site,
+        loginResult.cookie,
+        payload.unifi_id || payload.client_mac,
+        timeoutMs,
+      );
+    } catch (err) {
+      if (recentAuthorized) {
+        if (debugEnabled) {
+          debugInfo.unifi_status = {
+            error: "status_check_failed_using_recent_authorization_event",
+            recent_authorized: true,
+          };
+        }
+        return new Response(
+          JSON.stringify({
+            success: true,
+            authorized: true,
+            checked_mac: payload.unifi_id || payload.client_mac,
+            debug: debugEnabled ? debugInfo : undefined,
+          }),
+          { status: 200, headers: corsHeaders },
+        );
+      }
+
+      const details = parseUnifiError(err);
+      if (debugEnabled) {
+        debugInfo.unifi_status = { error: details.message, url: details.url };
+      }
+      return new Response(
+        JSON.stringify({
+          error: details.message,
+          unifi_error: details.message,
+          unifi_url: details.url,
+          debug: debugEnabled ? debugInfo : undefined,
+        }),
+        { status: 502, headers: corsHeaders },
+      );
+    }
+
+    const resolvedAuthorized = statusResult.authorized || recentAuthorized;
+
+    if (debugEnabled) {
+      debugInfo.unifi_status = {
+        status: statusResult.res.status,
+        body: statusResult.body,
+        authorized: statusResult.authorized,
+        recent_authorized: recentAuthorized,
+        resolved_authorized: resolvedAuthorized,
+      };
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        authorized: resolvedAuthorized,
+        checked_mac: payload.unifi_id || payload.client_mac,
+        debug: debugEnabled ? debugInfo : undefined,
+      }),
+      { status: 200, headers: corsHeaders },
+    );
+  }
+
   let authorizeResult;
   try {
     authorizeResult = await authorizeGuestMac(
@@ -655,6 +842,27 @@ Deno.serve(async (req: Request) => {
       }),
       { status: 502, headers: corsHeaders },
     );
+  }
+
+  if (supabase) {
+    try {
+      const { error: authEventError } = await supabase
+        .from("wifi_authorization_events")
+        .insert({
+          client_mac: payload.client_mac.toLowerCase(),
+          unifi_site: site,
+          unifi_t: payload.unifi_t ?? null,
+          authorized_at: new Date().toISOString(),
+        });
+      if (authEventError) {
+        console.log("Authorization event insert warning", authEventError.message);
+      }
+    } catch (err) {
+      console.log(
+        "Authorization event insert warning",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   return new Response(

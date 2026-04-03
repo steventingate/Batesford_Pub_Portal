@@ -566,6 +566,7 @@
       ? supabase.createClient(supabaseUrl, supabaseKey)
       : null;
     const functionUrl = `${supabaseUrl}/functions/v1/wifi-connect`;
+    let statusCheckInFlight = false;
 
     const invokeWifiConnect = async (payload) => {
       if (supabaseClient) {
@@ -589,6 +590,58 @@
       return { data, error: null };
     };
 
+    const checkAuthorizationStatus = async () => {
+      if (!unifiState.client_mac || !unifiState.unifi_site) {
+        return false;
+      }
+
+      const statusPayload = {
+        action: 'status',
+        client_mac: unifiState.client_mac,
+        unifi_site: unifiState.unifi_site,
+        unifi_id: unifiState.unifi_id,
+        unifi_ap: unifiState.unifi_ap,
+        unifi_t: unifiState.unifi_t,
+        debug: debugEnabled
+      };
+
+      try {
+        const { data, error } = await invokeWifiConnect(statusPayload);
+
+        if (debugEnabled && debugPanel) {
+          debugPanel.style.display = 'block';
+          debugPanel.textContent = JSON.stringify({
+            status_check_payload: statusPayload,
+            status_check_response: data || null,
+            status_check_error: error || null
+          }, null, 2);
+        }
+
+        if (error || !data || data.success !== true) {
+          return false;
+        }
+
+        if (data.authorized === true) {
+          markRecentlyConnected(unifiState.client_mac);
+          showConnectedState('Already connected. You can close this window.', PUBLIC_FALLBACK_URL);
+          setTimeout(() => {
+            tryClosePortalWindow();
+          }, 150);
+          setTimeout(() => {
+            tryClosePortalWindow();
+          }, 1000);
+          setTimeout(() => {
+            tryClosePortalWindow();
+          }, 2500);
+          return true;
+        }
+      } catch (err) {
+        return false;
+      }
+
+      return false;
+    };
+
     if (!unifiState.client_mac) {
       setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
     } else if (wasRecentlyConnected(unifiState.client_mac)) {
@@ -602,6 +655,19 @@
       setTimeout(() => {
         tryClosePortalWindow();
       }, 2500);
+    } else {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Checking...';
+      statusCheckInFlight = true;
+      (async () => {
+        const alreadyConnected = await checkAuthorizationStatus();
+        statusCheckInFlight = false;
+        if (!alreadyConnected) {
+          submitButton.disabled = false;
+          submitButton.textContent = 'Connect and Agree';
+          status.style.display = 'none';
+        }
+      })();
     }
 
     form.addEventListener('submit', async (event) => {
@@ -627,11 +693,16 @@
         return;
       }
 
+      if (statusCheckInFlight) {
+        return;
+      }
+
       submitButton.disabled = true;
       submitButton.textContent = 'Connecting...';
       setStatus('Connecting you to Wi-Fi...');
 
       const payload = {
+        action: 'connect',
         name: form.elements.name.value.trim(),
         email: form.elements.email.value.trim(),
         mobile: form.elements.phone.value.trim(),
