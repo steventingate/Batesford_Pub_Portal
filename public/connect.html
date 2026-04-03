@@ -661,6 +661,14 @@
       });
     };
 
+    const scheduleWebsiteRedirect = (destinationUrl, delayMs) => {
+      const safeDestination = destinationUrl || PUBLIC_FALLBACK_URL;
+      const waitMs = Number.isFinite(delayMs) ? Math.max(0, delayMs) : 1200;
+      setTimeout(() => {
+        openWebsite(safeDestination);
+      }, waitMs);
+    };
+
     const hasSupabase = typeof supabase !== 'undefined' &&
       typeof supabase.createClient === 'function';
     const supabaseClient = hasSupabase
@@ -882,6 +890,10 @@
         setTimeout(() => {
           tryClosePortalWindow();
         }, 3000);
+
+        // Working behavior observed onsite: once authorized, sending users
+        // straight to the venue website completes the journey reliably.
+        scheduleWebsiteRedirect(PUBLIC_FALLBACK_URL, 1400);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
