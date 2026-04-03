@@ -63,6 +63,11 @@ export const handler: Handler = async (event) => {
   }
 
   const requestUrl = new URL(event.rawUrl || 'https://example.com/connect/status');
+  const userAgent = (event.headers['user-agent'] || '').toLowerCase();
+  const isIosCaptive = userAgent.includes('captivenetworksupport') ||
+    userAgent.includes('iphone') ||
+    userAgent.includes('ipad') ||
+    userAgent.includes('ipod');
   const clientMac = requestUrl.searchParams.get('id') || '';
   const apMac = requestUrl.searchParams.get('ap') || '';
   const unifiT = requestUrl.searchParams.get('t') || '';
@@ -127,7 +132,10 @@ export const handler: Handler = async (event) => {
   const data = (await response.json().catch(() => ({}))) as WifiStatusResponse;
   const authorized = data.success === true && data.authorized_unifi === true;
   const safeProbe = safeUrl(redirectUrl, websiteUrl);
-  const shouldUseProbe = enableProbeRedirect && !probeDone && redirectUrl && isProbeUrl(safeProbe);
+  const shouldUseProbe = (enableProbeRedirect || isIosCaptive) &&
+    !probeDone &&
+    redirectUrl &&
+    isProbeUrl(safeProbe);
 
   return json(200, {
     trace_id: data.trace_id || traceId || null,
