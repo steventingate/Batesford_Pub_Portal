@@ -337,6 +337,12 @@
         unifi_ap: params.get('ap') || '',
         unifi_t: params.get('t') || ''
       };
+      if (!values.unifi_ap && values.ap_mac) {
+        values.unifi_ap = values.ap_mac;
+      }
+      if (!values.ap_mac && values.unifi_ap) {
+        values.ap_mac = values.unifi_ap;
+      }
       return { values, debugEnabled };
     };
 
@@ -374,6 +380,9 @@
           if (!parsed.unifi_ap && current.unifi_ap) {
             parsed.unifi_ap = current.unifi_ap;
           }
+          if (!parsed.ap_mac && current.ap_mac) {
+            parsed.ap_mac = current.ap_mac;
+          }
           if (!parsed.unifi_t && current.unifi_t) {
             parsed.unifi_t = current.unifi_t;
           }
@@ -382,6 +391,12 @@
           }
           if (!parsed.ssid && current.ssid) {
             parsed.ssid = current.ssid;
+          }
+          if (!parsed.unifi_ap && parsed.ap_mac) {
+            parsed.unifi_ap = parsed.ap_mac;
+          }
+          if (!parsed.ap_mac && parsed.unifi_ap) {
+            parsed.ap_mac = parsed.unifi_ap;
           }
           if (!parsed.client_mac && isMacAddress(parsed.unifi_id)) {
             parsed.client_mac = parsed.unifi_id;
@@ -400,6 +415,12 @@
       const values = parsed.values;
       if (!values.client_mac && isMacAddress(values.unifi_id)) {
         values.client_mac = values.unifi_id;
+      }
+      if (!values.unifi_ap && values.ap_mac) {
+        values.unifi_ap = values.ap_mac;
+      }
+      if (!values.ap_mac && values.unifi_ap) {
+        values.ap_mac = values.unifi_ap;
       }
       if (storage) {
         storage.setItem('unifi_params', JSON.stringify(values));
@@ -739,6 +760,7 @@
         client_mac: unifiState.client_mac,
         unifi_site: unifiState.unifi_site,
         unifi_id: unifiState.unifi_id,
+        ap_mac: unifiState.ap_mac || unifiState.unifi_ap,
         unifi_ap: unifiState.unifi_ap,
         unifi_t: unifiState.unifi_t,
         timings: timingState
@@ -817,6 +839,7 @@
         client_mac: unifiState.client_mac,
         unifi_site: unifiState.unifi_site,
         unifi_id: unifiState.unifi_id,
+        ap_mac: unifiState.ap_mac || unifiState.unifi_ap,
         unifi_ap: unifiState.unifi_ap,
         unifi_t: unifiState.unifi_t,
         debug: debugEnabled
@@ -948,7 +971,7 @@
         marketing_opt_in: form.elements.terms.checked,
         user_agent: navigator.userAgent || '',
         client_mac: unifiState.client_mac,
-        ap_mac: unifiState.ap_mac,
+        ap_mac: unifiState.ap_mac || unifiState.unifi_ap,
         ssid: unifiState.ssid,
         redirect_url: unifiState.redirect_url,
         unifi_site: unifiState.unifi_site,

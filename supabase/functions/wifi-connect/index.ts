@@ -38,6 +38,16 @@ type UnifiError = Error & { unifiUrl?: string };
 
 const MAC_REGEX = /^([0-9A-Fa-f]{2}([-:])){5}([0-9A-Fa-f]{2})$/;
 
+const normalizeMac = (value: string | null | undefined): string => {
+  return String(value || "").trim().toLowerCase().replace(/-/g, ":");
+};
+
+const parseTimeoutMs = (raw: string | undefined, fallback: number): number => {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+};
+
 const isAllowedOrigin = (origin: string | null): boolean => {
   if (!origin) return false;
   try {
@@ -235,13 +245,21 @@ const authorizeGuestMac = async (
   site: string,
   cookie: string,
   mac: string,
+  apMac: string | null,
   timeoutMs: number,
 ) => {
-  const payload = JSON.stringify({
+  const normalizedMac = normalizeMac(mac);
+  const normalizedApMac = normalizeMac(apMac);
+  const payloadObj: Record<string, string | number> = {
     cmd: "authorize-guest",
-    mac,
+    mac: normalizedMac || mac,
     minutes: 480,
-  });
+  };
+  if (normalizedApMac && MAC_REGEX.test(normalizedApMac)) {
+    // Some controller/proxy setups process guest auth faster when AP context is supplied.
+    payloadObj.ap_mac = normalizedApMac;
+  }
+  const payload = JSON.stringify(payloadObj);
 
   const headers = {
     "Content-Type": "application/json",
@@ -290,23 +308,22 @@ const checkGuestAuthorization = async (
   cookie: string,
   mac: string,
   timeoutMs: number,
+  includeGuestListFallback = false,
 ) => {
   const headers = {
     "Accept": "application/json",
     "Cookie": cookie,
   };
 
-  const normalizedMac = (mac || "").toLowerCase();
+  const normalizedMac = normalizeMac(mac);
   const checks: Array<{ path: string; kind: "single" | "list" }> = [
     { path: `/api/s/${encodeURIComponent(site)}/stat/user/${normalizedMac}`, kind: "single" },
     { path: `/api/s/${encodeURIComponent(site)}/stat/sta/${normalizedMac}`, kind: "single" },
     { path: `/api/s/${encodeURIComponent(site)}/stat/guest/${normalizedMac}`, kind: "single" },
-    { path: `/api/s/${encodeURIComponent(site)}/stat/guest`, kind: "list" },
   ];
-
-  let lastRes: Response | null = null;
-  let lastBody = "";
-  let lastUrl = "";
+  if (includeGuestListFallback) {
+    checks.push({ path: `/api/s/${encodeURIComponent(site)}/stat/guest`, kind: "list" });
+  }
 
   const toBoolean = (value: unknown): boolean | null => {
     if (value === true || value === 1 || value === "1") return true;
@@ -345,12 +362,20 @@ const checkGuestAuthorization = async (
     return false;
   };
 
-  for (const check of checks) {
+  type StatusCheckResult = {
+    path: string;
+    kind: "single" | "list";
+    url: string;
+    res: Response | null;
+    bodyText: string;
+    error: UnifiError | null;
+  };
+
+  const requests = checks.map(async (check): Promise<StatusCheckResult> => {
     const { path, kind } = check;
     const url = `${baseUrl}${path}`;
-    let res: Response;
     try {
-      res = await fetchWithTimeout(
+      const res = await fetchWithTimeout(
         url,
         {
           method: "GET",
@@ -359,53 +384,86 @@ const checkGuestAuthorization = async (
         timeoutMs,
         "UniFi status check",
       );
+      const bodyText = await readResponseText(res);
+      console.log("UniFi status check", { url, status: res.status, body: bodyText });
+      return { path, kind, url, res, bodyText, error: null };
     } catch (err) {
       console.log("UniFi fetch failed", {
         url,
         error: err instanceof Error ? err.message : String(err),
       });
-      throw wrapUnifiError(url, err);
+      return {
+        path,
+        kind,
+        url,
+        res: null,
+        bodyText: "",
+        error: wrapUnifiError(url, err),
+      };
+    }
+  });
+
+  const results = await Promise.all(requests);
+  let lastRes: Response | null = null;
+  let lastBody = "";
+  let lastUrl = "";
+  let firstError: UnifiError | null = null;
+
+  for (const result of results) {
+    if (result.error) {
+      if (!firstError) {
+        firstError = result.error;
+      }
+      continue;
     }
 
-    const bodyText = await readResponseText(res);
-    console.log("UniFi status check", { url, status: res.status, body: bodyText });
-
-    lastRes = res;
-    lastBody = bodyText;
-    lastUrl = url;
+    if (!result.res) continue;
+    lastRes = result.res;
+    lastBody = result.bodyText;
+    lastUrl = result.url;
 
     if (
-      res.status === 404 ||
-      res.status === 405 ||
-      bodyText.includes("api.err.UnknownUser") ||
-      bodyText.includes("api.err.UnknownStation")
+      result.res.status === 404 ||
+      result.res.status === 405 ||
+      result.bodyText.includes("api.err.UnknownUser") ||
+      result.bodyText.includes("api.err.UnknownStation")
     ) {
       continue;
     }
 
     let parsedBody: { data?: Array<Record<string, unknown>> } | null = null;
     try {
-      parsedBody = bodyText ? JSON.parse(bodyText) : null;
+      parsedBody = result.bodyText ? JSON.parse(result.bodyText) : null;
     } catch {
       parsedBody = null;
     }
 
-    const row = kind === "list"
+    const row = result.kind === "list"
       ? (parsedBody?.data || []).find((entry) => {
-        const rowMac = String(entry["mac"] ?? "").toLowerCase();
+        const rowMac = normalizeMac(String(entry["mac"] ?? ""));
         return rowMac === normalizedMac;
       }) ?? null
       : parsedBody?.data?.[0] ?? null;
     const authorized = deriveAuthorizedFromRow(row);
-
-    return { res, body: bodyText, authorized, url };
+    if (authorized) {
+      return {
+        res: result.res,
+        body: result.bodyText,
+        authorized: true,
+        url: result.url,
+      };
+    }
   }
 
-  if (!lastRes) {
-    throw new Error("UniFi status check did not return a response.");
+  if (lastRes) {
+    return { res: lastRes, body: lastBody, authorized: false, url: lastUrl };
   }
 
-  return { res: lastRes, body: lastBody, authorized: false, url: lastUrl };
+  if (firstError) {
+    throw firstError;
+  }
+
+  throw new Error("UniFi status check did not return a response.");
 };
 
 const sanitizePayload = (payload: Payload) => {
@@ -748,7 +806,13 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const timeoutMs = Number(Deno.env.get("UNIFI_TIMEOUT_MS") || "8000");
+  const connectTimeoutMs = parseTimeoutMs(Deno.env.get("UNIFI_TIMEOUT_MS"), 8000);
+  const statusTimeoutMs = parseTimeoutMs(
+    Deno.env.get("UNIFI_STATUS_TIMEOUT_MS"),
+    2500,
+  );
+  const timeoutMs = action === "status" ? statusTimeoutMs : connectTimeoutMs;
+  const includeGuestListFallback = Deno.env.get("UNIFI_STATUS_LIST_FALLBACK") === "true";
 
   if (!unifiBaseUrlRaw || !unifiUsername || !unifiPassword) {
     return new Response(
@@ -787,39 +851,43 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  let sessionCheck;
-  try {
-    sessionCheck = await verifyUnifiSession(
-      unifiBaseUrl,
-      loginResult.cookie,
-      timeoutMs,
-    );
-  } catch (err) {
-    const details = parseUnifiError(err);
-    return new Response(
-      JSON.stringify({
-        error: "UniFi session not established (proxy/cookie issue)",
-        unifi_error: details.message,
-        unifi_url: details.url,
-        debug: debugEnabled ? debugInfo : undefined,
-      }),
-      { status: 502, headers: corsHeaders },
-    );
-  }
+  if (action !== "status") {
+    let sessionCheck;
+    try {
+      sessionCheck = await verifyUnifiSession(
+        unifiBaseUrl,
+        loginResult.cookie,
+        timeoutMs,
+      );
+    } catch (err) {
+      const details = parseUnifiError(err);
+      return new Response(
+        JSON.stringify({
+          error: "UniFi session not established (proxy/cookie issue)",
+          unifi_error: details.message,
+          unifi_url: details.url,
+          debug: debugEnabled ? debugInfo : undefined,
+        }),
+        { status: 502, headers: corsHeaders },
+      );
+    }
 
-  if (
-    sessionCheck.res.status !== 200 ||
-    sessionCheck.body.includes("LoginRequired")
-  ) {
-    return new Response(
-      JSON.stringify({
-        error: "UniFi session not established (proxy/cookie issue)",
-        unifi_error: sessionCheck.body,
-        unifi_url: sessionCheck.url,
-        debug: debugEnabled ? debugInfo : undefined,
-      }),
-      { status: 502, headers: corsHeaders },
-    );
+    if (
+      sessionCheck.res.status !== 200 ||
+      sessionCheck.body.includes("LoginRequired")
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "UniFi session not established (proxy/cookie issue)",
+          unifi_error: sessionCheck.body,
+          unifi_url: sessionCheck.url,
+          debug: debugEnabled ? debugInfo : undefined,
+        }),
+        { status: 502, headers: corsHeaders },
+      );
+    }
+  } else if (debugEnabled) {
+    debugInfo.unifi_session_verify = { skipped: true, reason: "status_fast_path" };
   }
 
   if (action === "status") {
@@ -855,6 +923,7 @@ Deno.serve(async (req: Request) => {
         loginResult.cookie,
         payload.unifi_id || payload.client_mac,
         timeoutMs,
+        includeGuestListFallback,
       );
     } catch (err) {
       const details = parseUnifiError(err);
@@ -937,11 +1006,13 @@ Deno.serve(async (req: Request) => {
 
   let authorizeResult;
   try {
+    const authorizeApMac = normalizeMac(payload.unifi_ap || payload.ap_mac || "");
     authorizeResult = await authorizeGuestMac(
       unifiBaseUrl,
       site,
       loginResult.cookie,
       payload.unifi_id || payload.client_mac,
+      authorizeApMac || null,
       timeoutMs,
     );
   } catch (err) {
