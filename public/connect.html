@@ -623,33 +623,6 @@
       setTimeout(resolve, ms);
     });
 
-    let finalizeTriggeredThisPage = false;
-
-    const finalizeCaptivePortal = (redirectPlan) => {
-      if (!redirectPlan || !redirectPlan.probeFinalizeUrl) {
-        return;
-      }
-      if (finalizeTriggeredThisPage) {
-        return;
-      }
-      finalizeTriggeredThisPage = true;
-      setStatus('Successfully connected. Finalizing Wi-Fi access...');
-      const runFinalize = () => {
-        try {
-          window.location.replace(redirectPlan.probeFinalizeUrl);
-        } catch (err) {
-          // Keep trying close/open fallback behavior below.
-        }
-      };
-
-      setTimeout(runFinalize, 900);
-      setTimeout(runFinalize, 2200);
-      setTimeout(runFinalize, 4500);
-      setTimeout(() => {
-        openWebsite(PUBLIC_FALLBACK_URL);
-      }, 7000);
-    };
-
     const showConnectedState = (message, destinationUrl) => {
       const safeDestination = destinationUrl || PUBLIC_FALLBACK_URL;
       setStatus(message || 'Connected. You can close this page now.');
@@ -668,6 +641,9 @@
           setTimeout(() => {
             tryClosePortalWindow();
           }, 250);
+          setTimeout(() => {
+            tryClosePortalWindow();
+          }, 1000);
         };
       }
       if (successActions) {
@@ -851,13 +827,11 @@
       let connectSuccess = false;
       try {
         const { data, error } = await invokeWifiConnect(payload);
-        const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
 
         if (debugEnabled && debugPanel) {
           debugPanel.style.display = 'block';
           debugPanel.textContent = JSON.stringify({
             parsed: unifiState,
-            redirectPlan,
             userAgent: navigator.userAgent,
             response: data || null,
             error: error || null
@@ -877,7 +851,7 @@
         // Mark success so finally keeps the form disabled and avoids
         // duplicate submissions while captive browsers transition.
         connectSuccess = true;
-        setStatus('Connected. Finalizing Wi-Fi access...');
+        setStatus('Successfully connected. You can close this window.');
 
         let authorizedConfirmed = false;
         for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -905,8 +879,9 @@
         setTimeout(() => {
           tryClosePortalWindow();
         }, 1200);
-
-        finalizeCaptivePortal(redirectPlan);
+        setTimeout(() => {
+          tryClosePortalWindow();
+        }, 3000);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
