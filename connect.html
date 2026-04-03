@@ -275,7 +275,9 @@
     const BACKGROUND_RETRY_INTERVAL_MS = 5000;
     const BACKGROUND_RETRY_MAX_ATTEMPTS = 24;
     const PENDING_RESUME_WINDOW_MS = 5 * 60 * 1000;
+    const IS_IOS_DEVICE = /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
     const ENABLE_PROBE_REDIRECT = /iPhone|iPad|iPod|CaptiveNetworkSupport/i.test(navigator.userAgent || '');
+    const AUTO_WEBSITE_REDIRECT_ON_IOS = false;
 
     const form = document.getElementById('connect-form');
     const submitButton = document.getElementById('submit-button');
@@ -559,6 +561,13 @@
       return { mode: 'website_redirect', url: websiteTarget };
     };
 
+    const showConnectedStablePage = (message, websiteTarget) => {
+      setConnectedMode(message, websiteTarget || WEBSITE_FALLBACK);
+      setTimeout(tryCloseWindow, 500);
+      setTimeout(tryCloseWindow, 1800);
+      setTimeout(tryCloseWindow, 3500);
+    };
+
     let backgroundRetryStarted = false;
 
     const startBackgroundStatusPoll = () => {
@@ -583,6 +592,13 @@
               mode: target.mode,
               retry_mode: 'background'
             });
+            if (target.mode === 'website_redirect' && IS_IOS_DEVICE && !AUTO_WEBSITE_REDIRECT_ON_IOS) {
+              if (localStore) {
+                localStore.removeItem(pendingKey);
+              }
+              showConnectedStablePage('Successfully connected. You can close this window.', target.url);
+              return;
+            }
             timings.t_redirect_called = Date.now();
             timings.t_website_redirect = Date.now();
             if (localStore) {
@@ -627,6 +643,13 @@
               timings.t_probe_redirect = Date.now();
             }
             pushEvent('redirect_issued', { source: 'client', mode: target.mode });
+            if (target.mode === 'website_redirect' && IS_IOS_DEVICE && !AUTO_WEBSITE_REDIRECT_ON_IOS) {
+              if (localStore) {
+                localStore.removeItem(pendingKey);
+              }
+              showConnectedStablePage('Successfully connected. You can close this window.', target.url);
+              return;
+            }
             timings.t_redirect_called = Date.now();
             timings.t_website_redirect = Date.now();
             if (localStore) {
@@ -711,9 +734,14 @@
       if (pendingKey && localStore && localStore.getItem(pendingKey)) return;
 
       try {
-        const data = await runStatusCheck(true);
+        const probeDone = localStore ? localStore.getItem(finalizeMarkerKey) === '1' : false;
+        const data = await runStatusCheck(probeDone);
         if (!data || data.authorized !== true) return;
         const target = resolveAuthorizedRedirectTarget(data);
+        if (target.mode === 'probe_redirect' && localStore) {
+          localStore.setItem(finalizeMarkerKey, '1');
+          timings.t_probe_redirect = Date.now();
+        }
         if (localStore) {
           localStore.removeItem(pendingKey);
         }
@@ -721,6 +749,10 @@
           source: 'client',
           redirect_mode: target.mode
         });
+        if (target.mode === 'website_redirect' && IS_IOS_DEVICE && !AUTO_WEBSITE_REDIRECT_ON_IOS) {
+          showConnectedStablePage('Already connected. You can close this window.', target.url);
+          return;
+        }
         setConnectedMode('Already connected. Opening website...', target.url);
         timings.t_redirect_called = Date.now();
         timings.t_website_redirect = Date.now();
