@@ -381,7 +381,29 @@
     };
 
     const isAndroidHost = (hostname) => {
-      return hostname.indexOf('gstatic.com') !== -1;
+      return hostname.indexOf('gstatic.com') !== -1 ||
+        hostname.indexOf('google.com') !== -1;
+    };
+
+    const isProbeUrl = (value) => {
+      if (!value) return false;
+      let url;
+      try {
+        url = new URL(value);
+      } catch (err) {
+        return false;
+      }
+
+      const host = url.hostname.toLowerCase();
+      const path = url.pathname.toLowerCase();
+      if (host.indexOf('captive.apple.com') !== -1) return true;
+      if (host.indexOf('connectivitycheck.gstatic.com') !== -1) return true;
+      if (host.indexOf('connectivitycheck.android.com') !== -1) return true;
+      if (host.indexOf('clients3.google.com') !== -1 && path.indexOf('generate_204') !== -1) return true;
+      if (host.indexOf('google.com') !== -1 && path.indexOf('gen_204') !== -1) return true;
+      if (host.indexOf('msftconnecttest.com') !== -1) return true;
+      if (host.indexOf('msftncsi.com') !== -1) return true;
+      return false;
     };
 
     const detectFallbackPlatform = () => {
@@ -394,6 +416,9 @@
       }
       return 'other';
     };
+
+    const PUBLIC_FALLBACK_URL = 'https://www.thebatesfordhotel.com.au/';
+    const CONNECTION_TTL_MS = 2 * 60 * 1000;
 
     const chooseRedirectPlan = (redirectUrl) => {
       const hostname = getHostname(redirectUrl);
@@ -410,12 +435,56 @@
         platform = detectFallbackPlatform();
       }
 
-      const step1 = redirectUrl || 'https://captive.apple.com/hotspot-detect.html';
-      const step2 = platform === 'apple'
-        ? 'https://captive.apple.com/hotspot-detect.html'
-        : 'https://www.thebatesfordhotel.com.au/';
+      const probeRedirect = isProbeUrl(redirectUrl || '');
+      const safeRedirect = redirectUrl && !probeRedirect
+        ? redirectUrl
+        : PUBLIC_FALLBACK_URL;
 
-      return { step1, step2, platform, hostname };
+      return {
+        platform,
+        hostname,
+        probeRedirect,
+        safeRedirect,
+        originalRedirect: redirectUrl || ''
+      };
+    };
+
+    const connectedKeyForMac = (mac) => {
+      const normalized = (mac || '').toLowerCase();
+      return normalized ? `wifi_connected_${normalized}` : '';
+    };
+
+    const markRecentlyConnected = (mac) => {
+      if (!storage) return;
+      const key = connectedKeyForMac(mac);
+      if (!key) return;
+      storage.setItem(key, String(Date.now()));
+    };
+
+    const wasRecentlyConnected = (mac) => {
+      if (!storage) return false;
+      const key = connectedKeyForMac(mac);
+      if (!key) return false;
+      const raw = storage.getItem(key);
+      if (!raw) return false;
+      const timestamp = Number(raw);
+      if (!Number.isFinite(timestamp)) {
+        storage.removeItem(key);
+        return false;
+      }
+      if (Date.now() - timestamp > CONNECTION_TTL_MS) {
+        storage.removeItem(key);
+        return false;
+      }
+      return true;
+    };
+
+    const tryClosePortalWindow = () => {
+      try {
+        window.close();
+      } catch (err) {
+        // Ignore - captive portal webviews usually restrict close behavior.
+      }
     };
 
     const hasSupabase = typeof supabase !== 'undefined' &&
@@ -449,6 +518,16 @@
 
     if (!unifiState.client_mac) {
       setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
+    } else if (wasRecentlyConnected(unifiState.client_mac)) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Connected';
+      setStatus('You are connected. You can close this page now.');
+      setTimeout(() => {
+        tryClosePortalWindow();
+      }, 150);
+      setTimeout(() => {
+        window.location.replace(PUBLIC_FALLBACK_URL);
+      }, 1200);
     }
 
     form.addEventListener('submit', async (event) => {
@@ -522,34 +601,28 @@
           return;
         }
 
-        // Mark success BEFORE timers so the finally block does not reset the
-        // button or text while the user is waiting for the redirect.
+        // Mark success so finally keeps the form disabled and avoids
+        // duplicate submissions while captive browsers transition.
         connectSuccess = true;
-        setStatus('Connected ✅ — Opening your internet connection…');
+        markRecentlyConnected(unifiState.client_mac);
+        setStatus('Connected. You can close this page now.');
 
-        // Primary redirect: give the AP 5 seconds to propagate the
-        // authorisation before sending the OS captive-portal probe URL.
+        // Attempt close immediately and shortly after for captive webviews.
+        tryClosePortalWindow();
         setTimeout(() => {
-          window.location.replace(redirectPlan.step1);
-        }, 5000);
+          tryClosePortalWindow();
+        }, 250);
 
-        // Fallback: if step1 somehow did not navigate the page away (e.g. an
-        // invalid URL or a browser that ignores the replace), try step2 at 7 s
-        // and attempt to close the captive-portal window.
+        // If the portal remains open, navigate to a safe destination rather
+        // than probe URLs that often show "webpage could not be loaded".
         setTimeout(() => {
-          window.location.replace(redirectPlan.step2);
-          try {
-            window.close();
-          } catch (err) {
-            // Ignore — captive portal WebViews typically block window.close().
-          }
-        }, 7000);
+          window.location.replace(redirectPlan.safeRedirect);
+        }, 1200);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
-        // Only re-enable the form on failure. On success the user is about to
-        // be redirected — re-enabling the button here would make the page look
-        // like it reset and invite a double-submission.
+        // Re-enable only on failure. On success, keep disabled to prevent
+        // accidental retries after captive-browser reloads.
         if (!connectSuccess) {
           submitButton.disabled = false;
           submitButton.textContent = 'Connect and Agree';
