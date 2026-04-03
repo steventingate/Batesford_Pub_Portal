@@ -595,11 +595,8 @@
     const PUBLIC_FALLBACK_URL = 'https://www.thebatesfordhotel.com.au/';
     const WEBSITE_PROBE_URL = 'https://www.thebatesfordhotel.com.au/favicon.ico';
     const CONNECTION_TTL_MS = 2 * 60 * 1000;
-    const FAST_PATH_MAX_WAIT_MS = 8000;
-    const PROBE_LOOP_INTERVAL_MS = 500;
-    const STRICT_LOOP_INTERVAL_MS = 700;
-    const BACKGROUND_RETRY_INTERVAL_MS = 2000;
-    const BACKGROUND_RETRY_MAX_MS = 30000;
+    const FAST_PATH_MAX_WAIT_MS = 3000;
+    const PROBE_LOOP_INTERVAL_MS = 400;
 
     const chooseRedirectPlan = (redirectUrl) => {
       const hostname = getHostname(redirectUrl);
@@ -639,21 +636,24 @@
       return normalized ? `wifi_connected_${normalized}` : '';
     };
 
-    const finalizeKeyForSession = (unifiT, sessionId) => {
+    const finalizeKeyForSession = (unifiT, sessionId, attemptNo) => {
       const normalizedT = (unifiT || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
       const normalizedSession = (sessionId || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const normalizedAttempt = Number.isFinite(Number(attemptNo))
+        ? String(Math.max(0, Math.floor(Number(attemptNo))))
+        : '0';
       if (!normalizedT && !normalizedSession) return '';
-      return `wifi_finalize_once_${normalizedT}_${normalizedSession}`;
+      return `wifi_finalize_once_${normalizedT}_${normalizedSession}_${normalizedAttempt}`;
     };
 
-    const hasFinalizeRunForSession = (unifiT, sessionId) => {
-      const key = finalizeKeyForSession(unifiT, sessionId);
+    const hasFinalizeRunForSession = (unifiT, sessionId, attemptNo) => {
+      const key = finalizeKeyForSession(unifiT, sessionId, attemptNo);
       if (!key || !storage) return false;
       return storage.getItem(key) === '1';
     };
 
-    const markFinalizeRunForSession = (unifiT, sessionId) => {
-      const key = finalizeKeyForSession(unifiT, sessionId);
+    const markFinalizeRunForSession = (unifiT, sessionId, attemptNo) => {
+      const key = finalizeKeyForSession(unifiT, sessionId, attemptNo);
       if (!key || !storage) return;
       storage.setItem(key, '1');
     };
@@ -734,6 +734,21 @@
       }
     };
 
+    const redirectToWebsite = (destinationUrl, triggerReason) => {
+      const safeDestination = destinationUrl || PUBLIC_FALLBACK_URL;
+      const redirectAt = markStage('redirect_started', 't_redirect_started', null, {
+        trigger: triggerReason || 'redirect',
+        destination_url: safeDestination
+      });
+      timingState.t_redirect_called = redirectAt;
+      timingState.t_website_redirect = redirectAt;
+      persistTimingSnapshot({
+        t_redirect_called: redirectAt,
+        t_website_redirect: redirectAt
+      });
+      openWebsite(safeDestination);
+    };
+
     const sleep = (ms) => new Promise((resolve) => {
       setTimeout(resolve, ms);
     });
@@ -747,17 +762,7 @@
         continueLink.setAttribute('href', safeDestination);
         continueLink.onclick = (event) => {
           event.preventDefault();
-          const redirectNow = markStage('redirect_started', 't_redirect_started', null, {
-            trigger: 'continue_button',
-            destination_url: safeDestination
-          });
-          timingState.t_redirect_called = redirectNow;
-          timingState.t_website_redirect = redirectNow;
-          persistTimingSnapshot({
-            t_redirect_called: redirectNow,
-            t_website_redirect: redirectNow
-          });
-          openWebsite(safeDestination);
+          redirectToWebsite(safeDestination, 'continue_button');
         };
       }
       if (closeWindowButton) {
@@ -1024,23 +1029,13 @@
 
     const finalizeAndRedirect = async (destinationUrl) => {
       const hasSessionToken = Boolean(unifiState.unifi_t);
-      if (hasSessionToken && hasFinalizeRunForSession(unifiState.unifi_t, traceSessionId)) {
+      if (hasSessionToken && hasFinalizeRunForSession(unifiState.unifi_t, traceSessionId, traceAttemptNo)) {
         return false;
       }
       if (hasSessionToken) {
-        markFinalizeRunForSession(unifiState.unifi_t, traceSessionId);
+        markFinalizeRunForSession(unifiState.unifi_t, traceSessionId, traceAttemptNo);
       }
-      const redirectAt = markStage('redirect_started', 't_redirect_started', null, {
-        trigger: 'auto_finalize',
-        destination_url: destinationUrl || PUBLIC_FALLBACK_URL
-      });
-      timingState.t_redirect_called = redirectAt;
-      timingState.t_website_redirect = redirectAt;
-      persistTimingSnapshot({
-        t_redirect_called: redirectAt,
-        t_website_redirect: redirectAt
-      });
-      openWebsite(destinationUrl || PUBLIC_FALLBACK_URL);
+      redirectToWebsite(destinationUrl || PUBLIC_FALLBACK_URL, 'auto_finalize');
       return true;
     };
 
@@ -1080,43 +1075,46 @@
       return false;
     };
 
-    const runStrictStatusLoopUntil = async (deadlineMs) => {
-      persistTimingSnapshot({ t_strict_poll_start: Date.now() });
-
-      while (Date.now() < deadlineMs) {
-        const statusResult = await checkAuthorizationStatus({ silent: true, strict: true });
-        if (statusResult.authorized) {
-          const now = Date.now();
-          persistTimingSnapshot({
-            t_strict_ready: now,
-            t_strict_poll_end: now
-          });
-          return true;
-        }
-        const remainingMs = deadlineMs - Date.now();
-        if (remainingMs <= 0) {
-          break;
-        }
-        await sleep(Math.min(STRICT_LOOP_INTERVAL_MS, remainingMs));
+    const appendCacheBust = (rawUrl, key) => {
+      if (!rawUrl) return '';
+      try {
+        const target = new URL(rawUrl);
+        target.searchParams.set(key || '_cb', String(Date.now()));
+        return target.toString();
+      } catch (err) {
+        const separator = rawUrl.indexOf('?') === -1 ? '?' : '&';
+        return `${rawUrl}${separator}${encodeURIComponent(key || '_cb')}=${Date.now()}`;
       }
-
-      persistTimingSnapshot({ t_strict_poll_end: Date.now() });
-      return false;
     };
 
-    const startBackgroundProbeRetries = (redirectPlan) => {
-      const startAt = Date.now();
-      const interval = setInterval(async () => {
-        if (Date.now() - startAt > BACKGROUND_RETRY_MAX_MS) {
-          clearInterval(interval);
-          return;
-        }
-        const ok = await runProbeLoopUntil(Date.now() + PROBE_LOOP_INTERVAL_MS, redirectPlan);
-        if (ok) {
-          clearInterval(interval);
-          await finalizeAndRedirect(redirectPlan.safeRedirect);
-        }
-      }, BACKGROUND_RETRY_INTERVAL_MS);
+    const triggerProbeFinalizeNavigation = (redirectPlan) => {
+      const hasSessionToken = Boolean(unifiState.unifi_t);
+      if (!redirectPlan || !redirectPlan.probeFinalizeUrl) return false;
+      if (hasSessionToken && hasFinalizeRunForSession(unifiState.unifi_t, traceSessionId, traceAttemptNo)) {
+        return false;
+      }
+      if (hasSessionToken) {
+        markFinalizeRunForSession(unifiState.unifi_t, traceSessionId, traceAttemptNo);
+      }
+      const probeAt = Date.now();
+      markStage('redirect_started', 't_redirect_started', null, {
+        trigger: 'probe_finalize_navigation',
+        destination_url: redirectPlan.probeFinalizeUrl
+      });
+      persistTimingSnapshot({
+        t_probe_start: probeAt,
+        t_probe_end: probeAt,
+        t_probe_redirect: probeAt,
+        t_redirect_called: probeAt,
+        t_website_redirect: probeAt
+      });
+      const targetUrl = appendCacheBust(redirectPlan.probeFinalizeUrl, '_finalize');
+      try {
+        window.location.replace(targetUrl);
+      } catch (err) {
+        openWebsite(targetUrl);
+      }
+      return true;
     };
 
     const checkAuthorizationStatus = async (options) => {
@@ -1210,6 +1208,17 @@
 
     if (!unifiState.client_mac) {
       setStatus('Please connect to the Batesford Guest Wi-Fi to continue.', true);
+    } else if (hasFinalizeRunForSession(unifiState.unifi_t, traceSessionId, traceAttemptNo)) {
+      showConnectedState('Connected. Finalizing Wi-Fi access...', PUBLIC_FALLBACK_URL);
+      setTimeout(() => {
+        attemptCloseWindow('finalize_restore_auto_1');
+      }, 150);
+      setTimeout(() => {
+        attemptCloseWindow('finalize_restore_auto_2');
+      }, 1000);
+      setTimeout(() => {
+        redirectToWebsite(PUBLIC_FALLBACK_URL, 'finalize_restore_redirect');
+      }, 1200);
     } else if (wasRecentlyConnected(unifiState.client_mac)) {
       showConnectedState('Connected. You can close this page now or continue to the website.', PUBLIC_FALLBACK_URL);
       setTimeout(() => {
@@ -1391,21 +1400,12 @@
 
         const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
         const deadlineMs = Date.now() + FAST_PATH_MAX_WAIT_MS;
-        const strictPromise = runStrictStatusLoopUntil(deadlineMs);
         const probeReady = await runProbeLoopUntil(deadlineMs, redirectPlan);
 
-        if (probeReady) {
-          await finalizeAndRedirect(redirectPlan.safeRedirect);
-        } else {
-          const strictReady = await strictPromise;
-          showConnectedState(
-            strictReady
-              ? 'Connected. Network access is still finalizing. Tap Continue, or wait a moment.'
-              : 'Connected. Network access is still finalizing. Tap Continue in a few seconds.',
-            PUBLIC_FALLBACK_URL
-          );
-          startBackgroundProbeRetries(redirectPlan);
+        if (probeReady && triggerProbeFinalizeNavigation(redirectPlan)) {
+          return;
         }
+        await finalizeAndRedirect(redirectPlan.safeRedirect);
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
