@@ -512,6 +512,10 @@
 
     const PUBLIC_FALLBACK_URL = 'https://www.thebatesfordhotel.com.au/';
     const CONNECTION_TTL_MS = 2 * 60 * 1000;
+    const STRICT_STATUS_MAX_ATTEMPTS = 12;
+    const STRICT_STATUS_INTERVAL_MS = 1000;
+    const PROBE_FINALIZE_DELAY_MS = 250;
+    const WEBSITE_REDIRECT_DELAY_MS = 1500;
 
     const chooseRedirectPlan = (redirectUrl) => {
       const hostname = getHostname(redirectUrl);
@@ -549,6 +553,23 @@
     const connectedKeyForMac = (mac) => {
       const normalized = (mac || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
       return normalized ? `wifi_connected_${normalized}` : '';
+    };
+
+    const finalizeKeyForSession = (unifiT) => {
+      const normalized = (unifiT || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+      return normalized ? `wifi_finalize_once_${normalized}` : '';
+    };
+
+    const hasFinalizeRunForSession = (unifiT) => {
+      const key = finalizeKeyForSession(unifiT);
+      if (!key || !storage) return false;
+      return storage.getItem(key) === '1';
+    };
+
+    const markFinalizeRunForSession = (unifiT) => {
+      const key = finalizeKeyForSession(unifiT);
+      if (!key || !storage) return;
+      storage.setItem(key, '1');
     };
 
 
@@ -632,6 +653,7 @@
         continueLink.setAttribute('href', safeDestination);
         continueLink.onclick = (event) => {
           event.preventDefault();
+          persistTimingSnapshot({ t_website_redirect: Date.now() });
           openWebsite(safeDestination);
         };
       }
@@ -659,14 +681,6 @@
           element.disabled = true;
         }
       });
-    };
-
-    const scheduleWebsiteRedirect = (destinationUrl, delayMs) => {
-      const safeDestination = destinationUrl || PUBLIC_FALLBACK_URL;
-      const waitMs = Number.isFinite(delayMs) ? Math.max(0, delayMs) : 1200;
-      setTimeout(() => {
-        openWebsite(safeDestination);
-      }, waitMs);
     };
 
     const hasSupabase = typeof supabase !== 'undefined' &&
@@ -699,14 +713,107 @@
       return { data, error: null };
     };
 
+    const timingState = {
+      t_submit_clicked: null,
+      t_connect_success: null,
+      t_strict_ready: null,
+      t_probe_redirect: null,
+      t_website_redirect: null
+    };
+
+    const persistTimingSnapshot = (partial) => {
+      if (partial && typeof partial === 'object') {
+        Object.assign(timingState, partial);
+      }
+      if (!unifiState.client_mac || !unifiState.unifi_t || !unifiState.unifi_site) {
+        return;
+      }
+
+      const hasTimingValue = Object.values(timingState).some((value) => Number.isFinite(value));
+      if (!hasTimingValue) {
+        return;
+      }
+
+      const timingPayload = {
+        action: 'timing',
+        client_mac: unifiState.client_mac,
+        unifi_site: unifiState.unifi_site,
+        unifi_id: unifiState.unifi_id,
+        unifi_ap: unifiState.unifi_ap,
+        unifi_t: unifiState.unifi_t,
+        timings: timingState
+      };
+
+      invokeWifiConnect(timingPayload).catch(() => {
+        // Ignore telemetry errors; never block captive flow.
+      });
+    };
+
+    const pingProbeUrl = async (probeUrl) => {
+      if (!probeUrl) return false;
+      return new Promise((resolve) => {
+        let finished = false;
+        const done = (result) => {
+          if (finished) return;
+          finished = true;
+          resolve(result);
+        };
+
+        const timeoutId = setTimeout(() => done(false), 1200);
+        const beacon = new Image();
+        beacon.referrerPolicy = 'no-referrer';
+        beacon.onload = () => {
+          clearTimeout(timeoutId);
+          done(true);
+        };
+        beacon.onerror = () => {
+          clearTimeout(timeoutId);
+          done(false);
+        };
+        const suffix = probeUrl.indexOf('?') === -1 ? '?' : '&';
+        beacon.src = `${probeUrl}${suffix}_finalize=${Date.now()}`;
+      });
+    };
+
+    const runOneShotFinalizationAndRedirect = async () => {
+      const redirectPlan = chooseRedirectPlan(unifiState.redirect_url);
+      const probeUrl = redirectPlan.probeFinalizeUrl;
+      const hasSessionToken = Boolean(unifiState.unifi_t);
+
+      if (hasSessionToken && hasFinalizeRunForSession(unifiState.unifi_t)) {
+        return false;
+      }
+      if (hasSessionToken) {
+        markFinalizeRunForSession(unifiState.unifi_t);
+      }
+
+      if (probeUrl) {
+        persistTimingSnapshot({ t_probe_redirect: Date.now() });
+        await pingProbeUrl(probeUrl);
+      }
+
+      const redirectDelay = probeUrl ? WEBSITE_REDIRECT_DELAY_MS : PROBE_FINALIZE_DELAY_MS;
+      await sleep(redirectDelay);
+      persistTimingSnapshot({ t_website_redirect: Date.now() });
+      openWebsite(PUBLIC_FALLBACK_URL);
+      return true;
+    };
+
     const checkAuthorizationStatus = async (options) => {
       const opts = options || {};
       if (!unifiState.client_mac || !unifiState.unifi_site) {
-        return false;
+        return {
+          authorized: false,
+          authorizedUnifi: false,
+          authorizedFallback: false,
+          statusSource: 'none',
+          statusMode: opts.strict ? 'strict' : 'compat'
+        };
       }
 
       const statusPayload = {
         action: 'status',
+        status_mode: opts.strict ? 'strict' : 'compat',
         client_mac: unifiState.client_mac,
         unifi_site: unifiState.unifi_site,
         unifi_id: unifiState.unifi_id,
@@ -728,10 +835,22 @@
         }
 
         if (error || !data || data.success !== true) {
-          return false;
+          return {
+            authorized: false,
+            authorizedUnifi: false,
+            authorizedFallback: false,
+            statusSource: 'none',
+            statusMode: statusPayload.status_mode
+          };
         }
 
-        if (data.authorized === true) {
+        const authorizedUnifi = data.authorized_unifi === true;
+        const authorizedFallback = data.authorized_fallback === true;
+        const authorized = opts.strict ? authorizedUnifi : data.authorized === true;
+        const statusSource = data.status_source || 'none';
+        const statusMode = data.status_mode || statusPayload.status_mode;
+
+        if (authorized) {
           if (!opts.silent) {
             markRecentlyConnected(unifiState.client_mac);
             showConnectedState('Already connected. You can close this window.', PUBLIC_FALLBACK_URL);
@@ -745,13 +864,17 @@
               tryClosePortalWindow();
             }, 2500);
           }
-          return true;
         }
+        return { authorized, authorizedUnifi, authorizedFallback, statusSource, statusMode };
       } catch (err) {
-        return false;
+        return {
+          authorized: false,
+          authorizedUnifi: false,
+          authorizedFallback: false,
+          statusSource: 'none',
+          statusMode: statusPayload.status_mode
+        };
       }
-
-      return false;
     };
 
     if (!unifiState.client_mac) {
@@ -772,7 +895,8 @@
       submitButton.textContent = 'Checking...';
       statusCheckInFlight = true;
       (async () => {
-        const alreadyConnected = await checkAuthorizationStatus();
+        const statusResult = await checkAuthorizationStatus();
+        const alreadyConnected = statusResult.authorized;
         statusCheckInFlight = false;
         if (!alreadyConnected) {
           submitButton.disabled = false;
@@ -808,6 +932,8 @@
       if (statusCheckInFlight) {
         return;
       }
+
+      persistTimingSnapshot({ t_submit_clicked: Date.now() });
 
       submitButton.disabled = true;
       submitButton.textContent = 'Connecting...';
@@ -859,41 +985,43 @@
         // Mark success so finally keeps the form disabled and avoids
         // duplicate submissions while captive browsers transition.
         connectSuccess = true;
-        setStatus('Successfully connected. You can close this window.');
+        persistTimingSnapshot({ t_connect_success: Date.now() });
+        setStatus('Connected. Verifying network readiness...');
 
-        let authorizedConfirmed = false;
-        for (let attempt = 0; attempt < 6; attempt += 1) {
-          const isAuthorized = await checkAuthorizationStatus({ silent: true });
-          if (isAuthorized) {
-            authorizedConfirmed = true;
+        let strictReady = false;
+        for (let attempt = 0; attempt < STRICT_STATUS_MAX_ATTEMPTS; attempt += 1) {
+          const statusResult = await checkAuthorizationStatus({ silent: true, strict: true });
+          if (statusResult.authorized) {
+            strictReady = true;
             break;
           }
-          await sleep(700);
+          await sleep(STRICT_STATUS_INTERVAL_MS);
         }
 
         markRecentlyConnected(unifiState.client_mac);
-        showConnectedState(
-          authorizedConfirmed
-            ? 'Successfully connected. You can close this window.'
-            : 'Connected. Network access may take a few seconds to finish.',
-          PUBLIC_FALLBACK_URL
-        );
+        if (strictReady) {
+          persistTimingSnapshot({ t_strict_ready: Date.now() });
+          showConnectedState('Successfully connected. Finishing secure Wi-Fi access...', PUBLIC_FALLBACK_URL);
 
-        // Attempt close immediately and shortly after for captive webviews.
-        tryClosePortalWindow();
-        setTimeout(() => {
+          // Attempt close immediately and shortly after for captive webviews.
           tryClosePortalWindow();
-        }, 250);
-        setTimeout(() => {
-          tryClosePortalWindow();
-        }, 1200);
-        setTimeout(() => {
-          tryClosePortalWindow();
-        }, 3000);
+          setTimeout(() => {
+            tryClosePortalWindow();
+          }, 250);
+          setTimeout(() => {
+            tryClosePortalWindow();
+          }, 1200);
+          setTimeout(() => {
+            tryClosePortalWindow();
+          }, 3000);
 
-        // Working behavior observed onsite: once authorized, sending users
-        // straight to the venue website completes the journey reliably.
-        scheduleWebsiteRedirect(PUBLIC_FALLBACK_URL, 1400);
+          await runOneShotFinalizationAndRedirect();
+        } else {
+          showConnectedState(
+            'Connected. Network access is still finalizing. Tap Continue in a few seconds.',
+            PUBLIC_FALLBACK_URL
+          );
+        }
       } catch (err) {
         setStatus('Something went wrong. Please try again.', true);
       } finally {
