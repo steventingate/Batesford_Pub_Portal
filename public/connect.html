@@ -149,6 +149,14 @@
       border: 1px solid #1a472a;
     }
 
+    .connected-mode .field,
+    .connected-mode .consent,
+    .connected-mode button[type="submit"],
+    .connected-mode .note,
+    .connected-mode .footer {
+      display: none;
+    }
+
     .note {
       margin-top: 14px;
       font-size: 12px;
@@ -504,7 +512,6 @@
 
     const PUBLIC_FALLBACK_URL = 'https://www.thebatesfordhotel.com.au/';
     const CONNECTION_TTL_MS = 2 * 60 * 1000;
-    const FINALIZE_TTL_MS = 20 * 1000;
 
     const chooseRedirectPlan = (redirectUrl) => {
       const hostname = getHostname(redirectUrl);
@@ -542,11 +549,6 @@
     const connectedKeyForMac = (mac) => {
       const normalized = (mac || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
       return normalized ? `wifi_connected_${normalized}` : '';
-    };
-
-    const finalizeKeyForMac = (mac) => {
-      const normalized = (mac || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
-      return normalized ? `wifi_finalize_${normalized}` : '';
     };
 
 
@@ -593,29 +595,6 @@
       return true;
     };
 
-    const markFinalizeAttempt = (mac) => {
-      const key = finalizeKeyForMac(mac);
-      if (!key || !storage) return;
-      storage.setItem(key, String(Date.now()));
-    };
-
-    const hadRecentFinalizeAttempt = (mac) => {
-      const key = finalizeKeyForMac(mac);
-      if (!key || !storage) return false;
-      const raw = storage.getItem(key);
-      if (!raw) return false;
-      const timestamp = Number(raw);
-      if (!Number.isFinite(timestamp)) {
-        storage.removeItem(key);
-        return false;
-      }
-      if (Date.now() - timestamp > FINALIZE_TTL_MS) {
-        storage.removeItem(key);
-        return false;
-      }
-      return true;
-    };
-
     const tryClosePortalWindow = () => {
       try {
         window.close();
@@ -644,30 +623,37 @@
       setTimeout(resolve, ms);
     });
 
+    let finalizeTriggeredThisPage = false;
+
     const finalizeCaptivePortal = (redirectPlan) => {
       if (!redirectPlan || !redirectPlan.probeFinalizeUrl) {
         return;
       }
-      if (!unifiState.client_mac) {
+      if (finalizeTriggeredThisPage) {
         return;
       }
-      if (hadRecentFinalizeAttempt(unifiState.client_mac)) {
-        return;
-      }
-      markFinalizeAttempt(unifiState.client_mac);
+      finalizeTriggeredThisPage = true;
       setStatus('Successfully connected. Finalizing Wi-Fi access...');
-      setTimeout(() => {
+      const runFinalize = () => {
         try {
           window.location.replace(redirectPlan.probeFinalizeUrl);
         } catch (err) {
-          openWebsite(PUBLIC_FALLBACK_URL);
+          // Keep trying close/open fallback behavior below.
         }
-      }, 900);
+      };
+
+      setTimeout(runFinalize, 900);
+      setTimeout(runFinalize, 2200);
+      setTimeout(runFinalize, 4500);
+      setTimeout(() => {
+        openWebsite(PUBLIC_FALLBACK_URL);
+      }, 7000);
     };
 
     const showConnectedState = (message, destinationUrl) => {
       const safeDestination = destinationUrl || PUBLIC_FALLBACK_URL;
       setStatus(message || 'Connected. You can close this page now.');
+      form.classList.add('connected-mode');
 
       if (continueLink) {
         continueLink.setAttribute('href', safeDestination);
