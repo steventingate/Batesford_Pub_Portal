@@ -56,24 +56,6 @@ const parseJsonField = <T>(value: string | null | undefined, fallback: T): T => 
   }
 };
 
-const isProbeUrl = (value: string) => {
-  try {
-    const parsed = new URL(value);
-    const host = parsed.hostname.toLowerCase();
-    const path = parsed.pathname.toLowerCase();
-    if (host.includes('captive.apple.com')) return true;
-    if (host.includes('connectivitycheck.gstatic.com')) return true;
-    if (host.includes('connectivitycheck.android.com')) return true;
-    if (host.includes('clients3.google.com') && path.includes('generate_204')) return true;
-    if (host.includes('google.com') && path.includes('gen_204')) return true;
-    if (host.includes('msftconnecttest.com')) return true;
-    if (host.includes('msftncsi.com')) return true;
-    return false;
-  } catch {
-    return false;
-  }
-};
-
 const safeUrl = (value: string | null | undefined, fallback: string) => {
   if (!value) return fallback;
   try {
@@ -198,10 +180,6 @@ export const handler: Handler = async (event) => {
   const contractMode = redirectContract.redirect_mode;
   const contractRedirect = safeUrl(redirectContract.redirect_url || redirectUrl, websiteUrl);
 
-  if (contractMode === 'probe_redirect' && isProbeUrl(contractRedirect)) {
-    return jsonRedirect(contractRedirect);
-  }
-
   if (contractMode === 'website_redirect') {
     return jsonRedirect(contractRedirect || websiteUrl);
   }
@@ -209,10 +187,12 @@ export const handler: Handler = async (event) => {
   const params = new URLSearchParams(forwardParams);
   params.set('state', 'finalizing');
   params.set('website', websiteUrl);
-  params.set('release_result', redirectContract.release_result || 'authorized_unverified_timeout');
+  params.set(
+    'release_result',
+    redirectContract.release_result || (contractMode === 'probe_redirect' ? 'authorized_verified' : 'authorized_unverified_timeout')
+  );
   if (redirectUrl) {
     params.set('probe_url', redirectUrl);
   }
   return jsonRedirect(`/connect?${params.toString()}`);
 };
-

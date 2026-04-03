@@ -275,6 +275,7 @@
     const BACKGROUND_RETRY_INTERVAL_MS = 5000;
     const BACKGROUND_RETRY_MAX_ATTEMPTS = 24;
     const PENDING_RESUME_WINDOW_MS = 5 * 60 * 1000;
+    const ENABLE_PROBE_REDIRECT = false;
 
     const form = document.getElementById('connect-form');
     const submitButton = document.getElementById('submit-button');
@@ -543,6 +544,21 @@
       return response.json().catch(() => ({}));
     };
 
+    const resolveAuthorizedRedirectTarget = (data) => {
+      const websiteTarget = data.website_url || websiteUrl || WEBSITE_FALLBACK;
+      if (
+        ENABLE_PROBE_REDIRECT &&
+        data.redirect_mode === 'probe_redirect' &&
+        data.redirect_url
+      ) {
+        return { mode: 'probe_redirect', url: data.redirect_url };
+      }
+      if (data.redirect_mode === 'website_redirect' && data.redirect_url) {
+        return { mode: 'website_redirect', url: data.redirect_url };
+      }
+      return { mode: 'website_redirect', url: websiteTarget };
+    };
+
     let backgroundRetryStarted = false;
 
     const startBackgroundStatusPoll = () => {
@@ -557,13 +573,14 @@
           const data = await runStatusCheck(probeDone);
           timings.t_strict_poll_end = Date.now();
           if (data && data.authorized === true && data.redirect_url) {
-            if (data.redirect_mode === 'probe_redirect' && localStore) {
+            const target = resolveAuthorizedRedirectTarget(data);
+            if (target.mode === 'probe_redirect' && localStore) {
               localStore.setItem(finalizeMarkerKey, '1');
               timings.t_probe_redirect = Date.now();
             }
             pushEvent('redirect_issued', {
               source: 'client',
-              mode: data.redirect_mode || 'website_redirect',
+              mode: target.mode,
               retry_mode: 'background'
             });
             timings.t_redirect_called = Date.now();
@@ -571,7 +588,7 @@
             if (localStore) {
               localStore.removeItem(pendingKey);
             }
-            window.location.replace(data.redirect_url);
+            window.location.replace(target.url);
             return;
           }
         } catch {
@@ -601,26 +618,22 @@
           if (data && data.authorized === true) {
             timings.t_strict_ready = Date.now();
             pushEvent('strict_ready', { source: 'client' });
-            if (data.redirect_mode === 'probe_redirect' && data.redirect_url) {
+            const target = resolveAuthorizedRedirectTarget(data);
+            if (target.mode === 'probe_redirect') {
               if (localStore) {
                 localStore.setItem(finalizeMarkerKey, '1');
               }
               pushEvent('redirect_issued', { source: 'client', mode: 'probe_redirect' });
               timings.t_probe_redirect = Date.now();
-              timings.t_redirect_called = Date.now();
-              window.location.replace(data.redirect_url);
-              return;
             }
-            if (data.redirect_url) {
-              pushEvent('redirect_issued', { source: 'client', mode: 'website_redirect' });
-              timings.t_redirect_called = Date.now();
-              timings.t_website_redirect = Date.now();
-              if (localStore) {
-                localStore.removeItem(pendingKey);
-              }
-              window.location.replace(data.redirect_url);
-              return;
+            pushEvent('redirect_issued', { source: 'client', mode: target.mode });
+            timings.t_redirect_called = Date.now();
+            timings.t_website_redirect = Date.now();
+            if (localStore && target.mode !== 'probe_redirect') {
+              localStore.removeItem(pendingKey);
             }
+            window.location.replace(target.url);
+            return;
           }
         } catch {
           // Keep retrying within bound.
@@ -692,6 +705,33 @@
       }
     }
 
+    const startInitialAuthorizationCheck = async () => {
+      if (state === 'error' || state === 'finalizing') return;
+      if (!isMac(unifi.client_mac) || !unifi.unifi_site) return;
+
+      try {
+        const data = await runStatusCheck(true);
+        if (!data || data.authorized !== true) return;
+        const target = resolveAuthorizedRedirectTarget(data);
+        if (localStore) {
+          localStore.removeItem(pendingKey);
+        }
+        pushEvent('initial_authorized_detected', {
+          source: 'client',
+          redirect_mode: target.mode
+        });
+        setConnectedMode('Already connected. Opening website...', target.url);
+        timings.t_redirect_called = Date.now();
+        timings.t_website_redirect = Date.now();
+        setTimeout(() => {
+          window.location.replace(target.url);
+        }, 300);
+        setTimeout(tryCloseWindow, 500);
+      } catch {
+        // Keep standard form flow if status check fails.
+      }
+    };
+
     form.addEventListener('submit', (event) => {
       if (postcodeError) {
         postcodeError.style.display = 'none';
@@ -753,6 +793,7 @@
     });
 
     updateHiddenValues();
+    startInitialAuthorizationCheck();
   </script>
 </body>
 </html>

@@ -3,6 +3,7 @@ import { Handler } from '@netlify/functions';
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const websiteFallbackUrl = process.env.PORTAL_WEBSITE_URL || 'https://www.thebatesfordhotel.com.au/';
+const enableProbeRedirect = process.env.CAPTIVE_ENABLE_PROBE_REDIRECT === 'true';
 
 type WifiStatusResponse = {
   success?: boolean;
@@ -126,7 +127,7 @@ export const handler: Handler = async (event) => {
   const data = (await response.json().catch(() => ({}))) as WifiStatusResponse;
   const authorized = data.success === true && data.authorized_unifi === true;
   const safeProbe = safeUrl(redirectUrl, websiteUrl);
-  const shouldUseProbe = !probeDone && redirectUrl && isProbeUrl(safeProbe);
+  const shouldUseProbe = enableProbeRedirect && !probeDone && redirectUrl && isProbeUrl(safeProbe);
 
   return json(200, {
     trace_id: data.trace_id || traceId || null,
@@ -146,4 +147,3 @@ export const handler: Handler = async (event) => {
     release_result: authorized ? 'authorized_verified' : 'pending'
   });
 };
-
