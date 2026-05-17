@@ -454,6 +454,7 @@
       secondaryTarget: safeUrl(query.secondary_target, WEBSITE_FALLBACK),
       finalRedirectUrl: safeUrl(query.final_redirect_url, WEBSITE_FALLBACK),
       redirectMode: query.release_mode || 'unknown',
+      fallbackToWebsiteTriggered: false,
       lastTimingUploadAt: null,
       lastTimingUploadReason: null
     };
@@ -730,6 +731,12 @@
           redirectTo(releaseState.continueTarget, 'http_fallback_release');
         }
       }, AUTO_FALLBACK_REDIRECT_DELAY_MS);
+      window.setTimeout(() => {
+        if (document.visibilityState === 'visible' && !releaseState.fallbackToWebsiteTriggered) {
+          releaseState.fallbackToWebsiteTriggered = true;
+          redirectTo(releaseState.secondaryTarget, 'website_fallback_release');
+        }
+      }, 4500);
     };
 
     form.addEventListener('submit', (event) => {
@@ -801,6 +808,18 @@
     debugUploadLogsButton.addEventListener('click', async () => {
       pushEvent('debug_upload_logs_clicked');
       await flushClientTrace('manual_debug_upload');
+    });
+
+    continueLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      pushEvent('continue_button_clicked', { target: releaseState.continueTarget });
+      redirectTo(releaseState.continueTarget, 'continue_button');
+    });
+
+    secondaryLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      pushEvent('secondary_button_clicked', { target: releaseState.secondaryTarget });
+      redirectTo(releaseState.secondaryTarget, 'secondary_button');
     });
 
     pushEvent('portal_page_loaded', {
