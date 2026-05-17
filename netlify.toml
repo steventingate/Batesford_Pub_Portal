@@ -25,6 +25,11 @@
   status = 200
 
 [[redirects]]
+  from = "/portal"
+  to = "/connect.html"
+  status = 200
+
+[[redirects]]
   from = "/connect/submit"
   to = "/.netlify/functions/captiveConnect"
   status = 200
@@ -33,6 +38,12 @@
 [[redirects]]
   from = "/connect/status"
   to = "/.netlify/functions/captiveStatus"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/unifi/authorize-test"
+  to = "/.netlify/functions/unifiAuthorizeTest"
   status = 200
   force = true
 

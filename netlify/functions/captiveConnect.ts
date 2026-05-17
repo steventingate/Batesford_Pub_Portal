@@ -3,6 +3,8 @@ import { Handler } from '@netlify/functions';
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const websiteFallbackUrl = process.env.PORTAL_WEBSITE_URL || 'https://www.thebatesfordhotel.com.au/';
+const httpReleaseFallbackUrl = 'http://neverssl.com/';
+const captiveGenerate204Url = 'https://www.google.com/generate_204';
 
 type RedirectContract = {
   redirect_mode?: 'probe_redirect' | 'website_redirect' | 'verify_timeout_success_page';
@@ -17,6 +19,7 @@ type WifiConnectResponse = {
   trace_id?: string;
   error?: string;
   redirect_contract?: RedirectContract;
+  debug?: Record<string, unknown>;
 };
 
 const decodeBody = (rawBody: string | null, isBase64: boolean) => {
@@ -67,6 +70,22 @@ const safeUrl = (value: string | null | undefined, fallback: string) => {
   }
 };
 
+const buildReleasePlan = (redirectUrl: string, websiteUrl: string) => {
+  const safeOriginal = safeUrl(redirectUrl, '');
+  const safeWebsite = safeUrl(websiteUrl, websiteFallbackUrl);
+  const releaseTarget = safeOriginal || httpReleaseFallbackUrl || captiveGenerate204Url || safeWebsite;
+  const continueTarget = httpReleaseFallbackUrl;
+  const secondaryTarget = safeWebsite || captiveGenerate204Url || releaseTarget;
+
+  return {
+    releaseTarget,
+    continueTarget: safeUrl(continueTarget, releaseTarget),
+    secondaryTarget: safeUrl(secondaryTarget, releaseTarget),
+    finalRedirectUrl: safeOriginal || safeWebsite,
+    releaseMode: safeOriginal ? 'original_redirect' : 'http_fallback'
+  };
+};
+
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' };
@@ -90,6 +109,7 @@ export const handler: Handler = async (event) => {
   const traceId = safeDecode(form.get('trace_id'));
   const sessionId = safeDecode(form.get('session_id'));
   const attemptNo = Number(form.get('attempt_no') || '1');
+  const debugRequested = safeDecode(form.get('debug') || eventQuery.get('debug')) === '1';
   const edgeRouteId = event.headers['x-nf-request-id'] || event.headers['cf-ray'] || null;
 
   const forwardParams = new URLSearchParams();
@@ -134,6 +154,7 @@ export const handler: Handler = async (event) => {
     unifi_ap: apMac || null,
     unifi_t: unifiT || null,
     edge_route_id: edgeRouteId,
+    debug: debugRequested,
     trace_context: {
       ...traceContext,
       request_url: traceContext?.request_url || event.rawUrl || null,
@@ -178,21 +199,38 @@ export const handler: Handler = async (event) => {
   const redirectContract = data.redirect_contract || {};
   const websiteUrl = safeUrl(redirectContract.website_url, websiteFallbackUrl);
   const contractMode = redirectContract.redirect_mode;
-  const contractRedirect = safeUrl(redirectContract.redirect_url || redirectUrl, websiteUrl);
-
-  if (contractMode === 'website_redirect') {
-    return jsonRedirect(contractRedirect || websiteUrl);
-  }
+  const releasePlan = buildReleasePlan(redirectUrl, websiteUrl);
 
   const params = new URLSearchParams(forwardParams);
   params.set('state', 'finalizing');
   params.set('website', websiteUrl);
+  params.set('release_target', releasePlan.releaseTarget);
+  params.set('continue_target', releasePlan.continueTarget);
+  params.set('secondary_target', releasePlan.secondaryTarget);
+  params.set('final_redirect_url', releasePlan.finalRedirectUrl || websiteUrl);
+  params.set('release_mode', releasePlan.releaseMode);
   params.set(
     'release_result',
     redirectContract.release_result || (contractMode === 'probe_redirect' ? 'authorized_verified' : 'authorized_unverified_timeout')
   );
   if (redirectUrl) {
     params.set('probe_url', redirectUrl);
+  }
+  if (debugRequested) {
+    params.set('debug', '1');
+    const authorizeDebug = data.debug?.unifi_authorize as Record<string, unknown> | undefined;
+    const authorizeStatus = typeof authorizeDebug?.status === 'number'
+      ? String(authorizeDebug.status)
+      : '';
+    const authorizeEndpoint = typeof authorizeDebug?.endpoint === 'string'
+      ? authorizeDebug.endpoint
+      : '';
+    const authorizeMode = typeof authorizeDebug?.mode === 'string'
+      ? authorizeDebug.mode
+      : '';
+    if (authorizeStatus) params.set('debug_authorize_status', authorizeStatus);
+    if (authorizeEndpoint) params.set('debug_authorize_endpoint', authorizeEndpoint);
+    if (authorizeMode) params.set('debug_authorize_mode', authorizeMode);
   }
   return jsonRedirect(`/connect?${params.toString()}`);
 };

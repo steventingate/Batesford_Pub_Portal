@@ -3,6 +3,8 @@ import { Handler } from '@netlify/functions';
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const websiteFallbackUrl = process.env.PORTAL_WEBSITE_URL || 'https://www.thebatesfordhotel.com.au/';
+const httpReleaseFallbackUrl = 'http://neverssl.com/';
+const captiveGenerate204Url = 'https://www.google.com/generate_204';
 const enableProbeRedirect = process.env.CAPTIVE_ENABLE_PROBE_REDIRECT === 'true';
 
 type WifiStatusResponse = {
@@ -14,6 +16,7 @@ type WifiStatusResponse = {
   status_source?: string;
   status_mode?: string;
   error?: string;
+  debug?: Record<string, unknown>;
 };
 
 const safeUrl = (value: string | null | undefined, fallback: string) => {
@@ -43,6 +46,24 @@ const isProbeUrl = (value: string) => {
   } catch {
     return false;
   }
+};
+
+const buildReleasePlan = (redirectUrl: string, websiteUrl: string, shouldUseProbe: boolean) => {
+  const safeOriginal = safeUrl(redirectUrl, '');
+  const safeWebsite = safeUrl(websiteUrl, websiteFallbackUrl);
+  const releaseTarget = shouldUseProbe
+    ? safeOriginal || httpReleaseFallbackUrl || captiveGenerate204Url || safeWebsite
+    : safeOriginal || httpReleaseFallbackUrl || captiveGenerate204Url || safeWebsite;
+  const continueTarget = httpReleaseFallbackUrl;
+  const secondaryTarget = safeWebsite || captiveGenerate204Url || releaseTarget;
+
+  return {
+    releaseTarget,
+    continueTarget: safeUrl(continueTarget, releaseTarget),
+    secondaryTarget: safeUrl(secondaryTarget, releaseTarget),
+    finalRedirectUrl: safeOriginal || safeWebsite,
+    redirectMode: shouldUseProbe ? 'probe_redirect' : (safeOriginal ? 'original_redirect' : 'http_fallback')
+  };
 };
 
 const json = (statusCode: number, body: Record<string, unknown>) => ({
@@ -80,6 +101,7 @@ export const handler: Handler = async (event) => {
   const attemptNo = Number(requestUrl.searchParams.get('attempt_no') || '1');
   const websiteUrl = safeUrl(requestUrl.searchParams.get('website'), websiteFallbackUrl);
   const probeDone = requestUrl.searchParams.get('probe_done') === '1';
+  const debugRequested = requestUrl.searchParams.get('debug') === '1';
 
   if (!clientMac || !unifiSite) {
     return json(400, {
@@ -113,6 +135,7 @@ export const handler: Handler = async (event) => {
         unifi_id: unifiId || null,
         unifi_ap: apMac || null,
         unifi_t: unifiT || null,
+        debug: debugRequested,
         edge_route_id: event.headers['x-nf-request-id'] || event.headers['cf-ray'] || null,
         trace_context: {
           request_url: requestUrl.toString(),
@@ -136,6 +159,7 @@ export const handler: Handler = async (event) => {
     !probeDone &&
     redirectUrl &&
     isProbeUrl(safeProbe);
+  const releasePlan = buildReleasePlan(redirectUrl, websiteUrl, shouldUseProbe);
 
   return json(200, {
     trace_id: data.trace_id || traceId || null,
@@ -145,13 +169,18 @@ export const handler: Handler = async (event) => {
     status_source: data.status_source || 'none',
     status_mode: data.status_mode || 'strict',
     redirect_mode: authorized
-      ? (shouldUseProbe ? 'probe_redirect' : 'website_redirect')
+      ? releasePlan.redirectMode
       : 'pending',
     redirect_url: authorized
-      ? (shouldUseProbe ? safeProbe : websiteUrl)
+      ? releasePlan.releaseTarget
       : null,
     probe_url: shouldUseProbe ? safeProbe : null,
+    release_target: authorized ? releasePlan.releaseTarget : null,
+    continue_target: releasePlan.continueTarget,
+    secondary_target: releasePlan.secondaryTarget,
+    final_redirect_url: releasePlan.finalRedirectUrl || websiteUrl,
     website_url: websiteUrl,
-    release_result: authorized ? 'authorized_verified' : 'pending'
+    release_result: authorized ? 'authorized_verified' : 'pending',
+    debug: debugRequested ? data.debug || null : undefined
   });
 };

@@ -223,6 +223,7 @@
       <input type="hidden" id="unifi_id" name="unifi_id">
       <input type="hidden" id="unifi_ap" name="unifi_ap">
       <input type="hidden" id="unifi_t" name="unifi_t">
+      <input type="hidden" id="debug_mode" name="debug">
       <input type="hidden" id="trace_context_json" name="trace_context_json">
       <input type="hidden" id="trace_events_json" name="trace_events_json">
       <input type="hidden" id="timings_json" name="timings_json">
@@ -253,8 +254,10 @@
 
       <button type="submit" id="submit-button">Connect and Agree</button>
       <div class="status" id="status">Thanks. Connecting you now.</div>
+      <div class="note" id="assistant-note" style="display:none;margin-top:10px;text-align:left;"></div>
       <div class="success-actions" id="success-actions">
-        <a id="continue-link" class="success-link" href="https://www.thebatesfordhotel.com.au/" target="_self">Continue to Batesford Pub website</a>
+        <a id="continue-link" class="success-link" href="http://neverssl.com/" target="_self">Continue to Internet</a>
+        <a id="secondary-link" class="success-link close-link" href="https://www.thebatesfordhotel.com.au/" target="_self">Open Batesford website</a>
         <button id="close-window-btn" type="button" class="success-link close-link">Close this window</button>
       </div>
       <p class="note">By connecting you accept the acceptable use policy and consent to receiving occasional offers. We never share your details with third parties.</p>
@@ -269,25 +272,30 @@
 
   <script>
     const WEBSITE_FALLBACK = 'https://www.thebatesfordhotel.com.au/';
-    const STATUS_POLL_INTERVAL_MS = 700;
+    const HTTP_RELEASE_FALLBACK = 'http://neverssl.com/';
+    const CAPTIVE_GENERATE_204 = 'https://www.google.com/generate_204';
+    const STATUS_POLL_INTERVAL_MS = 1000;
     const STATUS_POLL_MAX_ATTEMPTS = 12;
-    const STRICT_READY_WINDOW_MS = 8000;
     const BACKGROUND_RETRY_INTERVAL_MS = 5000;
     const BACKGROUND_RETRY_MAX_ATTEMPTS = 24;
     const PENDING_RESUME_WINDOW_MS = 5 * 60 * 1000;
+    const AUTO_FALLBACK_REDIRECT_DELAY_MS = 1800;
     const IS_IOS_DEVICE = /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
-    const ENABLE_PROBE_REDIRECT = /iPhone|iPad|iPod|CaptiveNetworkSupport/i.test(navigator.userAgent || '');
-    const AUTO_WEBSITE_REDIRECT_ON_IOS = false;
+    const IS_ANDROID_DEVICE = /Android/i.test(navigator.userAgent || '');
+    const IS_CAPTIVE_ASSISTANT = /CaptiveNetworkSupport|Captive|Hotspot|wifilogin/i.test(navigator.userAgent || '') ||
+      Boolean(window.location.search.match(/[?&](id|ap|t|site)=/i));
 
     const form = document.getElementById('connect-form');
     const submitButton = document.getElementById('submit-button');
     const status = document.getElementById('status');
     const successActions = document.getElementById('success-actions');
     const continueLink = document.getElementById('continue-link');
+    const secondaryLink = document.getElementById('secondary-link');
     const closeWindowButton = document.getElementById('close-window-btn');
     const postcodeInput = document.getElementById('postcode');
     const postcodeError = document.getElementById('postcode-error');
     const debugPanel = document.getElementById('debug-panel');
+    const assistantNote = document.getElementById('assistant-note');
 
     const hiddenFields = {
       trace_id: document.getElementById('trace_id'),
@@ -301,15 +309,10 @@
       unifi_id: document.getElementById('unifi_id'),
       unifi_ap: document.getElementById('unifi_ap'),
       unifi_t: document.getElementById('unifi_t'),
+      debug_mode: document.getElementById('debug_mode'),
       trace_context_json: document.getElementById('trace_context_json'),
       trace_events_json: document.getElementById('trace_events_json'),
       timings_json: document.getElementById('timings_json')
-    };
-
-    const setStatus = (message, isError) => {
-      status.style.display = 'block';
-      status.textContent = message;
-      status.style.color = isError ? '#b42318' : '#1a472a';
     };
 
     const parseSiteFromPath = () => {
@@ -336,6 +339,17 @@
       return obj;
     };
 
+    const safeUrl = (value, fallback = '') => {
+      if (!value) return fallback;
+      try {
+        const parsed = new URL(value);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return fallback;
+        return parsed.toString();
+      } catch {
+        return fallback;
+      }
+    };
+
     const isMac = (value) => /^([0-9A-Fa-f]{2}([-:])){5}[0-9A-Fa-f]{2}$/.test(String(value || '').trim());
 
     const getStorage = (kind) => {
@@ -349,9 +363,6 @@
         return null;
       }
     };
-
-    const sessionStore = getStorage('session');
-    const localStore = getStorage('local') || sessionStore;
 
     const createUuid = () => {
       if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -369,25 +380,37 @@
       if (!store || !key) return null;
       try {
         const raw = store.getItem(key);
-        if (!raw) return null;
-        return JSON.parse(raw);
+        return raw ? JSON.parse(raw) : null;
       } catch {
         return null;
       }
     };
 
-    const query = parseQuery();
-    const unifi = {
-      client_mac: query.id || '',
-      ap_mac: query.ap || '',
-      unifi_t: query.t || '',
-      redirect_url: query.url || '',
-      ssid: query.ssid || '',
-      unifi_site: query.site || parseSiteFromPath(),
-      unifi_id: query.id || '',
-      unifi_ap: query.ap || ''
+    const setStatus = (message, isError = false) => {
+      status.style.display = 'block';
+      status.textContent = message;
+      status.style.color = isError ? '#b42318' : '#1a472a';
     };
 
+    const query = parseQuery();
+    const debugMode = query.debug === '1';
+    const queryRedirectUrl = query.url || query.redirect_url || query.original_url || query.dst || query.continue || '';
+    const websiteUrl = safeUrl(query.website, WEBSITE_FALLBACK);
+    const unifi = {
+      client_mac: query.id || query.client_mac || '',
+      ap_mac: query.ap || query.ap_mac || '',
+      unifi_t: query.t || query.unifi_t || '',
+      redirect_url: safeUrl(queryRedirectUrl, ''),
+      original_destination_url: safeUrl(queryRedirectUrl, ''),
+      ssid: query.ssid || '',
+      unifi_site: query.site || query.unifi_site || parseSiteFromPath(),
+      unifi_id: query.id || query.client_mac || '',
+      unifi_ap: query.ap || query.ap_mac || ''
+    };
+
+    const sessionStore = getStorage('session');
+    const localStore = getStorage('local') || sessionStore;
+    const state = String(query.state || '').toLowerCase();
     const traceEvents = [];
     const timings = {
       t_portal_loaded: Date.now(),
@@ -396,32 +419,46 @@
       t_client_validation_finished: null,
       t_submit: null,
       t_submit_clicked: null,
+      t_connect_response: null,
+      t_connect_success: null,
+      t_strict_poll_start: null,
+      t_strict_poll_end: null,
+      t_strict_ready: null,
+      t_probe_start: null,
+      t_probe_end: null,
+      t_probe_redirect: null,
       t_redirect_called: null,
       t_website_redirect: null,
       t_page_hidden: null,
       t_page_unload: null
     };
 
-    const pushEvent = (stageName, metadata, statusValue, message) => {
+    const pushEvent = (stageName, metadata = {}, statusValue = 'ok', message = null) => {
       const now = Date.now();
       traceEvents.push({
         stage_name: stageName,
         started_at: now,
         ended_at: now,
-        status: statusValue || 'ok',
-        message: message || null,
-        metadata: metadata || { source: 'client' }
+        status: statusValue,
+        message,
+        metadata: {
+          source: 'client',
+          client_iso: new Date(now).toISOString(),
+          ...metadata
+        }
       });
-      if (traceEvents.length > 120) {
+      if (traceEvents.length > 200) {
         traceEvents.shift();
       }
+      if (debugMode) {
+        console.log(`[portal] ${stageName}`, {
+          status: statusValue,
+          message,
+          metadata
+        });
+      }
+      renderDebug();
     };
-
-    pushEvent('portal_loaded', {
-      source: 'client',
-      request_path: window.location.pathname,
-      has_unifi_params: Boolean(unifi.client_mac && unifi.unifi_site)
-    });
 
     const buildSessionKey = (suffix) => {
       const seed = (unifi.unifi_t || unifi.client_mac || 'unknown').toLowerCase().replace(/[^a-z0-9]/g, '_');
@@ -444,6 +481,36 @@
     }
 
     const buildTraceId = (attempt) => `${sessionId}-a${attempt}`;
+    const unifiSeed = (unifi.unifi_t || unifi.client_mac || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const pendingKey = `wifi_pending_submit_${unifiSeed}`;
+
+    const releaseState = {
+      primary: safeUrl(query.release_target, unifi.redirect_url || HTTP_RELEASE_FALLBACK),
+      continueTarget: safeUrl(query.continue_target, HTTP_RELEASE_FALLBACK),
+      secondaryTarget: safeUrl(query.secondary_target, websiteUrl || CAPTIVE_GENERATE_204),
+      websiteTarget: websiteUrl,
+      redirectMode: query.release_mode || query.redirect_mode || 'unknown',
+      finalRedirectUrl: safeUrl(query.final_redirect_url, ''),
+      attemptedTargets: [],
+      autoFallbackTriggered: false,
+      lastStatusPayload: null
+    };
+
+    const renderDebug = () => {
+      if (!debugMode || !debugPanel) return;
+      debugPanel.style.display = 'block';
+      debugPanel.textContent = JSON.stringify({
+        now: new Date().toISOString(),
+        state,
+        query,
+        unifi,
+        sessionId,
+        attemptNo,
+        releaseState,
+        timings,
+        events: traceEvents
+      }, null, 2);
+    };
 
     const updateHiddenValues = () => {
       hiddenFields.session_id.value = sessionId;
@@ -456,32 +523,54 @@
       hiddenFields.unifi_id.value = unifi.unifi_id || '';
       hiddenFields.unifi_ap.value = unifi.unifi_ap || '';
       hiddenFields.unifi_t.value = unifi.unifi_t || '';
+      hiddenFields.debug_mode.value = debugMode ? '1' : '';
       hiddenFields.trace_context_json.value = JSON.stringify({
         request_url: window.location.href,
         page_url: window.location.href,
         query_params: query,
         user_agent: navigator.userAgent || '',
         platform: navigator.platform || '',
-        device_os: /iPhone|iPad|iPod/i.test(navigator.userAgent || '') ? 'ios' : (/Android/i.test(navigator.userAgent || '') ? 'android' : 'other'),
-        is_captive_assistant: /captive|hotspot|CaptiveNetworkSupport/i.test(navigator.userAgent || '') || Boolean(query.id || query.ap || query.t)
+        device_os: IS_IOS_DEVICE ? 'ios' : (IS_ANDROID_DEVICE ? 'android' : 'other'),
+        is_captive_assistant: IS_CAPTIVE_ASSISTANT,
+        release_target: releaseState.primary,
+        continue_target: releaseState.continueTarget,
+        secondary_target: releaseState.secondaryTarget
       });
       hiddenFields.trace_events_json.value = JSON.stringify(traceEvents);
       hiddenFields.timings_json.value = JSON.stringify(timings);
     };
 
-    const setConnectedMode = (message, websiteUrl) => {
+    const setAssistantMessage = (message) => {
+      if (!assistantNote) return;
+      assistantNote.style.display = message ? 'block' : 'none';
+      assistantNote.textContent = message || '';
+    };
+
+    const setConnectedMode = (message, releasePlan = releaseState) => {
       form.classList.add('connected-mode');
-      if (successActions) {
-        successActions.style.display = 'block';
-      }
+      successActions.style.display = 'block';
       submitButton.disabled = true;
       submitButton.textContent = 'Connected';
-      continueLink.setAttribute('href', websiteUrl || WEBSITE_FALLBACK);
+      continueLink.href = safeUrl(releasePlan.continueTarget, HTTP_RELEASE_FALLBACK);
+      continueLink.textContent = 'Continue to Internet';
+      secondaryLink.href = safeUrl(releasePlan.secondaryTarget, WEBSITE_FALLBACK);
+      secondaryLink.textContent = 'Open Batesford website';
       continueLink.onclick = () => {
         timings.t_redirect_called = Date.now();
-        timings.t_website_redirect = Date.now();
+        timings.t_website_redirect = timings.t_redirect_called;
+        pushEvent('manual_continue_clicked', {
+          target: continueLink.href
+        });
+      };
+      secondaryLink.onclick = () => {
+        pushEvent('manual_secondary_clicked', {
+          target: secondaryLink.href
+        });
       };
       setStatus(message, false);
+      if (IS_CAPTIVE_ASSISTANT) {
+        setAssistantMessage('You’re connected. If this mini-browser stays open, tap Continue to Internet, then tap Done or open Safari/Chrome.');
+      }
     };
 
     const tryCloseWindow = () => {
@@ -492,8 +581,28 @@
       }
     };
 
+    const tryRelease = (target, reason) => {
+      const safeTarget = safeUrl(target, '');
+      if (!safeTarget) return false;
+      if (releaseState.attemptedTargets.includes(safeTarget)) return false;
+      releaseState.attemptedTargets.push(safeTarget);
+      timings.t_redirect_called = Date.now();
+      timings.t_website_redirect = timings.t_redirect_called;
+      if (safeTarget === HTTP_RELEASE_FALLBACK || safeTarget === CAPTIVE_GENERATE_204) {
+        timings.t_probe_start = timings.t_redirect_called;
+        timings.t_probe_redirect = timings.t_redirect_called;
+      }
+      pushEvent('redirect_attempted', {
+        target: safeTarget,
+        reason
+      });
+      renderDebug();
+      window.location.replace(safeTarget);
+      return true;
+    };
+
     closeWindowButton.addEventListener('click', () => {
-      pushEvent('captive_window_close_attempted', { source: 'client', trigger: 'close_button' });
+      pushEvent('captive_window_close_attempted', { trigger: 'close_button' });
       tryCloseWindow();
       setTimeout(tryCloseWindow, 250);
       setTimeout(tryCloseWindow, 1000);
@@ -502,74 +611,69 @@
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden' && !timings.t_page_hidden) {
         timings.t_page_hidden = Date.now();
-        pushEvent('client_return_seen', { source: 'client', via: 'visibilitychange' });
+        pushEvent('client_return_seen', { via: 'visibilitychange' });
+        updateHiddenValues();
       }
     });
 
     window.addEventListener('pagehide', () => {
       if (!timings.t_page_unload) {
         timings.t_page_unload = Date.now();
+        updateHiddenValues();
       }
     });
 
-    const state = (query.state || '').toLowerCase();
-    const websiteUrl = query.website || WEBSITE_FALLBACK;
-    const unifiSeed = (unifi.unifi_t || unifi.client_mac || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
-    const finalizeMarkerKey = `wifi_probe_done_${unifiSeed}`;
-    const pendingKey = `wifi_pending_submit_${unifiSeed}`;
-
-    const buildStatusUrl = (probeDone) => {
+    const buildStatusUrl = () => {
       const params = new URLSearchParams();
       params.set('id', unifi.client_mac || '');
       params.set('ap', unifi.ap_mac || '');
       params.set('t', unifi.unifi_t || '');
       params.set('ssid', unifi.ssid || '');
-      params.set('url', unifi.redirect_url || query.probe_url || '');
+      params.set('url', unifi.redirect_url || '');
       params.set('site', unifi.unifi_site || '');
       params.set('trace_id', query.trace_id || hiddenFields.trace_id.value || '');
       params.set('session_id', sessionId);
       params.set('attempt_no', String(Math.max(1, attemptNo || Number(query.attempt_no || '1') || 1)));
       params.set('website', websiteUrl || WEBSITE_FALLBACK);
-      if (probeDone) {
-        params.set('probe_done', '1');
+      if (debugMode) {
+        params.set('debug', '1');
       }
       return `/connect/status?${params.toString()}`;
     };
 
-    const runStatusCheck = async (probeDone) => {
-      const statusUrl = buildStatusUrl(probeDone);
+    const runStatusCheck = async () => {
+      const statusUrl = buildStatusUrl();
+      pushEvent('status_check_requested', { status_url: statusUrl });
+      const startedAt = Date.now();
       const response = await fetch(statusUrl, {
         method: 'GET',
         headers: { Accept: 'application/json' },
         cache: 'no-store'
       });
-      return response.json().catch(() => ({}));
+      const data = await response.json().catch(() => ({}));
+      timings.t_strict_poll_end = Date.now();
+      releaseState.lastStatusPayload = data;
+      pushEvent('status_check_finished', {
+        status: response.status,
+        elapsed_ms: Date.now() - startedAt,
+        authorized: data.authorized === true,
+        redirect_mode: data.redirect_mode || null
+      });
+      renderDebug();
+      return data;
     };
 
-    const resolveAuthorizedRedirectTarget = (data) => {
-      const websiteTarget = data.website_url || websiteUrl || WEBSITE_FALLBACK;
-      if (
-        ENABLE_PROBE_REDIRECT &&
-        data.redirect_mode === 'probe_redirect' &&
-        data.redirect_url
-      ) {
-        return { mode: 'probe_redirect', url: data.redirect_url };
-      }
-      if (data.redirect_mode === 'website_redirect' && data.redirect_url) {
-        return { mode: 'website_redirect', url: data.redirect_url };
-      }
-      return { mode: 'website_redirect', url: websiteTarget };
-    };
-
-    const showConnectedStablePage = (message, websiteTarget) => {
-      setConnectedMode(message, websiteTarget || WEBSITE_FALLBACK);
-      setTimeout(tryCloseWindow, 500);
-      setTimeout(tryCloseWindow, 1800);
-      setTimeout(tryCloseWindow, 3500);
+    const applyServerReleasePlan = (data) => {
+      if (!data || typeof data !== 'object') return;
+      releaseState.primary = safeUrl(data.release_target || data.redirect_url, releaseState.primary || HTTP_RELEASE_FALLBACK);
+      releaseState.continueTarget = safeUrl(data.continue_target, releaseState.continueTarget || HTTP_RELEASE_FALLBACK);
+      releaseState.secondaryTarget = safeUrl(data.secondary_target || data.website_url, releaseState.secondaryTarget || WEBSITE_FALLBACK);
+      releaseState.finalRedirectUrl = safeUrl(data.final_redirect_url, releaseState.finalRedirectUrl || '');
+      releaseState.redirectMode = data.redirect_mode || releaseState.redirectMode;
+      renderDebug();
     };
 
     let backgroundRetryStarted = false;
-
     const startBackgroundStatusPoll = () => {
       if (backgroundRetryStarted) return;
       backgroundRetryStarted = true;
@@ -577,38 +681,25 @@
 
       const tick = async () => {
         attempts += 1;
-        const probeDone = localStore ? localStore.getItem(finalizeMarkerKey) === '1' : false;
         try {
-          const data = await runStatusCheck(probeDone);
-          timings.t_strict_poll_end = Date.now();
-          if (data && data.authorized === true && data.redirect_url) {
-            const target = resolveAuthorizedRedirectTarget(data);
-            if (target.mode === 'probe_redirect' && localStore) {
-              localStore.setItem(finalizeMarkerKey, '1');
-              timings.t_probe_redirect = Date.now();
-            }
-            pushEvent('redirect_issued', {
-              source: 'client',
-              mode: target.mode,
+          const data = await runStatusCheck();
+          applyServerReleasePlan(data);
+          if (data && data.authorized === true) {
+            timings.t_strict_ready = Date.now();
+            pushEvent('status_authorized', {
+              redirect_mode: data.redirect_mode || null,
               retry_mode: 'background'
             });
-            if (target.mode === 'website_redirect' && IS_IOS_DEVICE && !AUTO_WEBSITE_REDIRECT_ON_IOS) {
-              if (localStore) {
-                localStore.removeItem(pendingKey);
-              }
-              showConnectedStablePage('Successfully connected. You can close this window.', target.url);
+            setConnectedMode('You’re connected. Continuing to the internet now...', releaseState);
+            if (tryRelease(releaseState.primary, 'background_status_authorized')) {
               return;
             }
-            timings.t_redirect_called = Date.now();
-            timings.t_website_redirect = Date.now();
-            if (localStore) {
-              localStore.removeItem(pendingKey);
-            }
-            window.location.replace(target.url);
-            return;
           }
-        } catch {
-          // Keep best-effort retries in background.
+        } catch (error) {
+          pushEvent('status_check_error', {
+            retry_mode: 'background',
+            error: error instanceof Error ? error.message : String(error)
+          }, 'error');
         }
 
         if (attempts < BACKGROUND_RETRY_MAX_ATTEMPTS) {
@@ -619,74 +710,84 @@
       window.setTimeout(tick, BACKGROUND_RETRY_INTERVAL_MS);
     };
 
-    const startFinalizingPoll = () => {
+    const startStrictStatusPoll = () => {
       let pollCount = 0;
-      const strictReadyDeadlineMs = Date.now() + STRICT_READY_WINDOW_MS;
       timings.t_strict_poll_start = Date.now();
-      pushEvent('strict_poll_start', { source: 'client' });
+      pushEvent('strict_poll_start', { interval_ms: STATUS_POLL_INTERVAL_MS });
 
       const tick = async () => {
         pollCount += 1;
-        const probeDone = localStore ? localStore.getItem(finalizeMarkerKey) === '1' : false;
         try {
-          const data = await runStatusCheck(probeDone);
-          timings.t_strict_poll_end = Date.now();
+          const data = await runStatusCheck();
+          applyServerReleasePlan(data);
           if (data && data.authorized === true) {
             timings.t_strict_ready = Date.now();
-            pushEvent('strict_ready', { source: 'client' });
-            const target = resolveAuthorizedRedirectTarget(data);
-            if (target.mode === 'probe_redirect') {
-              if (localStore) {
-                localStore.setItem(finalizeMarkerKey, '1');
-              }
-              pushEvent('redirect_issued', { source: 'client', mode: 'probe_redirect' });
-              timings.t_probe_redirect = Date.now();
-            }
-            pushEvent('redirect_issued', { source: 'client', mode: target.mode });
-            if (target.mode === 'website_redirect' && IS_IOS_DEVICE && !AUTO_WEBSITE_REDIRECT_ON_IOS) {
-              if (localStore) {
-                localStore.removeItem(pendingKey);
-              }
-              showConnectedStablePage('Successfully connected. You can close this window.', target.url);
+            pushEvent('strict_ready', {
+              attempts: pollCount,
+              redirect_mode: data.redirect_mode || null
+            });
+            setConnectedMode('You’re connected. Continuing to the internet now...', releaseState);
+            if (tryRelease(releaseState.primary, 'strict_status_authorized')) {
               return;
             }
-            timings.t_redirect_called = Date.now();
-            timings.t_website_redirect = Date.now();
-            if (localStore) {
-              localStore.removeItem(pendingKey);
-            }
-            window.location.replace(target.url);
-            return;
           }
-        } catch {
-          // Keep retrying within bound.
+        } catch (error) {
+          pushEvent('status_check_error', {
+            retry_mode: 'strict',
+            error: error instanceof Error ? error.message : String(error)
+          }, 'error');
         }
 
-        if (pollCount >= STATUS_POLL_MAX_ATTEMPTS || Date.now() >= strictReadyDeadlineMs) {
-          pushEvent('strict_ready_timeout', { source: 'client', attempts: pollCount });
-          setStatus('Connected. Finalizing is taking longer than expected. Tap Continue to finish.', false);
+        if (pollCount >= STATUS_POLL_MAX_ATTEMPTS) {
+          pushEvent('strict_ready_timeout', { attempts: pollCount }, 'warning', 'Authorization not observed during strict poll window');
+          setStatus('Authorization succeeded, but captive release is taking longer than expected. Tap Continue to Internet.', false);
           startBackgroundStatusPoll();
           return;
         }
+
         window.setTimeout(tick, STATUS_POLL_INTERVAL_MS);
       };
-      window.setTimeout(tick, 250);
+
+      window.setTimeout(tick, 300);
     };
 
-    if (query.debug === '1' && debugPanel) {
-      debugPanel.style.display = 'block';
-      debugPanel.textContent = JSON.stringify({
-        state,
-        query,
-        unifi,
-        sessionId,
-        attemptNo
-      }, null, 2);
-    }
+    const startImmediateReleaseFlow = (message) => {
+      timings.t_connect_success = Date.now();
+      setConnectedMode(message, releaseState);
+      pushEvent('release_flow_started', {
+        primary_target: releaseState.primary,
+        continue_target: releaseState.continueTarget,
+        secondary_target: releaseState.secondaryTarget,
+        redirect_mode: releaseState.redirectMode
+      });
+      tryRelease(releaseState.primary, 'immediate_release');
+      window.setTimeout(() => {
+        if (document.visibilityState === 'visible' && !releaseState.autoFallbackTriggered) {
+          releaseState.autoFallbackTriggered = true;
+          pushEvent('release_fallback_triggered', {
+            continue_target: releaseState.continueTarget
+          }, 'warning');
+          tryRelease(releaseState.continueTarget, 'auto_http_fallback');
+        }
+      }, AUTO_FALLBACK_REDIRECT_DELAY_MS);
+      startStrictStatusPoll();
+      setTimeout(tryCloseWindow, 600);
+      setTimeout(tryCloseWindow, 1800);
+    };
+
+    pushEvent('portal_loaded', {
+      request_path: window.location.pathname,
+      has_unifi_params: Boolean(unifi.client_mac && unifi.unifi_site),
+      query_params: query
+    });
 
     if (!isMac(unifi.client_mac) || !unifi.unifi_site) {
       setStatus('Please connect to Batesford Guest Wi-Fi first, then reopen this portal.', true);
       submitButton.disabled = true;
+      pushEvent('missing_unifi_params', {
+        client_mac: unifi.client_mac || null,
+        unifi_site: unifi.unifi_site || null
+      }, 'error');
     }
 
     if (state === 'error') {
@@ -696,11 +797,16 @@
       setStatus(query.error || 'We could not connect you right now. Please try again.', true);
       submitButton.disabled = false;
       submitButton.textContent = 'Connect and Agree';
+      pushEvent('error_state_loaded', { error: query.error || null }, 'error');
     } else if (state === 'finalizing') {
-      setConnectedMode('Successfully connected. Finalizing Wi-Fi access...', websiteUrl);
-      startFinalizingPoll();
-      setTimeout(tryCloseWindow, 500);
-      setTimeout(tryCloseWindow, 1800);
+      timings.t_connect_response = Date.now();
+      pushEvent('finalizing_state_loaded', {
+        release_target: releaseState.primary,
+        continue_target: releaseState.continueTarget,
+        secondary_target: releaseState.secondaryTarget,
+        release_mode: releaseState.redirectMode
+      });
+      startImmediateReleaseFlow('Success, connecting you to Wi-Fi...');
     } else if (state !== 'error') {
       const pending = readJsonFromStore(localStore, pendingKey);
       if (
@@ -721,10 +827,12 @@
             sessionStore.setItem(attemptKey, String(attemptNo));
           }
         }
-        setConnectedMode('Successfully connected. Finalizing Wi-Fi access...', pending.website || websiteUrl || WEBSITE_FALLBACK);
-        startFinalizingPoll();
-        setTimeout(tryCloseWindow, 500);
-        setTimeout(tryCloseWindow, 1800);
+        pushEvent('pending_submission_resumed', {
+          trace_id: pending.trace_id || null,
+          attempt_no: pending.attempt_no || null
+        });
+        setConnectedMode('Authorization is already in progress. Releasing internet access now...', releaseState);
+        startStrictStatusPoll();
       }
     }
 
@@ -734,34 +842,23 @@
       if (pendingKey && localStore && localStore.getItem(pendingKey)) return;
 
       try {
-        const probeDone = localStore ? localStore.getItem(finalizeMarkerKey) === '1' : false;
-        const data = await runStatusCheck(probeDone);
+        const data = await runStatusCheck();
+        applyServerReleasePlan(data);
         if (!data || data.authorized !== true) return;
-        const target = resolveAuthorizedRedirectTarget(data);
-        if (target.mode === 'probe_redirect' && localStore) {
-          localStore.setItem(finalizeMarkerKey, '1');
-          timings.t_probe_redirect = Date.now();
-        }
         if (localStore) {
           localStore.removeItem(pendingKey);
         }
+        timings.t_connect_success = Date.now();
         pushEvent('initial_authorized_detected', {
-          source: 'client',
-          redirect_mode: target.mode
+          redirect_mode: data.redirect_mode || null,
+          release_target: releaseState.primary
         });
-        if (target.mode === 'website_redirect' && IS_IOS_DEVICE && !AUTO_WEBSITE_REDIRECT_ON_IOS) {
-          showConnectedStablePage('Already connected. You can close this window.', target.url);
-          return;
-        }
-        setConnectedMode('Already connected. Opening website...', target.url);
-        timings.t_redirect_called = Date.now();
-        timings.t_website_redirect = Date.now();
-        setTimeout(() => {
-          window.location.replace(target.url);
-        }, 300);
-        setTimeout(tryCloseWindow, 500);
-      } catch {
-        // Keep standard form flow if status check fails.
+        setConnectedMode('Already connected. Continuing to the internet now...', releaseState);
+        tryRelease(releaseState.primary, 'initial_authorized');
+      } catch (error) {
+        pushEvent('initial_status_check_error', {
+          error: error instanceof Error ? error.message : String(error)
+        }, 'error');
       }
     };
 
@@ -773,27 +870,40 @@
       timings.t_form_submit_clicked = Date.now();
       timings.t_submit_clicked = timings.t_form_submit_clicked;
       timings.t_client_validation_started = Date.now();
-      pushEvent('form_submit_clicked', { source: 'client' });
-      pushEvent('client_validation_started', { source: 'client' });
+      pushEvent('form_submit_clicked', {
+        unifi_params: {
+          client_mac: unifi.client_mac,
+          ap_mac: unifi.ap_mac,
+          unifi_site: unifi.unifi_site,
+          redirect_url: unifi.redirect_url
+        }
+      });
+      pushEvent('client_validation_started');
 
       const postcodeValue = String(postcodeInput.value || '').trim();
       if (postcodeValue && !/^\d{4}$/.test(postcodeValue)) {
         event.preventDefault();
         timings.t_client_validation_finished = Date.now();
-        pushEvent('client_validation_finished', { source: 'client' }, 'error', 'Invalid postcode format');
+        pushEvent('client_validation_finished', {}, 'error', 'Invalid postcode format');
         postcodeError.style.display = 'block';
+        updateHiddenValues();
         return;
       }
 
       if (!isMac(unifi.client_mac) || !unifi.unifi_site) {
         event.preventDefault();
         setStatus('Missing required Wi-Fi session details. Please reconnect to Guest Wi-Fi.', true);
+        pushEvent('form_submit_blocked_missing_unifi', {
+          client_mac: unifi.client_mac || null,
+          unifi_site: unifi.unifi_site || null
+        }, 'error');
+        updateHiddenValues();
         return;
       }
 
       timings.t_client_validation_finished = Date.now();
       timings.t_submit = Date.now();
-      pushEvent('client_validation_finished', { source: 'client' });
+      pushEvent('client_validation_finished');
 
       attemptNo += 1;
       if (sessionStore) {
@@ -817,15 +927,18 @@
       }
 
       updateHiddenValues();
-      pushEvent('auth_request_started', { source: 'client', endpoint: '/connect/submit' });
+      pushEvent('supabase_insert_started', { endpoint: '/connect/submit' });
+      pushEvent('auth_request_started', { endpoint: '/connect/submit' });
       hiddenFields.trace_events_json.value = JSON.stringify(traceEvents);
 
       submitButton.disabled = true;
       submitButton.textContent = 'Connecting...';
       setStatus('Connecting you to Wi-Fi...', false);
+      renderDebug();
     });
 
     updateHiddenValues();
+    renderDebug();
     startInitialAuthorizationCheck();
   </script>
 </body>

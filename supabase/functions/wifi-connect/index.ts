@@ -2,12 +2,13 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 type Payload = {
-  action?: "connect" | "status" | "timing";
+  action?: "connect" | "status" | "timing" | "authorize_test";
   status_mode?: "strict" | "compat";
   trace_id?: string;
   venue_slug?: string;
   session_id?: string;
   attempt_no?: number;
+  minutes?: number;
   name?: string;
   email?: string;
   mobile?: string;
@@ -415,6 +416,7 @@ const authorizeGuestMac = async (
   cookie: string,
   mac: string,
   apMac: string | null,
+  minutes: number,
   timeoutMs: number,
 ) => {
   const normalizedMac = normalizeMac(mac);
@@ -422,7 +424,7 @@ const authorizeGuestMac = async (
   const payloadObj: Record<string, string | number> = {
     cmd: "authorize-guest",
     mac: normalizedMac || mac,
-    minutes: 480,
+    minutes,
   };
   if (normalizedApMac && MAC_REGEX.test(normalizedApMac)) {
     // Some controller/proxy setups process guest auth faster when AP context is supplied.
@@ -661,6 +663,7 @@ const sanitizePayload = (payload: Payload) => {
     venue_slug: payload.venue_slug,
     session_id: payload.session_id,
     attempt_no: payload.attempt_no,
+    minutes: payload.minutes,
     client_mac: payload.client_mac,
     unifi_id: payload.unifi_id,
     unifi_ap: payload.unifi_ap,
@@ -1161,6 +1164,7 @@ const authorizeV1Client = async (
   apiKey: string,
   siteId: string,
   clientId: string,
+  minutes: number,
   timeoutMs: number,
 ) => {
   const path = `/v1/sites/${encodeURIComponent(siteId)}/clients/${encodeURIComponent(clientId)}/actions`;
@@ -1178,7 +1182,7 @@ const authorizeV1Client = async (
         },
         body: JSON.stringify({
           action: "AUTHORIZE_GUEST_ACCESS",
-          timeLimitMinutes: 480,
+          timeLimitMinutes: minutes,
         }),
       },
       timeoutMs,
@@ -1192,7 +1196,7 @@ const authorizeV1Client = async (
   if (!res.ok) {
     throw new Error(`UniFi v1 authorize failed status=${res.status} body=${body}`);
   }
-  return { endpointUsed: path, body };
+  return { endpointUsed: path, body, status: res.status, url };
 };
 
 const readV1ClientAuthorized = async (
@@ -1299,6 +1303,8 @@ Deno.serve(async (req: Request) => {
     ? "status"
     : payload.action === "timing"
     ? "timing"
+    : payload.action === "authorize_test"
+    ? "authorize_test"
     : "connect";
   const statusMode = payload.status_mode === "strict" ? "strict" : "compat";
   const sessionId = normalizeSessionId(payload.session_id, payload.unifi_t || payload.client_mac);
@@ -1316,6 +1322,12 @@ Deno.serve(async (req: Request) => {
   let redirectMode: string | null = null;
   let verifyAttempts: number | null = null;
   let releaseResult: string | null = null;
+  let authorizeEndpointUsed: string | null = null;
+  let authorizeResponseStatus: number | null = null;
+  let authorizeResponseBody: string | null = null;
+  let resolvedSiteId: string | null = null;
+  let resolvedClientId: string | null = null;
+  let unifiApiMode: string | null = null;
   const edgeRouteId = payload.edge_route_id ||
     req.headers.get("x-nf-request-id") ||
     req.headers.get("cf-ray") ||
@@ -1374,6 +1386,8 @@ Deno.serve(async (req: Request) => {
   pushBackendPointEvent("request_parsed", "ok");
   if (action === "connect") {
     pushBackendPointEvent("connect_received", "ok");
+  } else if (action === "authorize_test") {
+    pushBackendPointEvent("authorize_test_received", "ok");
   }
   pushBackendPointEvent("unifi_site_lookup_started", "ok", null, { site_id: site });
   pushBackendSpanEvent(
@@ -1804,6 +1818,10 @@ Deno.serve(async (req: Request) => {
     parseTimeoutMs(Deno.env.get("UNIFI_VERIFY_ATTEMPTS"), 5),
   );
   const verifyDelayMs = parseTimeoutMs(Deno.env.get("UNIFI_VERIFY_DELAY_MS"), 500);
+  const authorizationMinutes = Math.max(
+    1,
+    Math.floor(Number(payload.minutes) || parseTimeoutMs(Deno.env.get("UNIFI_AUTH_MINUTES"), 480)),
+  );
   const canUseV1 = Boolean(unifiBaseUrl && unifiV1ApiKey) &&
     (unifiAuthMode === "v1" || unifiAuthMode === "v1_fallback");
   const canUseLegacy = Boolean(unifiBaseUrl && unifiUsername && unifiPassword) &&
@@ -1823,6 +1841,8 @@ Deno.serve(async (req: Request) => {
     try {
       const v1SiteIdHint = (Deno.env.get("UNIFI_V1_SITE_ID") || site).trim();
       const siteId = await resolveV1SiteId(unifiBaseUrl, unifiV1ApiKey, v1SiteIdHint, timeoutMs);
+      unifiApiMode = "v1";
+      resolvedSiteId = siteId;
       const clientLookup = await resolveV1Client(
         unifiBaseUrl,
         unifiV1ApiKey,
@@ -1830,6 +1850,7 @@ Deno.serve(async (req: Request) => {
         payload.unifi_id || payload.client_mac,
         timeoutMs,
       );
+      resolvedClientId = clientLookup.clientId;
       statusEndpointUsed = clientLookup.endpointUsed;
       pushBackendPointEvent("unifi_login_started", "ok", null, { mode: "v1" });
       pushBackendPointEvent("unifi_login_finished", "ok", null, {
@@ -1946,13 +1967,17 @@ Deno.serve(async (req: Request) => {
       const authorizeStartedAtMs = Date.now();
       pushBackendPointEvent("unifi_authorize_started", "ok", null, { mode: "v1" });
       pushBackendPointEvent("unifi_authorize_start", "ok", null, { mode: "v1" });
-      await authorizeV1Client(
+      const authorizeResultV1 = await authorizeV1Client(
         unifiBaseUrl,
         unifiV1ApiKey,
         siteId,
         clientLookup.clientId,
+        authorizationMinutes,
         timeoutMs,
       );
+      authorizeEndpointUsed = authorizeResultV1.endpointUsed;
+      authorizeResponseStatus = authorizeResultV1.status;
+      authorizeResponseBody = authorizeResultV1.body;
       serverAuthorizeMs = Date.now() - authorizeStartedAtMs;
       pushBackendSpanEvent(
         "unifi_authorize_finished",
@@ -2020,6 +2045,22 @@ Deno.serve(async (req: Request) => {
       );
       redirectMode = redirectContract.redirect_mode;
       releaseResult = redirectContract.release_result;
+      debugInfo.unifi_authorize = {
+        mode: "v1",
+        endpoint: authorizeEndpointUsed,
+        status: authorizeResponseStatus,
+        body: authorizeResponseBody,
+        site_id: resolvedSiteId,
+        client_id: resolvedClientId,
+        minutes: authorizationMinutes,
+        timing: {
+          login_ms: serverLoginMs,
+          authorize_ms: serverAuthorizeMs,
+          status_ms: serverStatusMs,
+          total_ms: Date.now() - requestStartMs,
+          cache_hit: false,
+        },
+      };
 
       if (supabase) {
         try {
@@ -2093,6 +2134,23 @@ Deno.serve(async (req: Request) => {
             total_ms: Date.now() - requestStartMs,
             cache_hit: false,
           },
+          authorize_test: action === "authorize_test"
+            ? {
+              request_made: {
+                method: "POST",
+                mode: "v1",
+                endpoint: authorizeEndpointUsed,
+                site: site,
+                site_id: resolvedSiteId,
+                client_mac: payload.unifi_id || payload.client_mac,
+                client_id: resolvedClientId,
+                minutes: authorizationMinutes,
+              },
+              response_status: authorizeResponseStatus,
+              response_body: authorizeResponseBody,
+              elapsed_ms: Date.now() - requestStartMs,
+            }
+            : undefined,
           debug: debugEnabled ? debugInfo : undefined,
         }),
         { status: 200, headers: corsHeaders },
@@ -2112,6 +2170,21 @@ Deno.serve(async (req: Request) => {
             trace_id: traceId,
             unifi_error: details.message,
             unifi_url: details.url,
+            authorize_test: action === "authorize_test"
+              ? {
+                request_made: {
+                  mode: "v1",
+                  site: site,
+                  site_id: resolvedSiteId,
+                  client_mac: payload.unifi_id || payload.client_mac,
+                  client_id: resolvedClientId,
+                  minutes: authorizationMinutes,
+                },
+                response_status: authorizeResponseStatus,
+                response_body: authorizeResponseBody,
+                elapsed_ms: Date.now() - requestStartMs,
+              }
+              : undefined,
             debug: debugEnabled ? debugInfo : undefined,
           }),
           { status: 502, headers: corsHeaders },
@@ -2160,6 +2233,7 @@ Deno.serve(async (req: Request) => {
       sessionCacheTtlMs,
     );
     loginResult = session.loginResult;
+    unifiApiMode = "legacy";
     cookieCacheHit = session.cacheHit;
     serverLoginMs = session.loginMs;
     pushBackendSpanEvent(
@@ -2547,8 +2621,12 @@ Deno.serve(async (req: Request) => {
       loginResult.cookie,
       payload.unifi_id || payload.client_mac,
       authorizeApMac || null,
+      authorizationMinutes,
       timeoutMs,
     );
+    authorizeEndpointUsed = authorizeResult.url;
+    authorizeResponseStatus = authorizeResult.res.status;
+    authorizeResponseBody = authorizeResult.body;
     serverAuthorizeMs = Date.now() - authorizeStartedAtMs;
     pushBackendSpanEvent(
       "unifi_authorize_finished",
@@ -2582,8 +2660,11 @@ Deno.serve(async (req: Request) => {
     const details = parseUnifiError(err);
     if (debugEnabled) {
       debugInfo.unifi_authorize = {
+        mode: unifiApiMode || "legacy",
+        endpoint: authorizeEndpointUsed,
         error: details.message,
         url: details.url,
+        minutes: authorizationMinutes,
         timing: {
           login_ms: serverLoginMs,
           authorize_ms: serverAuthorizeMs,
@@ -2629,6 +2710,21 @@ Deno.serve(async (req: Request) => {
           total_ms: Date.now() - requestStartMs,
           cache_hit: cookieCacheHit,
         },
+        authorize_test: action === "authorize_test"
+          ? {
+            request_made: {
+              method: "POST",
+              mode: unifiApiMode || "legacy",
+              endpoint: authorizeEndpointUsed,
+              site,
+              client_mac: payload.unifi_id || payload.client_mac,
+              minutes: authorizationMinutes,
+            },
+            response_status: authorizeResponseStatus,
+            response_body: authorizeResponseBody,
+            elapsed_ms: Date.now() - requestStartMs,
+          }
+          : undefined,
         debug: debugEnabled ? debugInfo : undefined,
       }),
       { status: 502, headers: corsHeaders },
@@ -2637,8 +2733,11 @@ Deno.serve(async (req: Request) => {
 
   if (debugEnabled) {
     debugInfo.unifi_authorize = {
+      mode: unifiApiMode || "legacy",
+      endpoint: authorizeEndpointUsed,
       status: authorizeResult.res.status,
       body: authorizeResult.body,
+      minutes: authorizationMinutes,
       timing: {
         login_ms: serverLoginMs,
         authorize_ms: serverAuthorizeMs,
@@ -2687,6 +2786,21 @@ Deno.serve(async (req: Request) => {
           total_ms: Date.now() - requestStartMs,
           cache_hit: cookieCacheHit,
         },
+        authorize_test: action === "authorize_test"
+          ? {
+            request_made: {
+              method: "POST",
+              mode: unifiApiMode || "legacy",
+              endpoint: authorizeEndpointUsed,
+              site,
+              client_mac: payload.unifi_id || payload.client_mac,
+              minutes: authorizationMinutes,
+            },
+            response_status: authorizeResponseStatus,
+            response_body: authorizeResponseBody,
+            elapsed_ms: Date.now() - requestStartMs,
+          }
+          : undefined,
         debug: debugEnabled ? debugInfo : undefined,
       }),
       { status: 502, headers: corsHeaders },
@@ -2750,6 +2864,20 @@ Deno.serve(async (req: Request) => {
   );
   redirectMode = redirectContract.redirect_mode;
   releaseResult = redirectContract.release_result;
+  debugInfo.unifi_authorize = {
+    mode: unifiApiMode || "legacy",
+    endpoint: authorizeEndpointUsed,
+    status: authorizeResponseStatus,
+    body: authorizeResponseBody,
+    minutes: authorizationMinutes,
+    timing: {
+      login_ms: serverLoginMs,
+      authorize_ms: serverAuthorizeMs,
+      status_ms: serverStatusMs,
+      total_ms: Date.now() - requestStartMs,
+      cache_hit: cookieCacheHit,
+    },
+  };
 
   if (supabase) {
     try {
@@ -2820,6 +2948,21 @@ Deno.serve(async (req: Request) => {
         total_ms: Date.now() - requestStartMs,
         cache_hit: cookieCacheHit,
       },
+      authorize_test: action === "authorize_test"
+        ? {
+          request_made: {
+            method: "POST",
+            mode: unifiApiMode || "legacy",
+            endpoint: authorizeEndpointUsed,
+            site,
+            client_mac: payload.unifi_id || payload.client_mac,
+            minutes: authorizationMinutes,
+          },
+          response_status: authorizeResponseStatus,
+          response_body: authorizeResponseBody,
+          elapsed_ms: Date.now() - requestStartMs,
+        }
+        : undefined,
       debug: debugEnabled ? debugInfo : undefined,
     }),
     { status: 200, headers: corsHeaders },
