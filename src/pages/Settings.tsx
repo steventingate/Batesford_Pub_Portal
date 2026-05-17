@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 import { Badge } from '../components/ui/Badge';
 import { supabase } from '../lib/supabaseClient';
 import { resolveStorageUrl } from '../lib/storage';
@@ -29,6 +30,10 @@ type AdminRow = {
   revoked_at: string | null;
   created_by: string | null;
 };
+
+const unifiSiteOptions = [
+  { label: 'Madi House', value: 'xlgkkyrq' }
+] as const;
 
 export default function Settings() {
   const { profile, refreshAdmin, isAdmin, user } = useAuth();
@@ -60,7 +65,8 @@ export default function Settings() {
   const [testSite, setTestSite] = useState('xlgkkyrq');
   const [testMac, setTestMac] = useState('62:b7:88:d6:e1:6f');
   const [wifiToolBusy, setWifiToolBusy] = useState(false);
-  const [wifiToolResult, setWifiToolResult] = useState<string>('');
+  const [wifiToolMessage, setWifiToolMessage] = useState('');
+  const [wifiToolTone, setWifiToolTone] = useState<'success' | 'error' | null>(null);
 
   const loadBrandAssets = useCallback(async () => {
     const { data, error } = await supabase
@@ -236,7 +242,8 @@ export default function Settings() {
     }
 
     setWifiToolBusy(true);
-    setWifiToolResult('');
+    setWifiToolMessage('');
+    setWifiToolTone(null);
     try {
       const response = await fetch('/api/unifi/deauthorize-test', {
         method: 'POST',
@@ -250,15 +257,21 @@ export default function Settings() {
         })
       });
       const payload = await response.json().catch(() => ({}));
-      setWifiToolResult(JSON.stringify(payload, null, 2));
       if (!response.ok) {
+        const errorMessage = typeof payload.error === 'string'
+          ? payload.error
+          : 'Deauthorize request failed.';
+        setWifiToolMessage(errorMessage);
+        setWifiToolTone('error');
         toast.pushToast('Deauthorize request failed.', 'error');
       } else {
+        setWifiToolMessage('Guest authorization cleared. Reconnect the device to trigger the portal again.');
+        setWifiToolTone('success');
         toast.pushToast('Device deauthorized for testing.', 'success');
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setWifiToolResult(JSON.stringify({ error: message }, null, 2));
+      setWifiToolMessage(error instanceof Error ? error.message : String(error));
+      setWifiToolTone('error');
       toast.pushToast('Could not reach the deauthorize endpoint.', 'error');
     } finally {
       setWifiToolBusy(false);
@@ -508,12 +521,17 @@ export default function Settings() {
           Clear an authorized guest device so the captive portal appears again on the next join.
         </p>
         <div className="space-y-4">
-          <Input
+          <Select
             label="UniFi site"
             value={testSite}
             onChange={(event) => setTestSite(event.target.value)}
-            placeholder="xlgkkyrq"
-          />
+          >
+            {unifiSiteOptions.map((site) => (
+              <option key={site.value} value={site.value}>
+                {site.label}
+              </option>
+            ))}
+          </Select>
           <Input
             label="Client MAC"
             value={testMac}
@@ -525,10 +543,14 @@ export default function Settings() {
               {wifiToolBusy ? 'Clearing...' : 'Clear Guest Authorization'}
             </Button>
           </div>
-          {wifiToolResult ? (
-            <pre className="overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-100">
-              {wifiToolResult}
-            </pre>
+          {wifiToolMessage ? (
+            <div
+              className={wifiToolTone === 'success'
+                ? 'rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800'
+                : 'rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'}
+            >
+              {wifiToolMessage}
+            </div>
           ) : null}
         </div>
       </Card>
