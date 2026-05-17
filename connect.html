@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Batesford Pub Guest Wi-Fi | Connect</title>
+  <title>Guest Wi-Fi | Connect</title>
   <style>
     * {
       box-sizing: border-box;
@@ -207,9 +207,9 @@
 </head>
 <body>
   <main class="container">
-    <h1>BATESFORD PUB</h1>
+    <h1>GUEST WI-FI</h1>
     <div class="subtitle">Guest Wi-Fi Connect</div>
-    <p class="lead">Enter your details to connect to Batesford Free Wi-Fi. This helps us keep the network safe and share special offers with past guests.</p>
+    <p class="lead">Enter your details to connect to guest Wi-Fi. This helps us keep the network safe and share updates with past visitors.</p>
 
     <form id="connect-form" method="post" action="/connect/submit">
       <input type="hidden" id="trace_id" name="trace_id">
@@ -249,7 +249,7 @@
 
       <div class="consent">
         <input id="terms" name="terms" type="checkbox" required>
-        <label for="terms">I agree to the Batesford Pub Wi-Fi terms and understand my details may be used for guest Wi-Fi access and marketing updates. I can unsubscribe anytime.</label>
+        <label for="terms">I agree to the guest Wi-Fi terms and understand my details may be used for Wi-Fi access and marketing updates. I can unsubscribe anytime.</label>
       </div>
 
       <button type="submit" id="submit-button">Connect and Agree</button>
@@ -257,7 +257,7 @@
       <div class="note" id="assistant-note" style="display:none;margin-top:10px;text-align:left;"></div>
       <div class="success-actions" id="success-actions">
         <a id="continue-link" class="success-link" href="http://neverssl.com/" target="_self">Continue to Internet</a>
-        <a id="secondary-link" class="success-link close-link" href="https://www.thebatesfordhotel.com.au/" target="_self">Open Batesford website</a>
+        <a id="secondary-link" class="success-link close-link" href="https://www.thebatesfordhotel.com.au/" target="_self">Open venue website</a>
         <button id="close-window-btn" type="button" class="success-link close-link">Close this window</button>
       </div>
       <p class="note">By connecting you accept the acceptable use policy and consent to receiving occasional offers. We never share your details with third parties.</p>
@@ -554,7 +554,7 @@
       continueLink.href = safeUrl(releasePlan.continueTarget, HTTP_RELEASE_FALLBACK);
       continueLink.textContent = 'Continue to Internet';
       secondaryLink.href = safeUrl(releasePlan.secondaryTarget, WEBSITE_FALLBACK);
-      secondaryLink.textContent = 'Open Batesford website';
+      secondaryLink.textContent = 'Open venue website';
       continueLink.onclick = () => {
         timings.t_redirect_called = Date.now();
         timings.t_website_redirect = timings.t_redirect_called;
@@ -782,7 +782,7 @@
     });
 
     if (!isMac(unifi.client_mac) || !unifi.unifi_site) {
-      setStatus('Please connect to Batesford Guest Wi-Fi first, then reopen this portal.', true);
+      setStatus('Please connect to the guest Wi-Fi first, then reopen this portal.', true);
       submitButton.disabled = true;
       pushEvent('missing_unifi_params', {
         client_mac: unifi.client_mac || null,
