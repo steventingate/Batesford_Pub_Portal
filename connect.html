@@ -315,6 +315,7 @@
       Questions? Ask our team or review our <a href="/terms">Wi-Fi terms</a>.
     </div>
 
+    <iframe id="submit-frame" name="submit-frame" style="display:none;width:0;height:0;border:0;" title="Guest Wi-Fi submit frame"></iframe>
     <pre id="debug-panel" class="debug"></pre>
   </main>
 
@@ -353,6 +354,7 @@
     const debugRefreshStatusButton = document.getElementById('debug-refresh-status');
     const debugUploadLogsButton = document.getElementById('debug-upload-logs');
     const debugUploadStatus = document.getElementById('debug-upload-status');
+    const submitFrame = document.getElementById('submit-frame');
 
     const hiddenFields = {
       trace_id: document.getElementById('trace_id'),
@@ -469,6 +471,7 @@
     const localStore = getStorage('local') || sessionStore;
     const state = String(query.state || '').toLowerCase();
     const debugMode = query.debug === '1' || IS_CAPTIVE_ASSISTANT;
+    const shouldUseIframeSubmit = IS_CAPTIVE_ASSISTANT;
     const traceEvents = [];
     const timings = {
       t_portal_loaded: Date.now(),
@@ -953,6 +956,62 @@
       renderDebug();
     };
 
+    const submitFormViaIframe = () => new Promise((resolve, reject) => {
+      if (!submitFrame) {
+        reject(new Error('Submit frame is not available'));
+        return;
+      }
+
+      const originalAction = form.getAttribute('action');
+      const originalTarget = form.getAttribute('target');
+      const iframe = submitFrame;
+      let settled = false;
+
+      const cleanup = () => {
+        iframe.removeEventListener('load', handleLoad);
+        if (originalAction) {
+          form.setAttribute('action', originalAction);
+        } else {
+          form.removeAttribute('action');
+        }
+        if (originalTarget) {
+          form.setAttribute('target', originalTarget);
+        } else {
+          form.removeAttribute('target');
+        }
+      };
+
+      const handleLoad = () => {
+        if (settled) return;
+        try {
+          const doc = iframe.contentDocument || iframe.contentWindow?.document;
+          const text = (doc?.body?.textContent || doc?.documentElement?.textContent || '').trim();
+          settled = true;
+          cleanup();
+          resolve({
+            status: 200,
+            rawText: text,
+          });
+        } catch (error) {
+          settled = true;
+          cleanup();
+          reject(error);
+        }
+      };
+
+      iframe.addEventListener('load', handleLoad, { once: true });
+      form.setAttribute('action', CONNECT_SUBMIT_ENDPOINT);
+      form.setAttribute('target', 'submit-frame');
+      form.submit();
+
+      window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error('Iframe submit timed out'));
+      }, 15000);
+    });
+
     pushEvent('portal_loaded', {
       request_path: window.location.pathname,
       has_unifi_params: Boolean(unifi.client_mac && unifi.unifi_site),
@@ -1115,20 +1174,38 @@
       setStatus('Connecting you to Wi-Fi...', false);
       renderDebug();
 
-      const formBody = new URLSearchParams(new FormData(form));
       const requestStartedAt = Date.now();
       try {
-        const response = await fetch(CONNECT_SUBMIT_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-            'Accept': 'application/json'
-          },
-          body: formBody.toString(),
-          credentials: 'same-origin'
-        });
+        let responseStatus = 0;
+        let rawText = '';
+
+        if (shouldUseIframeSubmit) {
+          pushEvent('iframe_submit_started', {
+            endpoint: CONNECT_SUBMIT_ENDPOINT
+          });
+          const iframeResult = await submitFormViaIframe();
+          responseStatus = iframeResult.status;
+          rawText = iframeResult.rawText || '';
+          pushEvent('iframe_submit_finished', {
+            endpoint: CONNECT_SUBMIT_ENDPOINT,
+            response_length: rawText.length
+          });
+        } else {
+          const formBody = new URLSearchParams(new FormData(form));
+          const response = await fetch(CONNECT_SUBMIT_ENDPOINT, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+              'Accept': 'application/json'
+            },
+            body: formBody.toString(),
+            credentials: 'same-origin'
+          });
+          responseStatus = response.status;
+          rawText = await response.text();
+        }
+
         timings.t_connect_response = Date.now();
-        const rawText = await response.text();
         let result = {};
         try {
           result = rawText ? JSON.parse(rawText) : {};
@@ -1138,20 +1215,20 @@
           };
         }
         pushEvent('connect_response_received', {
-          status: response.status,
+          status: responseStatus,
           elapsed_ms: Date.now() - requestStartedAt,
           state: result.state || null,
           success: result.success === true,
           next_url: result.next_url || null,
           response_preview: rawText ? rawText.slice(0, 240) : null
-        }, response.ok ? 'ok' : 'error', response.ok ? null : (result.error || 'Connect request failed'));
+        }, (responseStatus >= 200 && responseStatus < 300) ? 'ok' : 'error', (responseStatus >= 200 && responseStatus < 300) ? null : (result.error || 'Connect request failed'));
         applyConnectResponse(result);
 
-        if (!response.ok || result.success !== true || result.state === 'error') {
+        if (!(responseStatus >= 200 && responseStatus < 300) || result.success !== true || result.state === 'error') {
           if (localStore) {
             localStore.removeItem(pendingKey);
           }
-          const errorMessage = result.error || `Connect request failed with status ${response.status}.`;
+          const errorMessage = result.error || `Connect request failed with status ${responseStatus}.`;
           setStatus(errorMessage, true);
           submitButton.disabled = false;
           submitButton.textContent = 'Connect and Agree';
