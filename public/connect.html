@@ -410,6 +410,25 @@
       }
     };
 
+    const isProbeUrl = (value) => {
+      if (!value) return false;
+      try {
+        const parsed = new URL(value, window.location.origin);
+        const host = parsed.hostname.toLowerCase();
+        const path = parsed.pathname.toLowerCase();
+        if (host.includes('captive.apple.com')) return true;
+        if (host.includes('connectivitycheck.gstatic.com')) return true;
+        if (host.includes('connectivitycheck.android.com')) return true;
+        if (host.includes('clients3.google.com') && path.includes('generate_204')) return true;
+        if (host.includes('google.com') && (path.includes('gen_204') || path.includes('generate_204'))) return true;
+        if (host.includes('msftconnecttest.com')) return true;
+        if (host.includes('msftncsi.com')) return true;
+        return false;
+      } catch {
+        return false;
+      }
+    };
+
     const isMac = (value) => /^([0-9A-Fa-f]{2}([-:])){5}[0-9A-Fa-f]{2}$/.test(String(value || '').trim());
 
     const getStorage = (kind) => {
@@ -546,8 +565,15 @@
     const unifiSeed = (unifi.unifi_t || unifi.client_mac || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
     const pendingKey = `wifi_pending_submit_${unifiSeed}`;
 
+    const initialPrimaryTarget = (() => {
+      const candidate = safeUrl(query.release_target, unifi.redirect_url || HTTP_RELEASE_FALLBACK);
+      return (IS_CAPTIVE_ASSISTANT && isProbeUrl(candidate))
+        ? HTTP_RELEASE_FALLBACK
+        : candidate;
+    })();
+
     const releaseState = {
-      primary: safeUrl(query.release_target, unifi.redirect_url || HTTP_RELEASE_FALLBACK),
+      primary: initialPrimaryTarget,
       continueTarget: safeUrl(query.continue_target, HTTP_RELEASE_FALLBACK),
       secondaryTarget: safeUrl(query.secondary_target, websiteUrl || CAPTIVE_GENERATE_204),
       websiteTarget: websiteUrl,
@@ -676,6 +702,34 @@
       hiddenFields.timings_json.value = JSON.stringify(timings);
     };
 
+    const buildResultFromRedirectUrl = (rawUrl) => {
+      if (!rawUrl) return null;
+      try {
+        const parsed = new URL(rawUrl, window.location.origin);
+        if (parsed.origin !== window.location.origin) return null;
+        if (!parsed.pathname.startsWith('/connect')) return null;
+        const stateValue = String(parsed.searchParams.get('state') || '').toLowerCase();
+        if (!stateValue) return null;
+        return {
+          success: stateValue !== 'error',
+          state: stateValue,
+          trace_id: parsed.searchParams.get('trace_id') || hiddenFields.trace_id.value || null,
+          error: parsed.searchParams.get('error') || null,
+          next_url: `${parsed.pathname}${parsed.search}`,
+          release_target: parsed.searchParams.get('release_target') || null,
+          continue_target: parsed.searchParams.get('continue_target') || null,
+          secondary_target: parsed.searchParams.get('secondary_target') || null,
+          final_redirect_url: parsed.searchParams.get('final_redirect_url') || null,
+          release_mode: parsed.searchParams.get('release_mode') || null,
+          release_result: parsed.searchParams.get('release_result') || null,
+          probe_url: parsed.searchParams.get('probe_url') || null,
+          website_url: parsed.searchParams.get('website') || null
+        };
+      } catch {
+        return null;
+      }
+    };
+
     const setAssistantMessage = (message) => {
       if (!assistantNote) return;
       assistantNote.style.display = message ? 'block' : 'none';
@@ -784,7 +838,7 @@
       }
     });
 
-    const buildStatusUrl = () => {
+    const buildStatusUrl = (mode = 'compat') => {
       const params = new URLSearchParams();
       params.set('id', unifi.client_mac || '');
       params.set('ap', unifi.ap_mac || '');
@@ -796,15 +850,16 @@
       params.set('session_id', sessionId);
       params.set('attempt_no', String(Math.max(1, attemptNo || Number(query.attempt_no || '1') || 1)));
       params.set('website', websiteUrl || WEBSITE_FALLBACK);
+      params.set('status_mode', mode);
       if (debugMode) {
         params.set('debug', '1');
       }
       return `/connect/status?${params.toString()}`;
     };
 
-    const runStatusCheck = async () => {
-      const statusUrl = buildStatusUrl();
-      pushEvent('status_check_requested', { status_url: statusUrl });
+    const runStatusCheck = async (mode = 'compat') => {
+      const statusUrl = buildStatusUrl(mode);
+      pushEvent('status_check_requested', { status_url: statusUrl, status_mode: mode });
       const startedAt = Date.now();
       const response = await fetch(statusUrl, {
         method: 'GET',
@@ -818,7 +873,8 @@
         status: response.status,
         elapsed_ms: Date.now() - startedAt,
         authorized: data.authorized === true,
-        redirect_mode: data.redirect_mode || null
+        redirect_mode: data.redirect_mode || null,
+        status_mode: data.status_mode || mode
       });
       renderDebug();
       return data;
@@ -1003,11 +1059,15 @@
         try {
           const doc = iframe.contentDocument || iframe.contentWindow?.document;
           const text = (doc?.body?.textContent || doc?.documentElement?.textContent || '').trim();
+          const iframeUrl = iframe.contentWindow?.location?.href || '';
+          const redirectResult = buildResultFromRedirectUrl(iframeUrl);
           settled = true;
           cleanup();
           resolve({
-            status: 200,
+            status: redirectResult?.state === 'error' ? 400 : 200,
             rawText: text,
+            redirectedUrl: iframeUrl,
+            redirectResult
           });
         } catch (error) {
           settled = true;
@@ -1195,6 +1255,7 @@
       try {
         let responseStatus = 0;
         let rawText = '';
+        let iframeRedirectResult = null;
 
         if (shouldUseIframeSubmit) {
           pushEvent('iframe_submit_started', {
@@ -1203,9 +1264,12 @@
           const iframeResult = await submitFormViaIframe();
           responseStatus = iframeResult.status;
           rawText = iframeResult.rawText || '';
+          iframeRedirectResult = iframeResult.redirectResult || null;
           pushEvent('iframe_submit_finished', {
             endpoint: CONNECT_SUBMIT_ENDPOINT,
-            response_length: rawText.length
+            response_length: rawText.length,
+            redirected_url: iframeResult.redirectedUrl || null,
+            redirected_state: iframeRedirectResult?.state || null
           });
         } else {
           const formBody = new URLSearchParams(new FormData(form));
@@ -1233,6 +1297,13 @@
             error: rawText ? rawText.slice(0, 600) : 'Non-JSON response'
           };
         }
+        if (!hasParsedJson && iframeRedirectResult) {
+          result = iframeRedirectResult;
+          pushEvent('iframe_redirect_result_detected', {
+            state: iframeRedirectResult.state || null,
+            next_url: iframeRedirectResult.next_url || null
+          });
+        }
         pushEvent('connect_response_received', {
           status: responseStatus,
           elapsed_ms: Date.now() - requestStartedAt,
@@ -1247,14 +1318,45 @@
           shouldUseIframeSubmit &&
           responseStatus >= 200 &&
           responseStatus < 300 &&
-          (!hasParsedJson || !rawText)
+          !hasParsedJson &&
+          iframeRedirectResult?.state === 'finalizing'
         ) {
-          pushEvent('iframe_submit_assumed_success', {
+          pushEvent('iframe_submit_redirect_success', {
             status: responseStatus,
-            response_length: rawText.length
-          }, 'warning', 'Iframe submit returned no parseable JSON; assuming success because captive assistants often hide the body.');
-          await resumePostAuthorizationFlow('iframe_assumed_success', {});
+            response_length: rawText.length,
+            next_url: iframeRedirectResult.next_url || null
+          }, 'ok');
+          await resumePostAuthorizationFlow('iframe_redirect_success', result);
           return;
+        }
+
+        if (
+          shouldUseIframeSubmit &&
+          responseStatus >= 200 &&
+          responseStatus < 300 &&
+          !hasParsedJson &&
+          !iframeRedirectResult
+        ) {
+          pushEvent('iframe_submit_status_fallback_started', {
+            status: responseStatus
+          }, 'warning', 'Iframe submit returned an empty body; falling back to compatibility status check.');
+          const statusResult = await runStatusCheck('compat');
+          applyServerReleasePlan(statusResult);
+          if (statusResult && statusResult.authorized === true) {
+            await resumePostAuthorizationFlow('iframe_status_fallback', {
+              success: true,
+              state: 'finalizing',
+              trace_id: statusResult.trace_id || hiddenFields.trace_id.value || null,
+              release_target: statusResult.release_target || null,
+              continue_target: statusResult.continue_target || null,
+              secondary_target: statusResult.secondary_target || null,
+              final_redirect_url: statusResult.final_redirect_url || null,
+              release_mode: statusResult.redirect_mode || null,
+              release_result: statusResult.release_result || null,
+              website_url: statusResult.website_url || null
+            });
+            return;
+          }
         }
 
         if (!(responseStatus >= 200 && responseStatus < 300) || result.success !== true || result.state === 'error') {

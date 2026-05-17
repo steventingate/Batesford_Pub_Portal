@@ -54,6 +54,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/unifi/deauthorize-test"
+  to = "/.netlify/functions/unifiDeauthorizeTest"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/connect/health"
   to = "/.netlify/functions/captiveHealth"
   status = 200

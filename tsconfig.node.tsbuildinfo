@@ -1,0 +1,1 @@
+{"root":["./vite.config.ts","./netlify/functions/captiveconnect.ts","./netlify/functions/captivehealth.ts","./netlify/functions/captivehealthsynthetic.ts","./netlify/functions/captivestatus.ts","./netlify/functions/captivetiming.ts","./netlify/functions/sendcampaign.ts","./netlify/functions/unifiauthorizetest.ts","./netlify/functions/unifideauthorizetest.ts"],"version":"5.9.3"}

@@ -96,19 +96,49 @@ const safeUrl = (value: string | null | undefined, fallback: string) => {
   }
 };
 
-const buildReleasePlan = (redirectUrl: string, websiteUrl: string) => {
+const isProbeUrl = (value: string) => {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    if (host.includes('captive.apple.com')) return true;
+    if (host.includes('connectivitycheck.gstatic.com')) return true;
+    if (host.includes('connectivitycheck.android.com')) return true;
+    if (host.includes('clients3.google.com') && path.includes('generate_204')) return true;
+    if (host.includes('google.com') && (path.includes('gen_204') || path.includes('generate_204'))) return true;
+    if (host.includes('msftconnecttest.com')) return true;
+    if (host.includes('msftncsi.com')) return true;
+    if (host.includes('neverssl.com')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+};
+
+const buildReleasePlan = (
+  redirectUrl: string,
+  websiteUrl: string,
+  isCaptiveAssistant: boolean,
+) => {
   const safeOriginal = safeUrl(redirectUrl, '');
   const safeWebsite = safeUrl(websiteUrl, websiteFallbackUrl);
-  const releaseTarget = safeOriginal || httpReleaseFallbackUrl || captiveGenerate204Url || safeWebsite;
+  const shouldBypassOriginal = !safeOriginal
+    ? false
+    : isCaptiveAssistant && isProbeUrl(safeOriginal);
+  const releaseTarget = shouldBypassOriginal
+    ? httpReleaseFallbackUrl || captiveGenerate204Url || safeWebsite || safeOriginal
+    : safeOriginal || httpReleaseFallbackUrl || captiveGenerate204Url || safeWebsite;
   const continueTarget = httpReleaseFallbackUrl;
-  const secondaryTarget = safeWebsite || captiveGenerate204Url || releaseTarget;
+  const secondaryTarget = safeWebsite || (shouldBypassOriginal ? captiveGenerate204Url : safeOriginal) || releaseTarget;
 
   return {
     releaseTarget,
     continueTarget: safeUrl(continueTarget, releaseTarget),
     secondaryTarget: safeUrl(secondaryTarget, releaseTarget),
-    finalRedirectUrl: safeOriginal || safeWebsite,
-    releaseMode: safeOriginal ? 'original_redirect' : 'http_fallback'
+    finalRedirectUrl: shouldBypassOriginal ? safeWebsite : (safeOriginal || safeWebsite),
+    releaseMode: shouldBypassOriginal
+      ? 'probe_override'
+      : (safeOriginal ? 'original_redirect' : 'http_fallback')
   };
 };
 
@@ -168,6 +198,9 @@ export const handler: Handler = async (event) => {
   const traceContext = parseJsonField<Record<string, unknown>>(form.get('trace_context_json'), {});
   const traceEvents = parseJsonField<Array<Record<string, unknown>>>(form.get('trace_events_json'), []);
   const timings = parseJsonField<Record<string, unknown>>(form.get('timings_json'), {});
+  const userAgent = String(event.headers['user-agent'] || '');
+  const isCaptiveAssistant = traceContext?.is_captive_assistant === true ||
+    /captivenetworksupport|captivenetwork|hotspot|wifilogin|iphone|ipad|ipod/i.test(userAgent);
 
   const requestPayload = {
     action: 'connect',
@@ -194,7 +227,8 @@ export const handler: Handler = async (event) => {
       ...traceContext,
       request_url: traceContext?.request_url || event.rawUrl || null,
       page_url: traceContext?.page_url || event.headers.referer || null,
-      user_agent: event.headers['user-agent'] || null
+      user_agent: userAgent || null,
+      is_captive_assistant: isCaptiveAssistant
     },
     trace_events: traceEvents,
     timings
@@ -252,7 +286,11 @@ export const handler: Handler = async (event) => {
   const redirectContract = data.redirect_contract || {};
   const websiteUrl = safeUrl(redirectContract.website_url, websiteFallbackUrl);
   const contractMode = redirectContract.redirect_mode;
-  const releasePlan = buildReleasePlan(redirectUrl, websiteUrl);
+  const releasePlan = buildReleasePlan(
+    redirectContract.redirect_url || redirectUrl,
+    websiteUrl,
+    isCaptiveAssistant,
+  );
 
   const params = new URLSearchParams(forwardParams);
   params.set('state', 'finalizing');

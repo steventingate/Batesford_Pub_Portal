@@ -57,6 +57,10 @@ export default function Settings() {
   const [inviting, setInviting] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [reinvitingId, setReinvitingId] = useState<string | null>(null);
+  const [testSite, setTestSite] = useState('xlgkkyrq');
+  const [testMac, setTestMac] = useState('62:b7:88:d6:e1:6f');
+  const [wifiToolBusy, setWifiToolBusy] = useState(false);
+  const [wifiToolResult, setWifiToolResult] = useState<string>('');
 
   const loadBrandAssets = useCallback(async () => {
     const { data, error } = await supabase
@@ -221,6 +225,44 @@ export default function Settings() {
     toast.pushToast('Admin access revoked.', 'success');
     await loadAdmins();
     setRevokingId(null);
+  };
+
+  const handleDeauthorizeTestDevice = async () => {
+    const site = testSite.trim();
+    const mac = testMac.trim().toLowerCase().replace(/-/g, ':');
+    if (!site || !mac) {
+      toast.pushToast('Enter both a UniFi site and client MAC.', 'error');
+      return;
+    }
+
+    setWifiToolBusy(true);
+    setWifiToolResult('');
+    try {
+      const response = await fetch('/api/unifi/deauthorize-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          site,
+          mac,
+          debug: true
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      setWifiToolResult(JSON.stringify(payload, null, 2));
+      if (!response.ok) {
+        toast.pushToast('Deauthorize request failed.', 'error');
+      } else {
+        toast.pushToast('Device deauthorized for testing.', 'success');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setWifiToolResult(JSON.stringify({ error: message }, null, 2));
+      toast.pushToast('Could not reach the deauthorize endpoint.', 'error');
+    } finally {
+      setWifiToolBusy(false);
+    }
   };
 
   const formatDate = (value?: string | null) => {
@@ -458,6 +500,37 @@ export default function Settings() {
             </div>
           </div>
         )}
+      </Card>
+
+      <Card className="max-w-xl">
+        <h3 className="text-lg font-semibold mb-2">Wi-Fi Test Tools</h3>
+        <p className="text-sm text-muted mb-4">
+          Clear an authorized guest device so the captive portal appears again on the next join.
+        </p>
+        <div className="space-y-4">
+          <Input
+            label="UniFi site"
+            value={testSite}
+            onChange={(event) => setTestSite(event.target.value)}
+            placeholder="xlgkkyrq"
+          />
+          <Input
+            label="Client MAC"
+            value={testMac}
+            onChange={(event) => setTestMac(event.target.value)}
+            placeholder="62:b7:88:d6:e1:6f"
+          />
+          <div className="flex flex-wrap gap-3">
+            <Button onClick={handleDeauthorizeTestDevice} disabled={wifiToolBusy}>
+              {wifiToolBusy ? 'Clearing...' : 'Clear Guest Authorization'}
+            </Button>
+          </div>
+          {wifiToolResult ? (
+            <pre className="overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-100">
+              {wifiToolResult}
+            </pre>
+          ) : null}
+        </div>
       </Card>
 
       <div className="space-y-4">

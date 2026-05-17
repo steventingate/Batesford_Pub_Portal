@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 type Payload = {
-  action?: "connect" | "status" | "timing" | "authorize_test";
+  action?: "connect" | "status" | "timing" | "authorize_test" | "deauthorize_test";
   status_mode?: "strict" | "compat";
   trace_id?: string;
   venue_slug?: string;
@@ -461,6 +461,60 @@ const authorizeGuestMac = async (
   }
   const bodyText = await readResponseText(res);
   console.log("UniFi authorize", { url, status: res.status, body: bodyText });
+
+  let parsedBody: { meta?: { rc?: string } } | null = null;
+  try {
+    parsedBody = bodyText ? JSON.parse(bodyText) : null;
+  } catch {
+    parsedBody = null;
+  }
+
+  const ok = res.ok && parsedBody?.meta?.rc === "ok";
+  return { res, body: bodyText, ok, url };
+};
+
+const deauthorizeGuestMac = async (
+  baseUrl: string,
+  site: string,
+  cookie: string,
+  mac: string,
+  timeoutMs: number,
+) => {
+  const normalizedMac = normalizeMac(mac);
+  const payload = JSON.stringify({
+    cmd: "unauthorize-guest",
+    mac: normalizedMac || mac,
+  });
+
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "Cookie": cookie,
+  };
+
+  const endpoint = `/api/s/${encodeURIComponent(site)}/cmd/stamgr`;
+  const url = `${baseUrl}${endpoint}`;
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers,
+        body: payload,
+      },
+      timeoutMs,
+      "UniFi deauthorize",
+    );
+  } catch (err) {
+    console.log("UniFi fetch failed", {
+      url,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw wrapUnifiError(url, err);
+  }
+  const bodyText = await readResponseText(res);
+  console.log("UniFi deauthorize", { url, status: res.status, body: bodyText });
 
   let parsedBody: { meta?: { rc?: string } } | null = null;
   try {
@@ -1305,6 +1359,8 @@ Deno.serve(async (req: Request) => {
     ? "timing"
     : payload.action === "authorize_test"
     ? "authorize_test"
+    : payload.action === "deauthorize_test"
+    ? "deauthorize_test"
     : "connect";
   const statusMode = payload.status_mode === "strict" ? "strict" : "compat";
   const sessionId = normalizeSessionId(payload.session_id, payload.unifi_t || payload.client_mac);
@@ -1388,6 +1444,8 @@ Deno.serve(async (req: Request) => {
     pushBackendPointEvent("connect_received", "ok");
   } else if (action === "authorize_test") {
     pushBackendPointEvent("authorize_test_received", "ok");
+  } else if (action === "deauthorize_test") {
+    pushBackendPointEvent("deauthorize_test_received", "ok");
   }
   pushBackendPointEvent("unifi_site_lookup_started", "ok", null, { site_id: site });
   pushBackendSpanEvent(
@@ -1822,7 +1880,7 @@ Deno.serve(async (req: Request) => {
     1,
     Math.floor(Number(payload.minutes) || parseTimeoutMs(Deno.env.get("UNIFI_AUTH_MINUTES"), 480)),
   );
-  const canUseV1 = Boolean(unifiBaseUrl && unifiV1ApiKey) &&
+  const canUseV1 = action !== "deauthorize_test" && Boolean(unifiBaseUrl && unifiV1ApiKey) &&
     (unifiAuthMode === "v1" || unifiAuthMode === "v1_fallback");
   const canUseLegacy = Boolean(unifiBaseUrl && unifiUsername && unifiPassword) &&
     (unifiAuthMode === "legacy" || unifiAuthMode === "v1_fallback");
@@ -2602,6 +2660,150 @@ Deno.serve(async (req: Request) => {
           status_ms: serverStatusMs,
           total_ms: Date.now() - requestStartMs,
           cache_hit: cookieCacheHit,
+        },
+        debug: debugEnabled ? debugInfo : undefined,
+      }),
+      { status: 200, headers: corsHeaders },
+    );
+  }
+
+  if (action === "deauthorize_test") {
+    let deauthorizeResult;
+    const deauthorizeStartedAtMs = Date.now();
+    pushBackendPointEvent("unifi_deauthorize_started", "ok");
+    try {
+      deauthorizeResult = await deauthorizeGuestMac(
+        unifiBaseUrl,
+        site,
+        loginResult.cookie,
+        payload.unifi_id || payload.client_mac,
+        timeoutMs,
+      );
+      authorizeEndpointUsed = deauthorizeResult.url;
+      authorizeResponseStatus = deauthorizeResult.res.status;
+      authorizeResponseBody = deauthorizeResult.body;
+      serverAuthorizeMs = Date.now() - deauthorizeStartedAtMs;
+      pushBackendSpanEvent(
+        "unifi_deauthorize_finished",
+        deauthorizeStartedAtMs,
+        Date.now(),
+        "ok",
+      );
+    } catch (err) {
+      serverAuthorizeMs = Date.now() - deauthorizeStartedAtMs;
+      pushBackendSpanEvent(
+        "unifi_deauthorize_finished",
+        deauthorizeStartedAtMs,
+        Date.now(),
+        "error",
+        err instanceof Error ? err.message : String(err),
+      );
+      clearCachedUnifiCookie();
+      const details = parseUnifiError(err);
+      pushBackendPointEvent("response_build_started", "error");
+      pushBackendPointEvent("response_sent", "error", details.message);
+      await persistTraceSummaryAndEvents("error", details.message, {
+        stage: "unifi_deauthorize",
+      });
+      return new Response(
+        JSON.stringify({
+          error: details.message,
+          trace_id: traceId,
+          unifi_error: details.message,
+          unifi_url: details.url,
+          deauthorize_test: {
+            request_made: {
+              method: "POST",
+              mode: unifiApiMode || "legacy",
+              endpoint: authorizeEndpointUsed,
+              site,
+              client_mac: payload.unifi_id || payload.client_mac,
+              command: "unauthorize-guest",
+            },
+            response_status: authorizeResponseStatus,
+            response_body: authorizeResponseBody,
+            elapsed_ms: Date.now() - requestStartMs,
+          },
+          debug: debugEnabled ? debugInfo : undefined,
+        }),
+        { status: 502, headers: corsHeaders },
+      );
+    }
+
+    if (debugEnabled) {
+      debugInfo.unifi_deauthorize = {
+        mode: unifiApiMode || "legacy",
+        endpoint: authorizeEndpointUsed,
+        status: authorizeResponseStatus,
+        body: authorizeResponseBody,
+        timing: {
+          login_ms: serverLoginMs,
+          deauthorize_ms: serverAuthorizeMs,
+          total_ms: Date.now() - requestStartMs,
+          cache_hit: cookieCacheHit,
+        },
+      };
+    }
+
+    if (!deauthorizeResult.ok) {
+      pushBackendPointEvent("response_build_started", "error");
+      pushBackendPointEvent("response_sent", "error", "UniFi deauthorization failed");
+      await persistTraceSummaryAndEvents("error", "UniFi deauthorization failed", {
+        stage: "unifi_deauthorize",
+      });
+      return new Response(
+        JSON.stringify({
+          error: "UniFi deauthorization failed.",
+          trace_id: traceId,
+          unifi_error: "UniFi deauthorization failed.",
+          unifi_url: deauthorizeResult.url,
+          deauthorize_test: {
+            request_made: {
+              method: "POST",
+              mode: unifiApiMode || "legacy",
+              endpoint: authorizeEndpointUsed,
+              site,
+              client_mac: payload.unifi_id || payload.client_mac,
+              command: "unauthorize-guest",
+            },
+            response_status: authorizeResponseStatus,
+            response_body: authorizeResponseBody,
+            elapsed_ms: Date.now() - requestStartMs,
+          },
+          debug: debugEnabled ? debugInfo : undefined,
+        }),
+        { status: 502, headers: corsHeaders },
+      );
+    }
+
+    pushBackendPointEvent("response_build_started", "ok");
+    pushBackendPointEvent("response_sent", "ok");
+    await persistTraceSummaryAndEvents("deauthorized", null, {
+      stage: "unifi_deauthorize",
+    });
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        trace_id: traceId,
+        timing: {
+          login_ms: serverLoginMs,
+          deauthorize_ms: serverAuthorizeMs,
+          total_ms: Date.now() - requestStartMs,
+          cache_hit: cookieCacheHit,
+        },
+        deauthorize_test: {
+          request_made: {
+            method: "POST",
+            mode: unifiApiMode || "legacy",
+            endpoint: authorizeEndpointUsed,
+            site,
+            client_mac: payload.unifi_id || payload.client_mac,
+            command: "unauthorize-guest",
+          },
+          response_status: authorizeResponseStatus,
+          response_body: authorizeResponseBody,
+          elapsed_ms: Date.now() - requestStartMs,
         },
         debug: debugEnabled ? debugInfo : undefined,
       }),

@@ -52,17 +52,17 @@ const buildReleasePlan = (redirectUrl: string, websiteUrl: string, shouldUseProb
   const safeOriginal = safeUrl(redirectUrl, '');
   const safeWebsite = safeUrl(websiteUrl, websiteFallbackUrl);
   const releaseTarget = shouldUseProbe
-    ? safeOriginal || httpReleaseFallbackUrl || captiveGenerate204Url || safeWebsite
+    ? httpReleaseFallbackUrl || captiveGenerate204Url || safeWebsite || safeOriginal
     : safeOriginal || httpReleaseFallbackUrl || captiveGenerate204Url || safeWebsite;
   const continueTarget = httpReleaseFallbackUrl;
-  const secondaryTarget = safeWebsite || captiveGenerate204Url || releaseTarget;
+  const secondaryTarget = safeWebsite || (shouldUseProbe ? captiveGenerate204Url : safeOriginal) || releaseTarget;
 
   return {
     releaseTarget,
     continueTarget: safeUrl(continueTarget, releaseTarget),
     secondaryTarget: safeUrl(secondaryTarget, releaseTarget),
-    finalRedirectUrl: safeOriginal || safeWebsite,
-    redirectMode: shouldUseProbe ? 'probe_redirect' : (safeOriginal ? 'original_redirect' : 'http_fallback')
+    finalRedirectUrl: shouldUseProbe ? safeWebsite : (safeOriginal || safeWebsite),
+    redirectMode: shouldUseProbe ? 'probe_override' : (safeOriginal ? 'original_redirect' : 'http_fallback')
   };
 };
 
@@ -85,7 +85,9 @@ export const handler: Handler = async (event) => {
 
   const requestUrl = new URL(event.rawUrl || 'https://example.com/connect/status');
   const userAgent = (event.headers['user-agent'] || '').toLowerCase();
-  const isIosCaptive = userAgent.includes('captivenetworksupport') ||
+  const isCaptiveAssistant = userAgent.includes('captivenetworksupport') ||
+    userAgent.includes('hotspot') ||
+    userAgent.includes('wifilogin') ||
     userAgent.includes('iphone') ||
     userAgent.includes('ipad') ||
     userAgent.includes('ipod');
@@ -122,7 +124,7 @@ export const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         action: 'status',
-        status_mode: 'strict',
+        status_mode: requestUrl.searchParams.get('status_mode') || 'compat',
         trace_id: traceId || undefined,
         venue_slug: unifiSite,
         session_id: sessionId || undefined,
@@ -153,9 +155,9 @@ export const handler: Handler = async (event) => {
   }
 
   const data = (await response.json().catch(() => ({}))) as WifiStatusResponse;
-  const authorized = data.success === true && data.authorized_unifi === true;
+  const authorized = data.success === true && data.authorized === true;
   const safeProbe = safeUrl(redirectUrl, websiteUrl);
-  const shouldUseProbe = (enableProbeRedirect || isIosCaptive) &&
+  const shouldUseProbe = (enableProbeRedirect || isCaptiveAssistant) &&
     !probeDone &&
     redirectUrl &&
     isProbeUrl(safeProbe);
