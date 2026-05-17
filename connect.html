@@ -322,6 +322,8 @@
     const WEBSITE_FALLBACK = 'https://www.thebatesfordhotel.com.au/';
     const HTTP_RELEASE_FALLBACK = 'http://neverssl.com/';
     const CAPTIVE_GENERATE_204 = 'https://www.google.com/generate_204';
+    const CONNECT_SUBMIT_ENDPOINT = '/.netlify/functions/captiveConnect';
+    const CONNECT_TIMING_ENDPOINT = '/.netlify/functions/captiveTiming';
     const STATUS_POLL_INTERVAL_MS = 1000;
     const STATUS_POLL_MAX_ATTEMPTS = 12;
     const BACKGROUND_RETRY_INTERVAL_MS = 5000;
@@ -449,7 +451,6 @@
     };
 
     const query = parseQuery();
-    const debugMode = query.debug === '1';
     const queryRedirectUrl = query.url || query.redirect_url || query.original_url || query.dst || query.continue || '';
     const websiteUrl = safeUrl(query.website, WEBSITE_FALLBACK);
     const unifi = {
@@ -467,6 +468,7 @@
     const sessionStore = getStorage('session');
     const localStore = getStorage('local') || sessionStore;
     const state = String(query.state || '').toLowerCase();
+    const debugMode = query.debug === '1' || IS_CAPTIVE_ASSISTANT;
     const traceEvents = [];
     const timings = {
       t_portal_loaded: Date.now(),
@@ -615,7 +617,7 @@
       if (!unifi.client_mac || !unifi.unifi_site || !unifi.unifi_t) return false;
       const payload = buildTimingPayload(reason);
       try {
-        const response = await fetch('/connect/timing', {
+        const response = await fetch(CONNECT_TIMING_ENDPOINT, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1116,24 +1118,32 @@
       const formBody = new URLSearchParams(new FormData(form));
       const requestStartedAt = Date.now();
       try {
-        const response = await fetch('/connect/submit', {
+        const response = await fetch(CONNECT_SUBMIT_ENDPOINT, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-            'Accept': 'application/json',
-            'x-portal-fetch': '1'
+            'Accept': 'application/json'
           },
           body: formBody.toString(),
           credentials: 'same-origin'
         });
         timings.t_connect_response = Date.now();
-        const result = await response.json().catch(() => ({}));
+        const rawText = await response.text();
+        let result = {};
+        try {
+          result = rawText ? JSON.parse(rawText) : {};
+        } catch {
+          result = {
+            error: rawText ? rawText.slice(0, 600) : 'Non-JSON response'
+          };
+        }
         pushEvent('connect_response_received', {
           status: response.status,
           elapsed_ms: Date.now() - requestStartedAt,
           state: result.state || null,
           success: result.success === true,
-          next_url: result.next_url || null
+          next_url: result.next_url || null,
+          response_preview: rawText ? rawText.slice(0, 240) : null
         }, response.ok ? 'ok' : 'error', response.ok ? null : (result.error || 'Connect request failed'));
         applyConnectResponse(result);
 
@@ -1141,7 +1151,8 @@
           if (localStore) {
             localStore.removeItem(pendingKey);
           }
-          setStatus(result.error || 'Could not connect to Wi-Fi right now. Please try again.', true);
+          const errorMessage = result.error || `Connect request failed with status ${response.status}.`;
+          setStatus(errorMessage, true);
           submitButton.disabled = false;
           submitButton.textContent = 'Connect and Agree';
           await flushClientTrace('connect_response_error');
