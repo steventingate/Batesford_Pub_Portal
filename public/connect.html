@@ -134,6 +134,63 @@
       margin-top: 12px;
     }
 
+    .loading-panel {
+      display: none;
+      margin-top: 18px;
+      padding: 20px 18px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #f3f8f4 0%, #edf5ef 100%);
+      border: 1px solid #d8e6dc;
+      text-align: center;
+    }
+
+    .loading-panel.visible {
+      display: block;
+    }
+
+    .loading-orbit {
+      width: 76px;
+      height: 76px;
+      margin: 0 auto 14px;
+      border-radius: 999px;
+      border: 3px solid rgba(26, 71, 42, 0.12);
+      border-top-color: #1a472a;
+      animation: orbit-spin 1s linear infinite;
+      position: relative;
+    }
+
+    .loading-orbit::after {
+      content: "";
+      position: absolute;
+      inset: 12px;
+      border-radius: 999px;
+      border: 3px dashed rgba(45, 90, 61, 0.35);
+      animation: orbit-spin 2.2s linear infinite reverse;
+    }
+
+    .loading-title {
+      color: #1a472a;
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0 0 8px;
+    }
+
+    .loading-copy {
+      color: #4b6352;
+      font-size: 14px;
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    @keyframes orbit-spin {
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
     .success-link {
       display: inline-block;
       width: 100%;
@@ -289,6 +346,11 @@
       <button type="submit" id="submit-button">Connect and Agree</button>
       <div class="status" id="status">Thanks. Connecting you now.</div>
       <div class="note" id="assistant-note" style="display:none;margin-top:10px;text-align:left;"></div>
+      <div id="loading-panel" class="loading-panel">
+        <div class="loading-orbit" aria-hidden="true"></div>
+        <p class="loading-title" id="loading-title">Connecting You To Guest Wi-Fi</p>
+        <p class="loading-copy" id="loading-copy">Hold on while we complete your Wi-Fi connection and open the venue website.</p>
+      </div>
       <div class="success-actions" id="success-actions">
         <a id="continue-link" class="success-link" href="http://neverssl.com/" target="_self">Continue to Internet</a>
         <a id="secondary-link" class="success-link close-link" href="https://www.thebatesfordhotel.com.au/" target="_self">Open venue website</a>
@@ -334,6 +396,9 @@
     const submitButton = document.getElementById('submit-button');
     const status = document.getElementById('status');
     const successActions = document.getElementById('success-actions');
+    const loadingPanel = document.getElementById('loading-panel');
+    const loadingTitle = document.getElementById('loading-title');
+    const loadingCopy = document.getElementById('loading-copy');
     const continueLink = document.getElementById('continue-link');
     const secondaryLink = document.getElementById('secondary-link');
     const closeWindowButton = document.getElementById('close-window-btn');
@@ -505,17 +570,37 @@
       status.style.color = isError ? '#b42318' : '#1a472a';
     };
 
-    const setFormWaitingMode = (message) => {
-      setStatus(message, false);
-      submitButton.style.display = 'none';
+    const setLoadingMode = (title, copy) => {
+      document.body.classList.add('connected-mode');
+      form.classList.add('connected-mode');
+      if (loadingPanel) {
+        loadingPanel.classList.add('visible');
+      }
+      if (loadingTitle) {
+        loadingTitle.textContent = title;
+      }
+      if (loadingCopy) {
+        loadingCopy.textContent = copy;
+      }
       successActions.style.display = 'none';
       assistantNote.style.display = 'none';
-      document.querySelectorAll('.field, .consent, .note, .footer').forEach((element) => {
-        element.style.display = 'none';
-      });
+      status.style.display = 'none';
+    };
+
+    const clearLoadingMode = () => {
+      if (loadingPanel) {
+        loadingPanel.classList.remove('visible');
+      }
+    };
+
+    const setFormWaitingMode = (message) => {
+      setLoadingMode('Connecting You To Guest Wi-Fi', message);
     };
 
     const restoreFormMode = () => {
+      clearLoadingMode();
+      document.body.classList.remove('connected-mode');
+      form.classList.remove('connected-mode');
       submitButton.style.display = '';
       document.querySelectorAll('.field').forEach((element) => {
         element.style.display = '';
@@ -688,6 +773,7 @@
     };
 
     const setConnectedMode = (message) => {
+      clearLoadingMode();
       document.body.classList.add('connected-mode');
       form.classList.add('connected-mode');
       setStatus(message, false);
@@ -751,7 +837,10 @@
       postcodeError.style.display = 'none';
       submitButton.disabled = true;
       submitButton.textContent = 'Connecting...';
-      setStatus('Submitting your details and authorizing this device now.', false);
+      setLoadingMode(
+        'Connecting You To Guest Wi-Fi',
+        'Submitting your details and authorizing this device now.'
+      );
       timings.t_submit_clicked = Date.now();
       pushEvent('form_submitted', {
         name_present: Boolean(form.name.value),
@@ -858,9 +947,13 @@
           release_target: releaseState.primary,
           continue_target: releaseState.continueTarget
         });
+        setLoadingMode(
+          'Connecting You To Guest Wi-Fi',
+          'Finishing your Wi-Fi connection and opening the venue website.'
+        );
         startReleaseFlow();
       } else if (IS_CAPTIVE_ASSISTANT) {
-        setFormWaitingMode('Checking your Wi-Fi access status...');
+        setFormWaitingMode('Checking your Wi-Fi access status and completing your connection.');
         recoverAuthorizedSession().then((recovered) => {
           if (!recovered) {
             restoreFormMode();
