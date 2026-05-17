@@ -22,6 +22,23 @@ type WifiConnectResponse = {
   debug?: Record<string, unknown>;
 };
 
+type FetchSubmitResponse = {
+  success: boolean;
+  state: 'finalizing' | 'error';
+  trace_id?: string;
+  error?: string;
+  next_url?: string;
+  website_url?: string;
+  release_target?: string;
+  continue_target?: string;
+  secondary_target?: string;
+  final_redirect_url?: string;
+  release_mode?: string;
+  release_result?: string;
+  probe_url?: string;
+  debug?: Record<string, unknown>;
+};
+
 const decodeBody = (rawBody: string | null, isBase64: boolean) => {
   if (!rawBody) return '';
   return isBase64 ? Buffer.from(rawBody, 'base64').toString('utf8') : rawBody;
@@ -48,6 +65,15 @@ const jsonRedirect = (target: string) => ({
     'Cache-Control': 'no-store'
   },
   body: ''
+});
+
+const jsonResponse = (statusCode: number, body: FetchSubmitResponse) => ({
+  statusCode,
+  headers: {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store'
+  },
+  body: JSON.stringify(body)
 });
 
 const parseJsonField = <T>(value: string | null | undefined, fallback: T): T => {
@@ -110,6 +136,7 @@ export const handler: Handler = async (event) => {
   const sessionId = safeDecode(form.get('session_id'));
   const attemptNo = Number(form.get('attempt_no') || '1');
   const debugRequested = safeDecode(form.get('debug') || eventQuery.get('debug')) === '1';
+  const fetchMode = event.headers['x-portal-fetch'] === '1' || safeDecode(form.get('response_mode')) === 'json';
   const edgeRouteId = event.headers['x-nf-request-id'] || event.headers['cf-ray'] || null;
 
   const forwardParams = new URLSearchParams();
@@ -127,6 +154,14 @@ export const handler: Handler = async (event) => {
     const params = new URLSearchParams(forwardParams);
     params.set('state', 'error');
     params.set('error', 'Missing required UniFi session details. Please reconnect to Guest Wi-Fi.');
+    if (fetchMode) {
+      return jsonResponse(400, {
+        success: false,
+        state: 'error',
+        error: 'Missing required UniFi session details. Please reconnect to Guest Wi-Fi.',
+        next_url: `/connect?${params.toString()}`
+      });
+    }
     return jsonRedirect(`/connect?${params.toString()}`);
   }
 
@@ -180,6 +215,14 @@ export const handler: Handler = async (event) => {
     const params = new URLSearchParams(forwardParams);
     params.set('state', 'error');
     params.set('error', 'Unable to reach Wi-Fi authorization service.');
+    if (fetchMode) {
+      return jsonResponse(502, {
+        success: false,
+        state: 'error',
+        error: 'Unable to reach Wi-Fi authorization service.',
+        next_url: `/connect?${params.toString()}`
+      });
+    }
     return jsonRedirect(`/connect?${params.toString()}`);
   }
 
@@ -193,6 +236,16 @@ export const handler: Handler = async (event) => {
     const params = new URLSearchParams(forwardParams);
     params.set('state', 'error');
     params.set('error', data.error || 'Could not connect to Wi-Fi right now. Please try again.');
+    if (fetchMode) {
+      return jsonResponse(response.status || 502, {
+        success: false,
+        state: 'error',
+        trace_id: effectiveTraceId || undefined,
+        error: data.error || 'Could not connect to Wi-Fi right now. Please try again.',
+        next_url: `/connect?${params.toString()}`,
+        debug: data.debug
+      });
+    }
     return jsonRedirect(`/connect?${params.toString()}`);
   }
 
@@ -232,5 +285,23 @@ export const handler: Handler = async (event) => {
     if (authorizeEndpoint) params.set('debug_authorize_endpoint', authorizeEndpoint);
     if (authorizeMode) params.set('debug_authorize_mode', authorizeMode);
   }
-  return jsonRedirect(`/connect?${params.toString()}`);
+  const nextUrl = `/connect?${params.toString()}`;
+  if (fetchMode) {
+    return jsonResponse(200, {
+      success: true,
+      state: 'finalizing',
+      trace_id: effectiveTraceId || undefined,
+      next_url: nextUrl,
+      website_url: websiteUrl,
+      release_target: releasePlan.releaseTarget,
+      continue_target: releasePlan.continueTarget,
+      secondary_target: releasePlan.secondaryTarget,
+      final_redirect_url: releasePlan.finalRedirectUrl || websiteUrl,
+      release_mode: releasePlan.releaseMode,
+      release_result: redirectContract.release_result || (contractMode === 'probe_redirect' ? 'authorized_verified' : 'authorized_unverified_timeout'),
+      probe_url: redirectUrl || undefined,
+      debug: data.debug
+    });
+  }
+  return jsonRedirect(nextUrl);
 };

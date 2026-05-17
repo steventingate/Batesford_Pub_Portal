@@ -257,6 +257,7 @@
       <input type="hidden" id="unifi_ap" name="unifi_ap">
       <input type="hidden" id="unifi_t" name="unifi_t">
       <input type="hidden" id="debug_mode" name="debug">
+      <input type="hidden" id="response_mode" name="response_mode" value="json">
       <input type="hidden" id="trace_context_json" name="trace_context_json">
       <input type="hidden" id="trace_events_json" name="trace_events_json">
       <input type="hidden" id="timings_json" name="timings_json">
@@ -364,6 +365,7 @@
       unifi_ap: document.getElementById('unifi_ap'),
       unifi_t: document.getElementById('unifi_t'),
       debug_mode: document.getElementById('debug_mode'),
+      response_mode: document.getElementById('response_mode'),
       trace_context_json: document.getElementById('trace_context_json'),
       trace_events_json: document.getElementById('trace_events_json'),
       timings_json: document.getElementById('timings_json')
@@ -651,6 +653,7 @@
       hiddenFields.unifi_ap.value = unifi.unifi_ap || '';
       hiddenFields.unifi_t.value = unifi.unifi_t || '';
       hiddenFields.debug_mode.value = debugMode ? '1' : '';
+      hiddenFields.response_mode.value = 'json';
       hiddenFields.trace_context_json.value = JSON.stringify({
         request_url: window.location.href,
         page_url: window.location.href,
@@ -917,6 +920,37 @@
       setTimeout(tryCloseWindow, 1800);
     };
 
+    const applyConnectResponse = (result) => {
+      if (!result || typeof result !== 'object') {
+        throw new Error('Invalid connect response payload');
+      }
+
+      if (result.trace_id) {
+        hiddenFields.trace_id.value = String(result.trace_id);
+        query.trace_id = String(result.trace_id);
+      }
+
+      if (result.release_target) {
+        releaseState.primary = safeUrl(result.release_target, releaseState.primary || HTTP_RELEASE_FALLBACK);
+      }
+      if (result.continue_target) {
+        releaseState.continueTarget = safeUrl(result.continue_target, releaseState.continueTarget || HTTP_RELEASE_FALLBACK);
+      }
+      if (result.secondary_target) {
+        releaseState.secondaryTarget = safeUrl(result.secondary_target, releaseState.secondaryTarget || WEBSITE_FALLBACK);
+      }
+      if (result.final_redirect_url) {
+        releaseState.finalRedirectUrl = safeUrl(result.final_redirect_url, releaseState.finalRedirectUrl || '');
+      }
+      if (result.release_mode) {
+        releaseState.redirectMode = String(result.release_mode);
+      }
+      if (result.debug && typeof result.debug === 'object') {
+        releaseState.lastConnectDebug = result.debug;
+      }
+      renderDebug();
+    };
+
     pushEvent('portal_loaded', {
       request_path: window.location.pathname,
       has_unifi_params: Boolean(unifi.client_mac && unifi.unifi_site),
@@ -1006,7 +1040,8 @@
       }
     };
 
-    form.addEventListener('submit', (event) => {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
       if (postcodeError) {
         postcodeError.style.display = 'none';
       }
@@ -1026,7 +1061,6 @@
 
       const postcodeValue = String(postcodeInput.value || '').trim();
       if (postcodeValue && !/^\d{4}$/.test(postcodeValue)) {
-        event.preventDefault();
         timings.t_client_validation_finished = Date.now();
         pushEvent('client_validation_finished', {}, 'error', 'Invalid postcode format');
         postcodeError.style.display = 'block';
@@ -1035,7 +1069,6 @@
       }
 
       if (!isMac(unifi.client_mac) || !unifi.unifi_site) {
-        event.preventDefault();
         setStatus('Missing required Wi-Fi session details. Please reconnect to Guest Wi-Fi.', true);
         pushEvent('form_submit_blocked_missing_unifi', {
           client_mac: unifi.client_mac || null,
@@ -1079,6 +1112,60 @@
       submitButton.textContent = 'Connecting...';
       setStatus('Connecting you to Wi-Fi...', false);
       renderDebug();
+
+      const formBody = new URLSearchParams(new FormData(form));
+      const requestStartedAt = Date.now();
+      try {
+        const response = await fetch('/connect/submit', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+            'Accept': 'application/json',
+            'x-portal-fetch': '1'
+          },
+          body: formBody.toString(),
+          credentials: 'same-origin'
+        });
+        timings.t_connect_response = Date.now();
+        const result = await response.json().catch(() => ({}));
+        pushEvent('connect_response_received', {
+          status: response.status,
+          elapsed_ms: Date.now() - requestStartedAt,
+          state: result.state || null,
+          success: result.success === true,
+          next_url: result.next_url || null
+        }, response.ok ? 'ok' : 'error', response.ok ? null : (result.error || 'Connect request failed'));
+        applyConnectResponse(result);
+
+        if (!response.ok || result.success !== true || result.state === 'error') {
+          if (localStore) {
+            localStore.removeItem(pendingKey);
+          }
+          setStatus(result.error || 'Could not connect to Wi-Fi right now. Please try again.', true);
+          submitButton.disabled = false;
+          submitButton.textContent = 'Connect and Agree';
+          await flushClientTrace('connect_response_error');
+          return;
+        }
+
+        timings.t_connect_success = Date.now();
+        pushEvent('connect_response_accepted', {
+          trace_id: result.trace_id || null,
+          release_target: result.release_target || null,
+          release_mode: result.release_mode || null
+        });
+        updateHiddenValues();
+        await flushClientTrace('connect_response_success');
+        startImmediateReleaseFlow('Success, connecting you to Wi-Fi...');
+      } catch (error) {
+        pushEvent('connect_fetch_failed', {
+          error: error instanceof Error ? error.message : String(error)
+        }, 'error');
+        submitButton.disabled = false;
+        submitButton.textContent = 'Connect and Agree';
+        setStatus('Connect request failed before authorization completed. Please try again.', true);
+        await flushClientTrace('connect_fetch_failed');
+      }
     });
 
     if (debugReleasePrimaryButton) {
