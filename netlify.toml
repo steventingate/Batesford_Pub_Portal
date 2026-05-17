@@ -42,6 +42,12 @@
   force = true
 
 [[redirects]]
+  from = "/connect/timing"
+  to = "/.netlify/functions/captiveTiming"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/unifi/authorize-test"
   to = "/.netlify/functions/unifiAuthorizeTest"
   status = 200

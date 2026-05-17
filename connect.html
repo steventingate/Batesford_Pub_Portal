@@ -192,6 +192,39 @@
       white-space: pre-wrap;
       word-break: break-word;
       display: none;
+      text-align: left;
+      max-height: 42vh;
+      overflow: auto;
+    }
+
+    .debug-controls {
+      display: none;
+      margin-top: 12px;
+      text-align: left;
+    }
+
+    .debug-controls.visible {
+      display: block;
+    }
+
+    .debug-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .debug-button {
+      width: auto;
+      flex: 1 1 180px;
+      padding: 12px 14px;
+      font-size: 14px;
+    }
+
+    .debug-meta {
+      font-size: 12px;
+      color: #555;
+      line-height: 1.5;
     }
 
     @media (max-width: 600px) {
@@ -260,6 +293,20 @@
         <a id="secondary-link" class="success-link close-link" href="https://www.thebatesfordhotel.com.au/" target="_self">Open venue website</a>
         <button id="close-window-btn" type="button" class="success-link close-link">Close this window</button>
       </div>
+      <div id="debug-controls" class="debug-controls">
+        <div class="debug-row">
+          <button id="debug-release-primary" type="button" class="debug-button">Open release target</button>
+          <button id="debug-release-http" type="button" class="debug-button">Open HTTP fallback</button>
+        </div>
+        <div class="debug-row">
+          <button id="debug-release-204" type="button" class="debug-button">Open generate_204</button>
+          <button id="debug-refresh-status" type="button" class="debug-button">Refresh status</button>
+        </div>
+        <div class="debug-row">
+          <button id="debug-upload-logs" type="button" class="debug-button">Upload debug logs</button>
+        </div>
+        <div id="debug-upload-status" class="debug-meta"></div>
+      </div>
       <p class="note">By connecting you accept the acceptable use policy and consent to receiving occasional offers. We never share your details with third parties.</p>
     </form>
 
@@ -296,6 +343,13 @@
     const postcodeError = document.getElementById('postcode-error');
     const debugPanel = document.getElementById('debug-panel');
     const assistantNote = document.getElementById('assistant-note');
+    const debugControls = document.getElementById('debug-controls');
+    const debugReleasePrimaryButton = document.getElementById('debug-release-primary');
+    const debugReleaseHttpButton = document.getElementById('debug-release-http');
+    const debugRelease204Button = document.getElementById('debug-release-204');
+    const debugRefreshStatusButton = document.getElementById('debug-refresh-status');
+    const debugUploadLogsButton = document.getElementById('debug-upload-logs');
+    const debugUploadStatus = document.getElementById('debug-upload-status');
 
     const hiddenFields = {
       trace_id: document.getElementById('trace_id'),
@@ -493,12 +547,22 @@
       finalRedirectUrl: safeUrl(query.final_redirect_url, ''),
       attemptedTargets: [],
       autoFallbackTriggered: false,
-      lastStatusPayload: null
+      lastStatusPayload: null,
+      lastTimingUploadAt: null,
+      lastTimingUploadReason: null
     };
 
     const renderDebug = () => {
       if (!debugMode || !debugPanel) return;
       debugPanel.style.display = 'block';
+      if (debugControls) {
+        debugControls.classList.add('visible');
+      }
+      if (debugUploadStatus) {
+        debugUploadStatus.textContent = releaseState.lastTimingUploadAt
+          ? `Last upload: ${new Date(releaseState.lastTimingUploadAt).toLocaleTimeString()} (${releaseState.lastTimingUploadReason || 'manual'})`
+          : 'Logs not uploaded yet in this session.';
+      }
       debugPanel.textContent = JSON.stringify({
         now: new Date().toISOString(),
         state,
@@ -510,6 +574,69 @@
         timings,
         events: traceEvents
       }, null, 2);
+    };
+
+    const buildTimingPayload = (reason) => {
+      updateHiddenValues();
+      return {
+        action: 'timing',
+        debug: debugMode,
+        trace_id: hiddenFields.trace_id.value || query.trace_id || '',
+        venue_slug: unifi.unifi_site || '',
+        session_id: sessionId,
+        attempt_no: Math.max(1, attemptNo || Number(query.attempt_no || '1') || 1),
+        client_mac: unifi.client_mac || '',
+        ap_mac: unifi.ap_mac || null,
+        ssid: unifi.ssid || null,
+        redirect_url: unifi.redirect_url || null,
+        unifi_site: unifi.unifi_site || '',
+        unifi_id: unifi.unifi_id || null,
+        unifi_ap: unifi.unifi_ap || null,
+        unifi_t: unifi.unifi_t || null,
+        trace_context: JSON.parse(hiddenFields.trace_context_json.value || '{}'),
+        trace_events: traceEvents.concat([{
+          stage_name: 'client_trace_upload_requested',
+          started_at: Date.now(),
+          ended_at: Date.now(),
+          status: 'ok',
+          message: reason,
+          metadata: {
+            source: 'client',
+            reason
+          }
+        }]),
+        timings: JSON.parse(hiddenFields.timings_json.value || '{}')
+      };
+    };
+
+    const flushClientTrace = async (reason, forceKeepalive = false) => {
+      if (!unifi.client_mac || !unifi.unifi_site || !unifi.unifi_t) return false;
+      const payload = buildTimingPayload(reason);
+      try {
+        const response = await fetch('/connect/timing', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload),
+          keepalive: forceKeepalive || reason === 'pagehide' || reason === 'visibility_hidden'
+        });
+        releaseState.lastTimingUploadAt = Date.now();
+        releaseState.lastTimingUploadReason = reason;
+        pushEvent('client_trace_uploaded', {
+          reason,
+          status: response.status
+        });
+        renderDebug();
+        return response.ok;
+      } catch (error) {
+        pushEvent('client_trace_upload_failed', {
+          reason,
+          error: error instanceof Error ? error.message : String(error)
+        }, 'error');
+        renderDebug();
+        return false;
+      }
     };
 
     const updateHiddenValues = () => {
@@ -571,6 +698,7 @@
       if (IS_CAPTIVE_ASSISTANT) {
         setAssistantMessage('You’re connected. If this mini-browser stays open, tap Continue to Internet, then tap Done or open Safari/Chrome.');
       }
+      renderDebug();
     };
 
     const tryCloseWindow = () => {
@@ -597,6 +725,12 @@
         reason
       });
       renderDebug();
+      if (debugMode) {
+        setStatus(`Debug mode active. Auto-redirect paused before opening ${safeTarget}`, false);
+        flushClientTrace(`debug_before_redirect:${reason}`, true);
+        return true;
+      }
+      flushClientTrace(`before_redirect:${reason}`, true);
       window.location.replace(safeTarget);
       return true;
     };
@@ -613,6 +747,7 @@
         timings.t_page_hidden = Date.now();
         pushEvent('client_return_seen', { via: 'visibilitychange' });
         updateHiddenValues();
+        flushClientTrace('visibility_hidden', true);
       }
     });
 
@@ -620,6 +755,7 @@
       if (!timings.t_page_unload) {
         timings.t_page_unload = Date.now();
         updateHiddenValues();
+        flushClientTrace('pagehide', true);
       }
     });
 
@@ -760,6 +896,12 @@
         secondary_target: releaseState.secondaryTarget,
         redirect_mode: releaseState.redirectMode
       });
+      flushClientTrace('release_flow_started');
+      if (debugMode) {
+        setStatus('Authorized. Debug mode is holding the page here so you can inspect and manually test release targets.', false);
+        startStrictStatusPoll();
+        return;
+      }
       tryRelease(releaseState.primary, 'immediate_release');
       window.setTimeout(() => {
         if (document.visibilityState === 'visible' && !releaseState.autoFallbackTriggered) {
@@ -853,7 +995,9 @@
           redirect_mode: data.redirect_mode || null,
           release_target: releaseState.primary
         });
-        setConnectedMode('Already connected. Continuing to the internet now...', releaseState);
+        setConnectedMode(debugMode
+          ? 'Already connected. Debug mode is holding the page so you can inspect and manually test release targets.'
+          : 'Already connected. Continuing to the internet now...', releaseState);
         tryRelease(releaseState.primary, 'initial_authorized');
       } catch (error) {
         pushEvent('initial_status_check_error', {
@@ -936,6 +1080,58 @@
       setStatus('Connecting you to Wi-Fi...', false);
       renderDebug();
     });
+
+    if (debugReleasePrimaryButton) {
+      debugReleasePrimaryButton.addEventListener('click', async () => {
+        pushEvent('debug_release_primary_clicked', {
+          target: releaseState.primary
+        });
+        await flushClientTrace('debug_release_primary_clicked');
+        window.location.href = safeUrl(releaseState.primary, HTTP_RELEASE_FALLBACK);
+      });
+    }
+
+    if (debugReleaseHttpButton) {
+      debugReleaseHttpButton.addEventListener('click', async () => {
+        pushEvent('debug_release_http_clicked', {
+          target: HTTP_RELEASE_FALLBACK
+        });
+        await flushClientTrace('debug_release_http_clicked');
+        window.location.href = HTTP_RELEASE_FALLBACK;
+      });
+    }
+
+    if (debugRelease204Button) {
+      debugRelease204Button.addEventListener('click', async () => {
+        pushEvent('debug_release_204_clicked', {
+          target: CAPTIVE_GENERATE_204
+        });
+        await flushClientTrace('debug_release_204_clicked');
+        window.location.href = CAPTIVE_GENERATE_204;
+      });
+    }
+
+    if (debugRefreshStatusButton) {
+      debugRefreshStatusButton.addEventListener('click', async () => {
+        pushEvent('debug_refresh_status_clicked');
+        await flushClientTrace('debug_refresh_status_clicked');
+        try {
+          const data = await runStatusCheck();
+          applyServerReleasePlan(data);
+        } catch (error) {
+          pushEvent('debug_refresh_status_failed', {
+            error: error instanceof Error ? error.message : String(error)
+          }, 'error');
+        }
+      });
+    }
+
+    if (debugUploadLogsButton) {
+      debugUploadLogsButton.addEventListener('click', async () => {
+        pushEvent('debug_upload_logs_clicked');
+        await flushClientTrace('manual_debug_upload');
+      });
+    }
 
     updateHiddenValues();
     renderDebug();
