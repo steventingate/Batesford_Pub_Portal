@@ -5,10 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Guest Wi-Fi | Connect</title>
   <style>
-    * {
-      box-sizing: border-box;
-    }
-
+    * { box-sizing: border-box; }
     body {
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
       display: flex;
@@ -19,7 +16,6 @@
       background: linear-gradient(135deg, #1a472a 0%, #2d5a3d 100%);
       padding: 20px;
     }
-
     .container {
       background: white;
       padding: 36px;
@@ -29,36 +25,26 @@
       width: 100%;
       max-width: 520px;
     }
-
     h1 {
       color: #1a472a;
       margin: 0 0 8px 0;
       font-size: 30px;
       font-weight: bold;
     }
-
     .subtitle {
       color: #2d5a3d;
       font-size: 22px;
       margin: 0 0 10px 0;
       font-weight: 600;
     }
-
     .lead {
       color: #333;
       margin: 0 0 24px 0;
       line-height: 1.6;
       font-size: 15px;
     }
-
-    form {
-      text-align: left;
-    }
-
-    .field {
-      margin-bottom: 16px;
-    }
-
+    form { text-align: left; }
+    .field { margin-bottom: 16px; }
     label {
       display: block;
       color: #1a472a;
@@ -66,7 +52,6 @@
       margin-bottom: 6px;
       font-size: 14px;
     }
-
     input[type="text"],
     input[type="email"],
     input[type="tel"] {
@@ -77,13 +62,11 @@
       font-size: 16px;
       background: #ffffff;
     }
-
     input:focus {
       outline: none;
       border-color: #1a472a;
       box-shadow: 0 0 0 2px rgba(26, 71, 42, 0.2);
     }
-
     .consent {
       display: flex;
       gap: 10px;
@@ -96,11 +79,7 @@
       color: #333;
       margin: 10px 0 18px;
     }
-
-    .consent input {
-      margin-top: 3px;
-    }
-
+    .consent input { margin-top: 3px; }
     button {
       background: #1a472a;
       color: white;
@@ -112,85 +91,18 @@
       width: 100%;
       transition: background 0.3s;
     }
-
-    button:hover {
-      background: #2d5a3d;
-    }
-
-    button:disabled {
-      opacity: 0.7;
-      cursor: default;
-    }
-
+    button:hover { background: #2d5a3d; }
+    button:disabled { opacity: 0.7; cursor: default; }
     .status {
       margin-top: 12px;
       font-size: 13px;
       color: #1a472a;
       display: none;
     }
-
     .success-actions {
       display: none;
       margin-top: 12px;
     }
-
-    .loading-panel {
-      display: none;
-      margin-top: 18px;
-      padding: 20px 18px;
-      border-radius: 18px;
-      background: linear-gradient(180deg, #f3f8f4 0%, #edf5ef 100%);
-      border: 1px solid #d8e6dc;
-      text-align: center;
-    }
-
-    .loading-panel.visible {
-      display: block;
-    }
-
-    .loading-orbit {
-      width: 76px;
-      height: 76px;
-      margin: 0 auto 14px;
-      border-radius: 999px;
-      border: 3px solid rgba(26, 71, 42, 0.12);
-      border-top-color: #1a472a;
-      animation: orbit-spin 1s linear infinite;
-      position: relative;
-    }
-
-    .loading-orbit::after {
-      content: "";
-      position: absolute;
-      inset: 12px;
-      border-radius: 999px;
-      border: 3px dashed rgba(45, 90, 61, 0.35);
-      animation: orbit-spin 2.2s linear infinite reverse;
-    }
-
-    .loading-title {
-      color: #1a472a;
-      font-size: 18px;
-      font-weight: 700;
-      margin: 0 0 8px;
-    }
-
-    .loading-copy {
-      color: #4b6352;
-      font-size: 14px;
-      line-height: 1.55;
-      margin: 0;
-    }
-
-    @keyframes orbit-spin {
-      from {
-        transform: rotate(0deg);
-      }
-      to {
-        transform: rotate(360deg);
-      }
-    }
-
     .success-link {
       display: inline-block;
       width: 100%;
@@ -203,14 +115,12 @@
       font-size: 15px;
       font-weight: 600;
     }
-
     .close-link {
       margin-top: 10px;
       background: #ffffff;
       color: #1a472a;
       border: 1px solid #1a472a;
     }
-
     .connected-mode .field,
     .connected-mode .consent,
     .connected-mode button[type="submit"],
@@ -218,7 +128,6 @@
     .connected-mode .footer {
       display: none;
     }
-
     .note {
       margin-top: 14px;
       font-size: 12px;
@@ -226,18 +135,53 @@
       line-height: 1.5;
       text-align: center;
     }
-
     .footer {
       margin-top: 18px;
       font-size: 12px;
       color: #666;
       text-align: center;
     }
-
-    .footer a {
-      color: #1a472a;
+    .footer a { color: #1a472a; }
+    .loading-panel {
+      display: none;
+      margin-top: 18px;
+      padding: 22px 18px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #f3f8f4 0%, #edf5ef 100%);
+      border: 1px solid #d8e6dc;
+      text-align: center;
     }
-
+    .loading-panel.visible { display: block; }
+    .loading-orbit {
+      width: 76px;
+      height: 76px;
+      margin: 0 auto 14px;
+      border-radius: 999px;
+      border: 3px solid rgba(26, 71, 42, 0.12);
+      border-top-color: #1a472a;
+      animation: orbit-spin 1s linear infinite;
+      position: relative;
+    }
+    .loading-orbit::after {
+      content: "";
+      position: absolute;
+      inset: 12px;
+      border-radius: 999px;
+      border: 3px dashed rgba(45, 90, 61, 0.35);
+      animation: orbit-spin 2.2s linear infinite reverse;
+    }
+    .loading-title {
+      color: #1a472a;
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0 0 8px;
+    }
+    .loading-copy {
+      color: #4b6352;
+      font-size: 14px;
+      line-height: 1.55;
+      margin: 0;
+    }
     .debug {
       margin-top: 16px;
       padding: 12px;
@@ -253,45 +197,36 @@
       max-height: 42vh;
       overflow: auto;
     }
-
     .debug-controls {
       display: none;
       margin-top: 12px;
       text-align: left;
     }
-
-    .debug-controls.visible {
-      display: block;
-    }
-
+    .debug-controls.visible { display: block; }
     .debug-row {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
       margin-bottom: 8px;
     }
-
     .debug-button {
       width: auto;
       flex: 1 1 180px;
       padding: 12px 14px;
       font-size: 14px;
     }
-
     .debug-meta {
       font-size: 12px;
       color: #555;
       line-height: 1.5;
     }
-
+    @keyframes orbit-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
     @media (max-width: 600px) {
-      body {
-        padding: 16px;
-      }
-
-      .container {
-        padding: 24px;
-      }
+      body { padding: 16px; }
+      .container { padding: 24px; }
     }
   </style>
 </head>
@@ -346,16 +281,19 @@
       <button type="submit" id="submit-button">Connect and Agree</button>
       <div class="status" id="status">Thanks. Connecting you now.</div>
       <div class="note" id="assistant-note" style="display:none;margin-top:10px;text-align:left;"></div>
+
       <div id="loading-panel" class="loading-panel">
         <div class="loading-orbit" aria-hidden="true"></div>
         <p class="loading-title" id="loading-title">Connecting You To Guest Wi-Fi</p>
         <p class="loading-copy" id="loading-copy">Hold on while we complete your Wi-Fi connection and open the venue website.</p>
       </div>
+
       <div class="success-actions" id="success-actions">
         <a id="continue-link" class="success-link" href="http://neverssl.com/" target="_self">Continue to Internet</a>
         <a id="secondary-link" class="success-link close-link" href="https://www.thebatesfordhotel.com.au/" target="_self">Open venue website</a>
         <button id="close-window-btn" type="button" class="success-link close-link">Close this window</button>
       </div>
+
       <div id="debug-controls" class="debug-controls">
         <div class="debug-row">
           <button id="debug-release-primary" type="button" class="debug-button">Open release target</button>
@@ -370,6 +308,7 @@
         </div>
         <div id="debug-upload-status" class="debug-meta"></div>
       </div>
+
       <p class="note">By connecting you accept the acceptable use policy and consent to receiving occasional offers. We never share your details with third parties.</p>
     </form>
 
@@ -387,6 +326,7 @@
     const CONNECT_TIMING_ENDPOINT = '/.netlify/functions/captiveTiming';
     const CONNECT_STATUS_ENDPOINT = '/connect/status';
     const AUTO_FALLBACK_REDIRECT_DELAY_MS = 1800;
+    const WEBSITE_FALLBACK_REDIRECT_DELAY_MS = 4500;
     const IS_IOS_DEVICE = /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
     const IS_ANDROID_DEVICE = /Android/i.test(navigator.userAgent || '');
     const IS_CAPTIVE_ASSISTANT = /CaptiveNetworkSupport|Captive|Hotspot|wifilogin/i.test(navigator.userAgent || '') ||
@@ -434,13 +374,11 @@
     };
 
     const parseQuery = () => Object.fromEntries(new URLSearchParams(window.location.search).entries());
-
     const parseSiteFromPath = () => {
       const path = window.location.pathname || '';
       const match = path.match(/\/guest\/s\/([^/]+)\//);
       return match ? decodeURIComponent(match[1]) : '';
     };
-
     const safeDecode = (value) => {
       if (!value) return '';
       try {
@@ -449,7 +387,6 @@
         return value;
       }
     };
-
     const safeUrl = (value, fallback = '') => {
       if (!value) return fallback;
       try {
@@ -460,7 +397,6 @@
         return fallback;
       }
     };
-
     const isProbeUrl = (value) => {
       if (!value) return false;
       try {
@@ -503,7 +439,6 @@
     const connectedStore = getLocalStore();
     const connectionKey = `wifi_connected_${(unifi.unifi_t || unifi.client_mac || 'unknown').toLowerCase()}`;
     const CONNECTION_STICKY_WINDOW_MS = 5 * 60 * 1000;
-
     const initialPrimaryTarget = () => {
       if (IS_CAPTIVE_ASSISTANT) return HTTP_RELEASE_FALLBACK;
       const explicitTarget = safeUrl(query.release_target, '');
@@ -524,9 +459,7 @@
       lastTimingUploadReason: null
     };
 
-    const timings = {
-      t_page_loaded: Date.now()
-    };
+    const timings = { t_page_loaded: Date.now() };
     const traceId = query.trace_id || crypto.randomUUID();
     const sessionId = query.session_id || unifi.unifi_t || unifi.client_mac || crypto.randomUUID();
     const attemptNo = Number(query.attempt_no || '1') || 1;
@@ -573,28 +506,16 @@
     const setLoadingMode = (title, copy) => {
       document.body.classList.add('connected-mode');
       form.classList.add('connected-mode');
-      if (loadingPanel) {
-        loadingPanel.classList.add('visible');
-      }
-      if (loadingTitle) {
-        loadingTitle.textContent = title;
-      }
-      if (loadingCopy) {
-        loadingCopy.textContent = copy;
-      }
+      loadingPanel.classList.add('visible');
+      loadingTitle.textContent = title;
+      loadingCopy.textContent = copy;
       successActions.style.display = 'none';
       assistantNote.style.display = 'none';
       status.style.display = 'none';
     };
 
     const clearLoadingMode = () => {
-      if (loadingPanel) {
-        loadingPanel.classList.remove('visible');
-      }
-    };
-
-    const setFormWaitingMode = (message) => {
-      setLoadingMode('Connecting You To Guest Wi-Fi', message);
+      loadingPanel.classList.remove('visible');
     };
 
     const restoreFormMode = () => {
@@ -602,12 +523,9 @@
       document.body.classList.remove('connected-mode');
       form.classList.remove('connected-mode');
       submitButton.style.display = '';
-      document.querySelectorAll('.field').forEach((element) => {
-        element.style.display = '';
-      });
-      document.querySelectorAll('.consent, .note, .footer').forEach((element) => {
-        element.style.display = '';
-      });
+      document.querySelectorAll('.field').forEach((element) => { element.style.display = ''; });
+      document.querySelectorAll('.consent, .note, .footer').forEach((element) => { element.style.display = ''; });
+      successActions.style.display = 'none';
       if (IS_CAPTIVE_ASSISTANT) {
         assistantNote.style.display = 'block';
         assistantNote.textContent = 'Submit the form to connect. This window should close after Wi-Fi is authorized.';
@@ -736,6 +654,63 @@
       return `${CONNECT_STATUS_ENDPOINT}?${params.toString()}`;
     };
 
+    const redirectTo = (target, reason) => {
+      const safeTarget = safeUrl(target, HTTP_RELEASE_FALLBACK);
+      pushEvent('redirect_attempted', { target: safeTarget, reason });
+      timings.t_redirect_called = Date.now();
+      updateHiddenValues();
+      if (debugMode) return;
+      window.location.replace(safeTarget);
+    };
+
+    const startReleaseFlow = () => {
+      markRecentConnection();
+      if (IS_CAPTIVE_ASSISTANT && !debugMode) {
+        setLoadingMode(
+          'Connecting You To Guest Wi-Fi',
+          'Finishing your Wi-Fi connection and opening the venue website.'
+        );
+      } else {
+        clearLoadingMode();
+        document.body.classList.add('connected-mode');
+        form.classList.add('connected-mode');
+        setStatus('You are connected. Continuing to the internet now...', false);
+        successActions.style.display = 'block';
+        continueLink.href = safeUrl(releaseState.continueTarget, HTTP_RELEASE_FALLBACK);
+        secondaryLink.href = safeUrl(releaseState.secondaryTarget, WEBSITE_FALLBACK);
+        if (IS_CAPTIVE_ASSISTANT) {
+          assistantNote.style.display = 'block';
+          assistantNote.textContent = 'You are connected. Tap Continue if this window stays open, then tap Done.';
+        }
+      }
+
+      pushEvent('release_flow_started', {
+        primary_target: releaseState.primary,
+        continue_target: releaseState.continueTarget,
+        secondary_target: releaseState.secondaryTarget,
+        redirect_mode: releaseState.redirectMode
+      });
+      flushClientTrace('release_flow_started');
+      if (debugMode) {
+        setStatus('Authorized. Debug mode is holding the page here so you can inspect the release targets.', false);
+        return;
+      }
+      window.setTimeout(() => {
+        redirectTo(releaseState.primary, 'primary_release');
+      }, 250);
+      window.setTimeout(() => {
+        if (document.visibilityState === 'visible') {
+          redirectTo(releaseState.continueTarget, 'http_fallback_release');
+        }
+      }, AUTO_FALLBACK_REDIRECT_DELAY_MS);
+      window.setTimeout(() => {
+        if (document.visibilityState === 'visible' && !releaseState.fallbackToWebsiteTriggered) {
+          releaseState.fallbackToWebsiteTriggered = true;
+          redirectTo(releaseState.secondaryTarget, 'website_fallback_release');
+        }
+      }, WEBSITE_FALLBACK_REDIRECT_DELAY_MS);
+    };
+
     const recoverAuthorizedSession = async () => {
       if (!unifi.client_mac || !unifi.site) return false;
       pushEvent('status_recovery_started', {
@@ -772,59 +747,6 @@
       }
     };
 
-    const setConnectedMode = (message) => {
-      clearLoadingMode();
-      document.body.classList.add('connected-mode');
-      form.classList.add('connected-mode');
-      setStatus(message, false);
-      successActions.style.display = 'block';
-      continueLink.href = safeUrl(releaseState.continueTarget, HTTP_RELEASE_FALLBACK);
-      secondaryLink.href = safeUrl(releaseState.secondaryTarget, WEBSITE_FALLBACK);
-      if (IS_CAPTIVE_ASSISTANT) {
-        assistantNote.style.display = 'block';
-        assistantNote.textContent = 'You’re connected. Tap Continue if this window stays open, then tap Done.';
-      }
-    };
-
-    const redirectTo = (target, reason) => {
-      const safeTarget = safeUrl(target, HTTP_RELEASE_FALLBACK);
-      pushEvent('redirect_attempted', { target: safeTarget, reason });
-      timings.t_redirect_called = Date.now();
-      updateHiddenValues();
-      if (debugMode) return;
-      window.location.replace(safeTarget);
-    };
-
-    const startReleaseFlow = () => {
-      markRecentConnection();
-      setConnectedMode('You’re connected. Continuing to the internet now...');
-      pushEvent('release_flow_started', {
-        primary_target: releaseState.primary,
-        continue_target: releaseState.continueTarget,
-        secondary_target: releaseState.secondaryTarget,
-        redirect_mode: releaseState.redirectMode
-      });
-      flushClientTrace('release_flow_started');
-      if (debugMode) {
-        setStatus('Authorized. Debug mode is holding the page here so you can inspect the release targets.', false);
-        return;
-      }
-      window.setTimeout(() => {
-        redirectTo(releaseState.primary, 'primary_release');
-      }, 250);
-      window.setTimeout(() => {
-        if (document.visibilityState === 'visible') {
-          redirectTo(releaseState.continueTarget, 'http_fallback_release');
-        }
-      }, AUTO_FALLBACK_REDIRECT_DELAY_MS);
-      window.setTimeout(() => {
-        if (document.visibilityState === 'visible' && !releaseState.fallbackToWebsiteTriggered) {
-          releaseState.fallbackToWebsiteTriggered = true;
-          redirectTo(releaseState.secondaryTarget, 'website_fallback_release');
-        }
-      }, 4500);
-    };
-
     form.addEventListener('submit', (event) => {
       const postcodeValue = postcodeInput.value.trim();
       if (postcodeValue && !/^\d{4}$/.test(postcodeValue)) {
@@ -833,7 +755,6 @@
         postcodeInput.focus();
         return;
       }
-
       postcodeError.style.display = 'none';
       submitButton.disabled = true;
       submitButton.textContent = 'Connecting...';
@@ -889,7 +810,7 @@
     });
 
     debugRefreshStatusButton.addEventListener('click', async () => {
-      pushEvent('debug_refresh_clicked', { note: 'The portal no longer polls backend status before release.' });
+      pushEvent('debug_refresh_clicked', { note: 'The portal no longer alternates between status and connected screens.' });
       await flushClientTrace('debug_refresh_clicked');
       renderDebug();
     });
@@ -920,21 +841,11 @@
       redirect_url: unifi.redirect_url
     });
 
-    if (IS_CAPTIVE_ASSISTANT && !query.state) {
-      assistantNote.style.display = 'block';
-      assistantNote.textContent = 'Submit the form to connect. This window should close after Wi-Fi is authorized.';
-    }
-
     if (query.state === 'error') {
       setStatus(query.error || 'Could not connect to Wi-Fi right now. Please try again.', true);
       pushEvent('error_state_rendered', { error: query.error || null }, 'error');
     } else if (query.state === 'connected' || query.state === 'finalizing' || query.state === 'success') {
       timings.t_connect_success = Date.now();
-      pushEvent('connected_state_rendered', {
-        release_target: releaseState.primary,
-        continue_target: releaseState.continueTarget,
-        release_mode: releaseState.redirectMode
-      });
       startReleaseFlow();
     } else {
       const recentConnection = readRecentConnection();
@@ -943,22 +854,28 @@
         releaseState.continueTarget = safeUrl(recentConnection.continue_target, releaseState.continueTarget);
         releaseState.secondaryTarget = safeUrl(recentConnection.secondary_target, releaseState.secondaryTarget);
         releaseState.redirectMode = recentConnection.release_mode || releaseState.redirectMode;
-        pushEvent('recent_connection_resume', {
-          release_target: releaseState.primary,
-          continue_target: releaseState.continueTarget
-        });
         setLoadingMode(
           'Connecting You To Guest Wi-Fi',
           'Finishing your Wi-Fi connection and opening the venue website.'
         );
+        pushEvent('recent_connection_resume', {
+          release_target: releaseState.primary,
+          continue_target: releaseState.continueTarget
+        });
         startReleaseFlow();
       } else if (IS_CAPTIVE_ASSISTANT) {
-        setFormWaitingMode('Checking your Wi-Fi access status and completing your connection.');
+        setLoadingMode(
+          'Connecting You To Guest Wi-Fi',
+          'Checking your Wi-Fi access status and completing your connection.'
+        );
         recoverAuthorizedSession().then((recovered) => {
           if (!recovered) {
             restoreFormMode();
           }
         });
+      } else {
+        assistantNote.style.display = 'block';
+        assistantNote.textContent = 'Submit the form to connect. This window should close after Wi-Fi is authorized.';
       }
     }
 
