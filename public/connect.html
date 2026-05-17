@@ -323,6 +323,7 @@
     const HTTP_RELEASE_FALLBACK = 'http://neverssl.com/';
     const CAPTIVE_GENERATE_204 = 'https://www.google.com/generate_204';
     const CONNECT_TIMING_ENDPOINT = '/.netlify/functions/captiveTiming';
+    const CONNECT_STATUS_ENDPOINT = '/connect/status';
     const AUTO_FALLBACK_REDIRECT_DELAY_MS = 1800;
     const IS_IOS_DEVICE = /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
     const IS_ANDROID_DEVICE = /Android/i.test(navigator.userAgent || '');
@@ -426,15 +427,15 @@
       original_id: safeDecode(query.id || query.unifi_id || query.client_mac || '')
     };
 
-    const getSessionStore = () => {
+    const getLocalStore = () => {
       try {
-        return window.sessionStorage;
+        return window.localStorage;
       } catch {
         return null;
       }
     };
 
-    const connectedStore = getSessionStore();
+    const connectedStore = getLocalStore();
     const connectionKey = `wifi_connected_${(unifi.unifi_t || unifi.client_mac || 'unknown').toLowerCase()}`;
     const CONNECTION_STICKY_WINDOW_MS = 5 * 60 * 1000;
 
@@ -608,6 +609,58 @@
       }
     };
 
+    const buildStatusUrl = () => {
+      const params = new URLSearchParams();
+      if (unifi.client_mac) params.set('id', unifi.client_mac);
+      if (unifi.ap_mac) params.set('ap', unifi.ap_mac);
+      if (unifi.unifi_t) params.set('t', unifi.unifi_t);
+      if (unifi.site) params.set('site', unifi.site);
+      if (unifi.ssid) params.set('ssid', unifi.ssid);
+      if (unifi.redirect_url) params.set('url', unifi.redirect_url);
+      params.set('website', WEBSITE_FALLBACK);
+      params.set('trace_id', traceId);
+      params.set('session_id', sessionId);
+      params.set('attempt_no', String(attemptNo));
+      if (debugMode) params.set('debug', '1');
+      return `${CONNECT_STATUS_ENDPOINT}?${params.toString()}`;
+    };
+
+    const recoverAuthorizedSession = async () => {
+      if (!unifi.client_mac || !unifi.site) return false;
+      pushEvent('status_recovery_started', {
+        client_mac: unifi.client_mac,
+        site: unifi.site
+      });
+      try {
+        const response = await fetch(buildStatusUrl(), {
+          method: 'GET',
+          headers: { Accept: 'application/json' }
+        });
+        const data = await response.json().catch(() => ({}));
+        pushEvent('status_recovery_finished', {
+          status: response.status,
+          authorized: data.authorized === true,
+          status_source: data.status_source || 'none'
+        }, response.ok ? 'ok' : 'error');
+        if (!response.ok || data.authorized !== true) {
+          return false;
+        }
+        releaseState.primary = safeUrl(data.release_target, releaseState.primary);
+        releaseState.continueTarget = safeUrl(data.continue_target, releaseState.continueTarget);
+        releaseState.secondaryTarget = safeUrl(data.secondary_target, releaseState.secondaryTarget);
+        releaseState.finalRedirectUrl = safeUrl(data.final_redirect_url, releaseState.finalRedirectUrl);
+        releaseState.redirectMode = data.redirect_mode || releaseState.redirectMode;
+        timings.t_connect_success = Date.now();
+        startReleaseFlow();
+        return true;
+      } catch (error) {
+        pushEvent('status_recovery_failed', {
+          error: error instanceof Error ? error.message : String(error)
+        }, 'error');
+        return false;
+      }
+    };
+
     const setConnectedMode = (message) => {
       document.body.classList.add('connected-mode');
       form.classList.add('connected-mode');
@@ -762,6 +815,13 @@
           continue_target: releaseState.continueTarget
         });
         startReleaseFlow();
+      } else if (IS_CAPTIVE_ASSISTANT) {
+        setStatus('Checking your Wi-Fi access status...', false);
+        recoverAuthorizedSession().then((recovered) => {
+          if (!recovered) {
+            status.style.display = 'none';
+          }
+        });
       }
     }
 
