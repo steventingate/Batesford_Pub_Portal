@@ -504,6 +504,31 @@
       status.style.color = isError ? '#b42318' : '#1a472a';
     };
 
+    const setFormWaitingMode = (message) => {
+      setStatus(message, false);
+      submitButton.style.display = 'none';
+      successActions.style.display = 'none';
+      assistantNote.style.display = 'none';
+      document.querySelectorAll('.field, .consent, .note, .footer').forEach((element) => {
+        element.style.display = 'none';
+      });
+    };
+
+    const restoreFormMode = () => {
+      submitButton.style.display = '';
+      document.querySelectorAll('.field').forEach((element) => {
+        element.style.display = '';
+      });
+      document.querySelectorAll('.consent, .note, .footer').forEach((element) => {
+        element.style.display = '';
+      });
+      if (IS_CAPTIVE_ASSISTANT) {
+        assistantNote.style.display = 'block';
+        assistantNote.textContent = 'Submit the form to connect. This window should close after Wi-Fi is authorized.';
+      }
+      status.style.display = 'none';
+    };
+
     const pushEvent = (stageName, metadata = {}, statusValue = 'ok', message = null) => {
       const at = new Date().toISOString();
       traceEvents.push({
@@ -816,10 +841,10 @@
         });
         startReleaseFlow();
       } else if (IS_CAPTIVE_ASSISTANT) {
-        setStatus('Checking your Wi-Fi access status...', false);
+        setFormWaitingMode('Checking your Wi-Fi access status...');
         recoverAuthorizedSession().then((recovered) => {
           if (!recovered) {
-            status.style.display = 'none';
+            restoreFormMode();
           }
         });
       }
