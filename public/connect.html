@@ -470,7 +470,8 @@
     const sessionStore = getStorage('session');
     const localStore = getStorage('local') || sessionStore;
     const state = String(query.state || '').toLowerCase();
-    const debugMode = query.debug === '1' || IS_CAPTIVE_ASSISTANT;
+    const debugMode = query.debug === '1';
+    const diagnosticMode = debugMode || IS_CAPTIVE_ASSISTANT;
     const shouldUseIframeSubmit = IS_CAPTIVE_ASSISTANT;
     const traceEvents = [];
     const timings = {
@@ -560,9 +561,9 @@
     };
 
     const renderDebug = () => {
-      if (!debugMode || !debugPanel) return;
+      if (!diagnosticMode || !debugPanel) return;
       debugPanel.style.display = 'block';
-      if (debugControls) {
+      if (debugControls && debugMode) {
         debugControls.classList.add('visible');
       }
       if (debugUploadStatus) {
@@ -741,6 +742,22 @@
       flushClientTrace(`before_redirect:${reason}`, true);
       window.location.replace(safeTarget);
       return true;
+    };
+
+    const resumePostAuthorizationFlow = async (source, result) => {
+      if (result && typeof result === 'object') {
+        applyConnectResponse(result);
+      }
+      timings.t_connect_success = Date.now();
+      pushEvent('connect_response_accepted', {
+        source,
+        trace_id: result?.trace_id || hiddenFields.trace_id.value || null,
+        release_target: releaseState.primary,
+        release_mode: releaseState.redirectMode || null
+      });
+      updateHiddenValues();
+      await flushClientTrace(`connect_response_success:${source}`);
+      startImmediateReleaseFlow('Success, connecting you to Wi-Fi...');
     };
 
     closeWindowButton.addEventListener('click', () => {
@@ -1207,8 +1224,10 @@
 
         timings.t_connect_response = Date.now();
         let result = {};
+        let hasParsedJson = false;
         try {
           result = rawText ? JSON.parse(rawText) : {};
+          hasParsedJson = true;
         } catch {
           result = {
             error: rawText ? rawText.slice(0, 600) : 'Non-JSON response'
@@ -1224,6 +1243,20 @@
         }, (responseStatus >= 200 && responseStatus < 300) ? 'ok' : 'error', (responseStatus >= 200 && responseStatus < 300) ? null : (result.error || 'Connect request failed'));
         applyConnectResponse(result);
 
+        if (
+          shouldUseIframeSubmit &&
+          responseStatus >= 200 &&
+          responseStatus < 300 &&
+          (!hasParsedJson || !rawText)
+        ) {
+          pushEvent('iframe_submit_assumed_success', {
+            status: responseStatus,
+            response_length: rawText.length
+          }, 'warning', 'Iframe submit returned no parseable JSON; assuming success because captive assistants often hide the body.');
+          await resumePostAuthorizationFlow('iframe_assumed_success', {});
+          return;
+        }
+
         if (!(responseStatus >= 200 && responseStatus < 300) || result.success !== true || result.state === 'error') {
           if (localStore) {
             localStore.removeItem(pendingKey);
@@ -1236,15 +1269,7 @@
           return;
         }
 
-        timings.t_connect_success = Date.now();
-        pushEvent('connect_response_accepted', {
-          trace_id: result.trace_id || null,
-          release_target: result.release_target || null,
-          release_mode: result.release_mode || null
-        });
-        updateHiddenValues();
-        await flushClientTrace('connect_response_success');
-        startImmediateReleaseFlow('Success, connecting you to Wi-Fi...');
+        await resumePostAuthorizationFlow('direct_success', result);
       } catch (error) {
         pushEvent('connect_fetch_failed', {
           error: error instanceof Error ? error.message : String(error)
