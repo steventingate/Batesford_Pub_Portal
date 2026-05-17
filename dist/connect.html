@@ -426,11 +426,24 @@
       original_id: safeDecode(query.id || query.unifi_id || query.client_mac || '')
     };
 
+    const getSessionStore = () => {
+      try {
+        return window.sessionStorage;
+      } catch {
+        return null;
+      }
+    };
+
+    const connectedStore = getSessionStore();
+    const connectionKey = `wifi_connected_${(unifi.unifi_t || unifi.client_mac || 'unknown').toLowerCase()}`;
+    const CONNECTION_STICKY_WINDOW_MS = 5 * 60 * 1000;
+
     const initialPrimaryTarget = () => {
+      if (IS_CAPTIVE_ASSISTANT) return HTTP_RELEASE_FALLBACK;
       const explicitTarget = safeUrl(query.release_target, '');
       if (explicitTarget) return explicitTarget;
       const originalTarget = safeUrl(unifi.redirect_url, '');
-      if (IS_CAPTIVE_ASSISTANT && isProbeUrl(originalTarget)) return HTTP_RELEASE_FALLBACK;
+      if (isProbeUrl(originalTarget)) return HTTP_RELEASE_FALLBACK;
       return originalTarget || HTTP_RELEASE_FALLBACK;
     };
 
@@ -451,6 +464,38 @@
     const sessionId = query.session_id || unifi.unifi_t || unifi.client_mac || crypto.randomUUID();
     const attemptNo = Number(query.attempt_no || '1') || 1;
     const traceEvents = [];
+
+    const readRecentConnection = () => {
+      if (!connectedStore) return null;
+      try {
+        const raw = connectedStore.getItem(connectionKey);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed.connected_at !== 'number') return null;
+        if ((Date.now() - parsed.connected_at) > CONNECTION_STICKY_WINDOW_MS) {
+          connectedStore.removeItem(connectionKey);
+          return null;
+        }
+        return parsed;
+      } catch {
+        return null;
+      }
+    };
+
+    const markRecentConnection = () => {
+      if (!connectedStore) return;
+      try {
+        connectedStore.setItem(connectionKey, JSON.stringify({
+          connected_at: Date.now(),
+          release_target: releaseState.primary,
+          continue_target: releaseState.continueTarget,
+          secondary_target: releaseState.secondaryTarget,
+          release_mode: releaseState.redirectMode
+        }));
+      } catch {
+        return;
+      }
+    };
 
     const setStatus = (message, isError = false) => {
       status.style.display = 'block';
@@ -586,6 +631,7 @@
     };
 
     const startReleaseFlow = () => {
+      markRecentConnection();
       setConnectedMode('You’re connected. Continuing to the internet now...');
       pushEvent('release_flow_started', {
         primary_target: releaseState.primary,
@@ -704,6 +750,19 @@
         release_mode: releaseState.redirectMode
       });
       startReleaseFlow();
+    } else {
+      const recentConnection = readRecentConnection();
+      if (recentConnection) {
+        releaseState.primary = safeUrl(recentConnection.release_target, releaseState.primary);
+        releaseState.continueTarget = safeUrl(recentConnection.continue_target, releaseState.continueTarget);
+        releaseState.secondaryTarget = safeUrl(recentConnection.secondary_target, releaseState.secondaryTarget);
+        releaseState.redirectMode = recentConnection.release_mode || releaseState.redirectMode;
+        pushEvent('recent_connection_resume', {
+          release_target: releaseState.primary,
+          continue_target: releaseState.continueTarget
+        });
+        startReleaseFlow();
+      }
     }
 
     updateHiddenValues();

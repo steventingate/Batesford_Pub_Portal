@@ -122,9 +122,9 @@ const buildReleasePlan = (
 ) => {
   const safeOriginal = safeUrl(redirectUrl, '');
   const safeWebsite = safeUrl(websiteUrl, websiteFallbackUrl);
-  const shouldBypassOriginal = !safeOriginal
+  const shouldBypassOriginal = isCaptiveAssistant || (!safeOriginal
     ? false
-    : isCaptiveAssistant && isProbeUrl(safeOriginal);
+    : isProbeUrl(safeOriginal));
   const releaseTarget = shouldBypassOriginal
     ? httpReleaseFallbackUrl || captiveGenerate204Url || safeWebsite || safeOriginal
     : safeOriginal || httpReleaseFallbackUrl || captiveGenerate204Url || safeWebsite;
