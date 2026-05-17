@@ -1362,7 +1362,7 @@ Deno.serve(async (req: Request) => {
     : payload.action === "deauthorize_test"
     ? "deauthorize_test"
     : "connect";
-  const statusMode = payload.status_mode === "strict" ? "strict" : "compat";
+  const statusMode = "strict";
   const sessionId = normalizeSessionId(payload.session_id, payload.unifi_t || payload.client_mac);
   const traceId = normalizeTraceId(
     payload.trace_id,
@@ -1937,33 +1937,10 @@ Deno.serve(async (req: Request) => {
           { endpoint: statusEndpointUsed, mode: "v1" },
         );
 
-        let recentAuthorized = false;
-        if (supabase && payload.unifi_t) {
-          try {
-            const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-            const { data: authEvents } = await supabase
-              .from("wifi_authorization_events")
-              .select("authorized_at")
-              .eq("client_mac", payload.client_mac.toLowerCase())
-              .eq("unifi_t", payload.unifi_t)
-              .gte("authorized_at", cutoff)
-              .limit(1);
-            recentAuthorized = Array.isArray(authEvents) && authEvents.length > 0;
-          } catch {
-            recentAuthorized = false;
-          }
-        }
-
         const authorizedUnifi = statusRead.authorized;
-        const authorizedFallback = recentAuthorized;
-        const resolvedAuthorized = statusMode === "strict"
-          ? authorizedUnifi
-          : authorizedUnifi || authorizedFallback;
-        const statusSource = authorizedUnifi
-          ? "unifi"
-          : authorizedFallback
-          ? "fallback"
-          : "none";
+        const authorizedFallback = false;
+        const resolvedAuthorized = authorizedUnifi;
+        const statusSource = authorizedUnifi ? "unifi" : "none";
 
         if (supabase && payload.unifi_t) {
           await upsertAttemptTrace(supabase, {
@@ -2417,30 +2394,6 @@ Deno.serve(async (req: Request) => {
   }
 
   if (action === "status") {
-    let recentAuthorized = false;
-    if (supabase && payload.unifi_t) {
-      try {
-        const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-        const { data: authEvents, error: authEventError } = await supabase
-          .from("wifi_authorization_events")
-          .select("authorized_at")
-          .eq("client_mac", payload.client_mac.toLowerCase())
-          .eq("unifi_t", payload.unifi_t)
-          .gte("authorized_at", cutoff)
-          .limit(1);
-        if (authEventError) {
-          console.log("Authorization event lookup warning", authEventError.message);
-        } else {
-          recentAuthorized = Array.isArray(authEvents) && authEvents.length > 0;
-        }
-      } catch (err) {
-        console.log(
-          "Authorization event lookup warning",
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    }
-
     let statusResult;
     const statusStartedAtMs = Date.now();
     pushBackendPointEvent("status_check_started", "ok");
@@ -2497,15 +2450,9 @@ Deno.serve(async (req: Request) => {
       );
       const details = parseUnifiError(err);
       const authorizedUnifi = false;
-      const authorizedFallback = recentAuthorized;
-      const resolvedAuthorized = statusMode === "strict"
-        ? authorizedUnifi
-        : authorizedUnifi || authorizedFallback;
-      const statusSource = authorizedUnifi
-        ? "unifi"
-        : authorizedFallback
-        ? "fallback"
-        : "none";
+      const authorizedFallback = false;
+      const resolvedAuthorized = false;
+      const statusSource = "none";
 
       if (debugEnabled) {
         debugInfo.unifi_status = {
@@ -2581,15 +2528,9 @@ Deno.serve(async (req: Request) => {
     }
 
     const authorizedUnifi = statusResult.authorized;
-    const authorizedFallback = recentAuthorized;
-    const resolvedAuthorized = statusMode === "strict"
-      ? authorizedUnifi
-      : authorizedUnifi || authorizedFallback;
-    const statusSource = authorizedUnifi
-      ? "unifi"
-      : authorizedFallback
-      ? "fallback"
-      : "none";
+    const authorizedFallback = false;
+    const resolvedAuthorized = authorizedUnifi;
+    const statusSource = authorizedUnifi ? "unifi" : "none";
 
     if (debugEnabled) {
       debugInfo.unifi_status = {

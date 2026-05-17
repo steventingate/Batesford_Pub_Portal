@@ -242,7 +242,7 @@
   <main class="container">
     <h1>GUEST WI-FI</h1>
     <div class="subtitle">Guest Wi-Fi Connect</div>
-    <p class="lead">Enter your details to connect to guest Wi-Fi. This helps us keep the network safe and share updates with past visitors.</p>
+    <p class="lead">Enter your details to connect to guest Wi-Fi. This helps us keep the network safe and capture your consent correctly.</p>
 
     <form id="connect-form" method="post" action="/connect/submit">
       <input type="hidden" id="trace_id" name="trace_id">
@@ -257,7 +257,7 @@
       <input type="hidden" id="unifi_ap" name="unifi_ap">
       <input type="hidden" id="unifi_t" name="unifi_t">
       <input type="hidden" id="debug_mode" name="debug">
-      <input type="hidden" id="response_mode" name="response_mode" value="json">
+      <input type="hidden" id="response_mode" name="response_mode" value="">
       <input type="hidden" id="trace_context_json" name="trace_context_json">
       <input type="hidden" id="trace_events_json" name="trace_events_json">
       <input type="hidden" id="timings_json" name="timings_json">
@@ -277,7 +277,7 @@
       <div class="field">
         <label for="postcode">Postcode (optional)</label>
         <input id="postcode" name="postcode" type="text" inputmode="numeric" autocomplete="postal-code" placeholder="e.g. 3213" maxlength="4">
-        <div class="note" style="margin-top:6px;text-align:left;">Optional - helps us tailor local offers and events.</div>
+        <div class="note" style="margin-top:6px;text-align:left;">Optional. Helps us tailor local offers and events.</div>
         <div class="status" id="postcode-error" style="display:none;color:#b42318;margin-top:6px;">Please enter a valid 4-digit postcode.</div>
       </div>
 
@@ -301,7 +301,7 @@
         </div>
         <div class="debug-row">
           <button id="debug-release-204" type="button" class="debug-button">Open generate_204</button>
-          <button id="debug-refresh-status" type="button" class="debug-button">Refresh status</button>
+          <button id="debug-refresh-status" type="button" class="debug-button">Refresh debug</button>
         </div>
         <div class="debug-row">
           <button id="debug-upload-logs" type="button" class="debug-button">Upload debug logs</button>
@@ -315,7 +315,6 @@
       Questions? Ask our team or review our <a href="/terms">Wi-Fi terms</a>.
     </div>
 
-    <iframe id="submit-frame" name="submit-frame" style="display:none;width:0;height:0;border:0;" title="Guest Wi-Fi submit frame"></iframe>
     <pre id="debug-panel" class="debug"></pre>
   </main>
 
@@ -323,13 +322,7 @@
     const WEBSITE_FALLBACK = 'https://www.thebatesfordhotel.com.au/';
     const HTTP_RELEASE_FALLBACK = 'http://neverssl.com/';
     const CAPTIVE_GENERATE_204 = 'https://www.google.com/generate_204';
-    const CONNECT_SUBMIT_ENDPOINT = '/.netlify/functions/captiveConnect';
     const CONNECT_TIMING_ENDPOINT = '/.netlify/functions/captiveTiming';
-    const STATUS_POLL_INTERVAL_MS = 1000;
-    const STATUS_POLL_MAX_ATTEMPTS = 12;
-    const BACKGROUND_RETRY_INTERVAL_MS = 5000;
-    const BACKGROUND_RETRY_MAX_ATTEMPTS = 24;
-    const PENDING_RESUME_WINDOW_MS = 5 * 60 * 1000;
     const AUTO_FALLBACK_REDIRECT_DELAY_MS = 1800;
     const IS_IOS_DEVICE = /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
     const IS_ANDROID_DEVICE = /Android/i.test(navigator.userAgent || '');
@@ -354,7 +347,6 @@
     const debugRefreshStatusButton = document.getElementById('debug-refresh-status');
     const debugUploadLogsButton = document.getElementById('debug-upload-logs');
     const debugUploadStatus = document.getElementById('debug-upload-status');
-    const submitFrame = document.getElementById('submit-frame');
 
     const hiddenFields = {
       trace_id: document.getElementById('trace_id'),
@@ -375,6 +367,8 @@
       timings_json: document.getElementById('timings_json')
     };
 
+    const parseQuery = () => Object.fromEntries(new URLSearchParams(window.location.search).entries());
+
     const parseSiteFromPath = () => {
       const path = window.location.pathname || '';
       const match = path.match(/\/guest\/s\/([^/]+)\//);
@@ -384,25 +378,16 @@
     const safeDecode = (value) => {
       if (!value) return '';
       try {
-        return decodeURIComponent(String(value).replace(/\+/g, ' '));
+        return decodeURIComponent(value);
       } catch {
-        return String(value);
+        return value;
       }
-    };
-
-    const parseQuery = () => {
-      const params = new URLSearchParams(window.location.search || '');
-      const obj = {};
-      params.forEach((value, key) => {
-        obj[key] = safeDecode(value);
-      });
-      return obj;
     };
 
     const safeUrl = (value, fallback = '') => {
       if (!value) return fallback;
       try {
-        const parsed = new URL(value);
+        const parsed = new URL(value, window.location.origin);
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return fallback;
         return parsed.toString();
       } catch {
@@ -429,41 +414,43 @@
       }
     };
 
-    const isMac = (value) => /^([0-9A-Fa-f]{2}([-:])){5}[0-9A-Fa-f]{2}$/.test(String(value || '').trim());
-
-    const getStorage = (kind) => {
-      try {
-        const store = kind === 'local' ? localStorage : sessionStorage;
-        const testKey = '__wifi_portal_test';
-        store.setItem(testKey, '1');
-        store.removeItem(testKey);
-        return store;
-      } catch {
-        return null;
-      }
+    const query = parseQuery();
+    const debugMode = query.debug === '1';
+    const unifi = {
+      client_mac: (query.id || query.client_mac || '').toLowerCase(),
+      ap_mac: (query.ap || query.ap_mac || '').toLowerCase(),
+      site: query.site || query.unifi_site || parseSiteFromPath() || '',
+      ssid: safeDecode(query.ssid || ''),
+      redirect_url: safeDecode(query.url || query.redirect_url || ''),
+      unifi_t: safeDecode(query.t || query.unifi_t || ''),
+      original_id: safeDecode(query.id || query.unifi_id || query.client_mac || '')
     };
 
-    const createUuid = () => {
-      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-        return window.crypto.randomUUID();
-      }
-      const seed = Date.now().toString(16);
-      return `${seed}-xxxx-4xxx-yxxx-${Math.floor(Math.random() * 1e12).toString(16)}`.replace(/[xy]/g, (char) => {
-        const random = Math.floor(Math.random() * 16);
-        const value = char === 'x' ? random : (random & 0x3) | 0x8;
-        return value.toString(16);
-      });
+    const initialPrimaryTarget = () => {
+      const explicitTarget = safeUrl(query.release_target, '');
+      if (explicitTarget) return explicitTarget;
+      const originalTarget = safeUrl(unifi.redirect_url, '');
+      if (IS_CAPTIVE_ASSISTANT && isProbeUrl(originalTarget)) return HTTP_RELEASE_FALLBACK;
+      return originalTarget || HTTP_RELEASE_FALLBACK;
     };
 
-    const readJsonFromStore = (store, key) => {
-      if (!store || !key) return null;
-      try {
-        const raw = store.getItem(key);
-        return raw ? JSON.parse(raw) : null;
-      } catch {
-        return null;
-      }
+    const releaseState = {
+      primary: initialPrimaryTarget(),
+      continueTarget: safeUrl(query.continue_target, HTTP_RELEASE_FALLBACK),
+      secondaryTarget: safeUrl(query.secondary_target, WEBSITE_FALLBACK),
+      finalRedirectUrl: safeUrl(query.final_redirect_url, WEBSITE_FALLBACK),
+      redirectMode: query.release_mode || 'unknown',
+      lastTimingUploadAt: null,
+      lastTimingUploadReason: null
     };
+
+    const timings = {
+      t_page_loaded: Date.now()
+    };
+    const traceId = query.trace_id || crypto.randomUUID();
+    const sessionId = query.session_id || unifi.unifi_t || unifi.client_mac || crypto.randomUUID();
+    const attemptNo = Number(query.attempt_no || '1') || 1;
+    const traceEvents = [];
 
     const setStatus = (message, isError = false) => {
       status.style.display = 'block';
@@ -471,506 +458,135 @@
       status.style.color = isError ? '#b42318' : '#1a472a';
     };
 
-    const query = parseQuery();
-    const queryRedirectUrl = query.url || query.redirect_url || query.original_url || query.dst || query.continue || '';
-    const websiteUrl = safeUrl(query.website, WEBSITE_FALLBACK);
-    const unifi = {
-      client_mac: query.id || query.client_mac || '',
-      ap_mac: query.ap || query.ap_mac || '',
-      unifi_t: query.t || query.unifi_t || '',
-      redirect_url: safeUrl(queryRedirectUrl, ''),
-      original_destination_url: safeUrl(queryRedirectUrl, ''),
-      ssid: query.ssid || '',
-      unifi_site: query.site || query.unifi_site || parseSiteFromPath(),
-      unifi_id: query.id || query.client_mac || '',
-      unifi_ap: query.ap || query.ap_mac || ''
-    };
-
-    const sessionStore = getStorage('session');
-    const localStore = getStorage('local') || sessionStore;
-    const state = String(query.state || '').toLowerCase();
-    const debugMode = query.debug === '1';
-    const diagnosticMode = debugMode || IS_CAPTIVE_ASSISTANT;
-    const shouldUseIframeSubmit = IS_CAPTIVE_ASSISTANT;
-    const traceEvents = [];
-    const timings = {
-      t_portal_loaded: Date.now(),
-      t_form_submit_clicked: null,
-      t_client_validation_started: null,
-      t_client_validation_finished: null,
-      t_submit: null,
-      t_submit_clicked: null,
-      t_connect_response: null,
-      t_connect_success: null,
-      t_strict_poll_start: null,
-      t_strict_poll_end: null,
-      t_strict_ready: null,
-      t_probe_start: null,
-      t_probe_end: null,
-      t_probe_redirect: null,
-      t_redirect_called: null,
-      t_website_redirect: null,
-      t_page_hidden: null,
-      t_page_unload: null
-    };
-
     const pushEvent = (stageName, metadata = {}, statusValue = 'ok', message = null) => {
-      const now = Date.now();
+      const at = new Date().toISOString();
       traceEvents.push({
         stage_name: stageName,
-        started_at: now,
-        ended_at: now,
+        started_at: at,
+        ended_at: at,
         status: statusValue,
         message,
-        metadata: {
-          source: 'client',
-          client_iso: new Date(now).toISOString(),
-          ...metadata
-        }
+        metadata
       });
-      if (traceEvents.length > 200) {
-        traceEvents.shift();
-      }
-      if (debugMode) {
-        console.log(`[portal] ${stageName}`, {
-          status: statusValue,
-          message,
-          metadata
-        });
-      }
       renderDebug();
     };
 
-    const buildSessionKey = (suffix) => {
-      const seed = (unifi.unifi_t || unifi.client_mac || 'unknown').toLowerCase().replace(/[^a-z0-9]/g, '_');
-      return `wifi_portal_${suffix}_${seed}`;
-    };
-
-    const sessionKey = buildSessionKey('session');
-    let sessionId = sessionStore ? sessionStore.getItem(sessionKey) : '';
-    if (!sessionId) {
-      sessionId = createUuid();
-      if (sessionStore) {
-        sessionStore.setItem(sessionKey, sessionId);
-      }
-    }
-
-    const attemptKey = buildSessionKey('attempt');
-    let attemptNo = Number(sessionStore ? sessionStore.getItem(attemptKey) : '0');
-    if (!Number.isFinite(attemptNo) || attemptNo < 0) {
-      attemptNo = 0;
-    }
-
-    const buildTraceId = (attempt) => `${sessionId}-a${attempt}`;
-    const unifiSeed = (unifi.unifi_t || unifi.client_mac || '').toLowerCase().replace(/[^a-z0-9]/g, '_');
-    const pendingKey = `wifi_pending_submit_${unifiSeed}`;
-
-    const initialPrimaryTarget = (() => {
-      const candidate = safeUrl(query.release_target, unifi.redirect_url || HTTP_RELEASE_FALLBACK);
-      return (IS_CAPTIVE_ASSISTANT && isProbeUrl(candidate))
-        ? HTTP_RELEASE_FALLBACK
-        : candidate;
-    })();
-
-    const releaseState = {
-      primary: initialPrimaryTarget,
-      continueTarget: safeUrl(query.continue_target, HTTP_RELEASE_FALLBACK),
-      secondaryTarget: safeUrl(query.secondary_target, websiteUrl || CAPTIVE_GENERATE_204),
-      websiteTarget: websiteUrl,
-      redirectMode: query.release_mode || query.redirect_mode || 'unknown',
-      finalRedirectUrl: safeUrl(query.final_redirect_url, ''),
-      attemptedTargets: [],
-      autoFallbackTriggered: false,
-      lastStatusPayload: null,
-      lastTimingUploadAt: null,
-      lastTimingUploadReason: null
-    };
-
-    const renderDebug = () => {
-      if (!diagnosticMode || !debugPanel) return;
-      debugPanel.style.display = 'block';
-      if (debugControls && debugMode) {
-        debugControls.classList.add('visible');
-      }
-      if (debugUploadStatus) {
-        debugUploadStatus.textContent = releaseState.lastTimingUploadAt
-          ? `Last upload: ${new Date(releaseState.lastTimingUploadAt).toLocaleTimeString()} (${releaseState.lastTimingUploadReason || 'manual'})`
-          : 'Logs not uploaded yet in this session.';
-      }
-      debugPanel.textContent = JSON.stringify({
-        now: new Date().toISOString(),
-        state,
-        query,
-        unifi,
-        sessionId,
-        attemptNo,
-        releaseState,
-        timings,
-        events: traceEvents
-      }, null, 2);
-    };
-
-    const buildTimingPayload = (reason) => {
-      updateHiddenValues();
-      return {
-        action: 'timing',
-        debug: debugMode,
-        trace_id: hiddenFields.trace_id.value || query.trace_id || '',
-        venue_slug: unifi.unifi_site || '',
-        session_id: sessionId,
-        attempt_no: Math.max(1, attemptNo || Number(query.attempt_no || '1') || 1),
-        client_mac: unifi.client_mac || '',
-        ap_mac: unifi.ap_mac || null,
-        ssid: unifi.ssid || null,
-        redirect_url: unifi.redirect_url || null,
-        unifi_site: unifi.unifi_site || '',
-        unifi_id: unifi.unifi_id || null,
-        unifi_ap: unifi.unifi_ap || null,
-        unifi_t: unifi.unifi_t || null,
-        trace_context: JSON.parse(hiddenFields.trace_context_json.value || '{}'),
-        trace_events: traceEvents.concat([{
-          stage_name: 'client_trace_upload_requested',
-          started_at: Date.now(),
-          ended_at: Date.now(),
-          status: 'ok',
-          message: reason,
-          metadata: {
-            source: 'client',
-            reason
-          }
-        }]),
-        timings: JSON.parse(hiddenFields.timings_json.value || '{}')
-      };
-    };
-
-    const flushClientTrace = async (reason, forceKeepalive = false) => {
-      if (!unifi.client_mac || !unifi.unifi_site || !unifi.unifi_t) return false;
-      const payload = buildTimingPayload(reason);
-      try {
-        const response = await fetch(CONNECT_TIMING_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload),
-          keepalive: forceKeepalive || reason === 'pagehide' || reason === 'visibility_hidden'
-        });
-        releaseState.lastTimingUploadAt = Date.now();
-        releaseState.lastTimingUploadReason = reason;
-        pushEvent('client_trace_uploaded', {
-          reason,
-          status: response.status
-        });
-        renderDebug();
-        return response.ok;
-      } catch (error) {
-        pushEvent('client_trace_upload_failed', {
-          reason,
-          error: error instanceof Error ? error.message : String(error)
-        }, 'error');
-        renderDebug();
-        return false;
-      }
-    };
-
     const updateHiddenValues = () => {
+      hiddenFields.trace_id.value = traceId;
       hiddenFields.session_id.value = sessionId;
-      hiddenFields.attempt_no.value = String(Math.max(1, attemptNo));
-      hiddenFields.client_mac.value = unifi.client_mac || '';
-      hiddenFields.ap_mac.value = unifi.ap_mac || '';
-      hiddenFields.ssid.value = unifi.ssid || '';
-      hiddenFields.redirect_url.value = unifi.redirect_url || '';
-      hiddenFields.unifi_site.value = unifi.unifi_site || '';
-      hiddenFields.unifi_id.value = unifi.unifi_id || '';
-      hiddenFields.unifi_ap.value = unifi.unifi_ap || '';
-      hiddenFields.unifi_t.value = unifi.unifi_t || '';
+      hiddenFields.attempt_no.value = String(attemptNo);
+      hiddenFields.client_mac.value = unifi.client_mac;
+      hiddenFields.ap_mac.value = unifi.ap_mac;
+      hiddenFields.ssid.value = unifi.ssid;
+      hiddenFields.redirect_url.value = unifi.redirect_url;
+      hiddenFields.unifi_site.value = unifi.site;
+      hiddenFields.unifi_id.value = unifi.client_mac || unifi.original_id;
+      hiddenFields.unifi_ap.value = unifi.ap_mac;
+      hiddenFields.unifi_t.value = unifi.unifi_t;
       hiddenFields.debug_mode.value = debugMode ? '1' : '';
-      hiddenFields.response_mode.value = 'json';
+      hiddenFields.response_mode.value = '';
       hiddenFields.trace_context_json.value = JSON.stringify({
-        request_url: window.location.href,
         page_url: window.location.href,
-        query_params: query,
-        user_agent: navigator.userAgent || '',
-        platform: navigator.platform || '',
-        device_os: IS_IOS_DEVICE ? 'ios' : (IS_ANDROID_DEVICE ? 'android' : 'other'),
-        is_captive_assistant: IS_CAPTIVE_ASSISTANT,
+        request_url: window.location.href,
+        redirect_url: unifi.redirect_url || null,
         release_target: releaseState.primary,
         continue_target: releaseState.continueTarget,
-        secondary_target: releaseState.secondaryTarget
+        secondary_target: releaseState.secondaryTarget,
+        final_redirect_url: releaseState.finalRedirectUrl,
+        platform: navigator.platform || null,
+        device_os: IS_IOS_DEVICE ? 'iOS' : IS_ANDROID_DEVICE ? 'Android' : null,
+        user_agent: navigator.userAgent,
+        is_captive_assistant: IS_CAPTIVE_ASSISTANT
       });
       hiddenFields.trace_events_json.value = JSON.stringify(traceEvents);
       hiddenFields.timings_json.value = JSON.stringify(timings);
     };
 
-    const buildResultFromRedirectUrl = (rawUrl) => {
-      if (!rawUrl) return null;
+    const renderDebug = () => {
+      if (!debugMode || !debugPanel) return;
+      debugPanel.style.display = 'block';
+      debugControls.classList.add('visible');
+      debugUploadStatus.textContent = releaseState.lastTimingUploadAt
+        ? `Last upload: ${new Date(releaseState.lastTimingUploadAt).toLocaleTimeString()} (${releaseState.lastTimingUploadReason || 'manual'})`
+        : '';
+      debugPanel.textContent = JSON.stringify({
+        state: query.state || 'form',
+        query,
+        unifi,
+        release: releaseState,
+        trace_id: traceId,
+        session_id: sessionId,
+        attempt_no: attemptNo,
+        timings,
+        recent_events: traceEvents.slice(-20),
+        user_agent: navigator.userAgent,
+        is_captive_assistant: IS_CAPTIVE_ASSISTANT
+      }, null, 2);
+    };
+
+    const flushClientTrace = async (reason, keepalive = false) => {
       try {
-        const parsed = new URL(rawUrl, window.location.origin);
-        if (parsed.origin !== window.location.origin) return null;
-        if (!parsed.pathname.startsWith('/connect')) return null;
-        const stateValue = String(parsed.searchParams.get('state') || '').toLowerCase();
-        if (!stateValue) return null;
-        return {
-          success: stateValue !== 'error',
-          state: stateValue,
-          trace_id: parsed.searchParams.get('trace_id') || hiddenFields.trace_id.value || null,
-          error: parsed.searchParams.get('error') || null,
-          next_url: `${parsed.pathname}${parsed.search}`,
-          release_target: parsed.searchParams.get('release_target') || null,
-          continue_target: parsed.searchParams.get('continue_target') || null,
-          secondary_target: parsed.searchParams.get('secondary_target') || null,
-          final_redirect_url: parsed.searchParams.get('final_redirect_url') || null,
-          release_mode: parsed.searchParams.get('release_mode') || null,
-          release_result: parsed.searchParams.get('release_result') || null,
-          probe_url: parsed.searchParams.get('probe_url') || null,
-          website_url: parsed.searchParams.get('website') || null
+        updateHiddenValues();
+        const payload = {
+          action: 'timing',
+          trace_id: traceId,
+          session_id: sessionId,
+          attempt_no: attemptNo,
+          client_mac: unifi.client_mac,
+          ap_mac: unifi.ap_mac || null,
+          ssid: unifi.ssid || null,
+          redirect_url: unifi.redirect_url || null,
+          unifi_site: unifi.site,
+          unifi_id: unifi.client_mac || unifi.original_id || null,
+          unifi_ap: unifi.ap_mac || null,
+          unifi_t: unifi.unifi_t || null,
+          timings,
+          trace_context: JSON.parse(hiddenFields.trace_context_json.value),
+          trace_events: traceEvents,
+          debug: debugMode,
+          reason
         };
-      } catch {
-        return null;
+        const response = await fetch(CONNECT_TIMING_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          keepalive,
+          body: JSON.stringify(payload)
+        });
+        releaseState.lastTimingUploadAt = Date.now();
+        releaseState.lastTimingUploadReason = reason;
+        pushEvent('client_trace_upload_finished', { reason, status: response.status });
+      } catch (error) {
+        pushEvent('client_trace_upload_failed', {
+          reason,
+          error: error instanceof Error ? error.message : String(error)
+        }, 'error');
       }
     };
 
-    const setAssistantMessage = (message) => {
-      if (!assistantNote) return;
-      assistantNote.style.display = message ? 'block' : 'none';
-      assistantNote.textContent = message || '';
-    };
-
-    const setConnectedMode = (message, releasePlan = releaseState) => {
+    const setConnectedMode = (message) => {
+      document.body.classList.add('connected-mode');
       form.classList.add('connected-mode');
-      successActions.style.display = 'block';
-      submitButton.disabled = true;
-      submitButton.textContent = 'Connected';
-      continueLink.href = safeUrl(releasePlan.continueTarget, HTTP_RELEASE_FALLBACK);
-      continueLink.textContent = 'Continue to Internet';
-      secondaryLink.href = safeUrl(releasePlan.secondaryTarget, WEBSITE_FALLBACK);
-      secondaryLink.textContent = 'Open venue website';
-      continueLink.onclick = () => {
-        timings.t_redirect_called = Date.now();
-        timings.t_website_redirect = timings.t_redirect_called;
-        pushEvent('manual_continue_clicked', {
-          target: continueLink.href
-        });
-      };
-      secondaryLink.onclick = () => {
-        pushEvent('manual_secondary_clicked', {
-          target: secondaryLink.href
-        });
-      };
       setStatus(message, false);
+      successActions.style.display = 'block';
+      continueLink.href = safeUrl(releaseState.continueTarget, HTTP_RELEASE_FALLBACK);
+      secondaryLink.href = safeUrl(releaseState.secondaryTarget, WEBSITE_FALLBACK);
       if (IS_CAPTIVE_ASSISTANT) {
-        setAssistantMessage('You’re connected. If this mini-browser stays open, tap Continue to Internet, then tap Done or open Safari/Chrome.');
-      }
-      renderDebug();
-    };
-
-    const tryCloseWindow = () => {
-      try {
-        window.close();
-      } catch {
-        // Captive assistants may block close.
+        assistantNote.style.display = 'block';
+        assistantNote.textContent = 'You’re connected. Tap Continue if this window stays open, then tap Done.';
       }
     };
 
-    const tryRelease = (target, reason) => {
-      const safeTarget = safeUrl(target, '');
-      if (!safeTarget) return false;
-      if (releaseState.attemptedTargets.includes(safeTarget)) return false;
-      releaseState.attemptedTargets.push(safeTarget);
+    const redirectTo = (target, reason) => {
+      const safeTarget = safeUrl(target, HTTP_RELEASE_FALLBACK);
+      pushEvent('redirect_attempted', { target: safeTarget, reason });
       timings.t_redirect_called = Date.now();
-      timings.t_website_redirect = timings.t_redirect_called;
-      if (safeTarget === HTTP_RELEASE_FALLBACK || safeTarget === CAPTIVE_GENERATE_204) {
-        timings.t_probe_start = timings.t_redirect_called;
-        timings.t_probe_redirect = timings.t_redirect_called;
-      }
-      pushEvent('redirect_attempted', {
-        target: safeTarget,
-        reason
-      });
-      renderDebug();
-      if (debugMode) {
-        setStatus(`Debug mode active. Auto-redirect paused before opening ${safeTarget}`, false);
-        flushClientTrace(`debug_before_redirect:${reason}`, true);
-        return true;
-      }
-      flushClientTrace(`before_redirect:${reason}`, true);
-      window.location.replace(safeTarget);
-      return true;
-    };
-
-    const resumePostAuthorizationFlow = async (source, result) => {
-      if (result && typeof result === 'object') {
-        applyConnectResponse(result);
-      }
-      timings.t_connect_success = Date.now();
-      pushEvent('connect_response_accepted', {
-        source,
-        trace_id: result?.trace_id || hiddenFields.trace_id.value || null,
-        release_target: releaseState.primary,
-        release_mode: releaseState.redirectMode || null
-      });
       updateHiddenValues();
-      await flushClientTrace(`connect_response_success:${source}`);
-      startImmediateReleaseFlow('Success, connecting you to Wi-Fi...');
+      if (debugMode) return;
+      window.location.replace(safeTarget);
     };
 
-    closeWindowButton.addEventListener('click', () => {
-      pushEvent('captive_window_close_attempted', { trigger: 'close_button' });
-      tryCloseWindow();
-      setTimeout(tryCloseWindow, 250);
-      setTimeout(tryCloseWindow, 1000);
-    });
-
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && !timings.t_page_hidden) {
-        timings.t_page_hidden = Date.now();
-        pushEvent('client_return_seen', { via: 'visibilitychange' });
-        updateHiddenValues();
-        flushClientTrace('visibility_hidden', true);
-      }
-    });
-
-    window.addEventListener('pagehide', () => {
-      if (!timings.t_page_unload) {
-        timings.t_page_unload = Date.now();
-        updateHiddenValues();
-        flushClientTrace('pagehide', true);
-      }
-    });
-
-    const buildStatusUrl = (mode = 'compat') => {
-      const params = new URLSearchParams();
-      params.set('id', unifi.client_mac || '');
-      params.set('ap', unifi.ap_mac || '');
-      params.set('t', unifi.unifi_t || '');
-      params.set('ssid', unifi.ssid || '');
-      params.set('url', unifi.redirect_url || '');
-      params.set('site', unifi.unifi_site || '');
-      params.set('trace_id', query.trace_id || hiddenFields.trace_id.value || '');
-      params.set('session_id', sessionId);
-      params.set('attempt_no', String(Math.max(1, attemptNo || Number(query.attempt_no || '1') || 1)));
-      params.set('website', websiteUrl || WEBSITE_FALLBACK);
-      params.set('status_mode', mode);
-      if (debugMode) {
-        params.set('debug', '1');
-      }
-      return `/connect/status?${params.toString()}`;
-    };
-
-    const runStatusCheck = async (mode = 'compat') => {
-      const statusUrl = buildStatusUrl(mode);
-      pushEvent('status_check_requested', { status_url: statusUrl, status_mode: mode });
-      const startedAt = Date.now();
-      const response = await fetch(statusUrl, {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-        cache: 'no-store'
-      });
-      const data = await response.json().catch(() => ({}));
-      timings.t_strict_poll_end = Date.now();
-      releaseState.lastStatusPayload = data;
-      pushEvent('status_check_finished', {
-        status: response.status,
-        elapsed_ms: Date.now() - startedAt,
-        authorized: data.authorized === true,
-        redirect_mode: data.redirect_mode || null,
-        status_mode: data.status_mode || mode
-      });
-      renderDebug();
-      return data;
-    };
-
-    const applyServerReleasePlan = (data) => {
-      if (!data || typeof data !== 'object') return;
-      releaseState.primary = safeUrl(data.release_target || data.redirect_url, releaseState.primary || HTTP_RELEASE_FALLBACK);
-      releaseState.continueTarget = safeUrl(data.continue_target, releaseState.continueTarget || HTTP_RELEASE_FALLBACK);
-      releaseState.secondaryTarget = safeUrl(data.secondary_target || data.website_url, releaseState.secondaryTarget || WEBSITE_FALLBACK);
-      releaseState.finalRedirectUrl = safeUrl(data.final_redirect_url, releaseState.finalRedirectUrl || '');
-      releaseState.redirectMode = data.redirect_mode || releaseState.redirectMode;
-      renderDebug();
-    };
-
-    let backgroundRetryStarted = false;
-    const startBackgroundStatusPoll = () => {
-      if (backgroundRetryStarted) return;
-      backgroundRetryStarted = true;
-      let attempts = 0;
-
-      const tick = async () => {
-        attempts += 1;
-        try {
-          const data = await runStatusCheck();
-          applyServerReleasePlan(data);
-          if (data && data.authorized === true) {
-            timings.t_strict_ready = Date.now();
-            pushEvent('status_authorized', {
-              redirect_mode: data.redirect_mode || null,
-              retry_mode: 'background'
-            });
-            setConnectedMode('You’re connected. Continuing to the internet now...', releaseState);
-            if (tryRelease(releaseState.primary, 'background_status_authorized')) {
-              return;
-            }
-          }
-        } catch (error) {
-          pushEvent('status_check_error', {
-            retry_mode: 'background',
-            error: error instanceof Error ? error.message : String(error)
-          }, 'error');
-        }
-
-        if (attempts < BACKGROUND_RETRY_MAX_ATTEMPTS) {
-          window.setTimeout(tick, BACKGROUND_RETRY_INTERVAL_MS);
-        }
-      };
-
-      window.setTimeout(tick, BACKGROUND_RETRY_INTERVAL_MS);
-    };
-
-    const startStrictStatusPoll = () => {
-      let pollCount = 0;
-      timings.t_strict_poll_start = Date.now();
-      pushEvent('strict_poll_start', { interval_ms: STATUS_POLL_INTERVAL_MS });
-
-      const tick = async () => {
-        pollCount += 1;
-        try {
-          const data = await runStatusCheck();
-          applyServerReleasePlan(data);
-          if (data && data.authorized === true) {
-            timings.t_strict_ready = Date.now();
-            pushEvent('strict_ready', {
-              attempts: pollCount,
-              redirect_mode: data.redirect_mode || null
-            });
-            setConnectedMode('You’re connected. Continuing to the internet now...', releaseState);
-            if (tryRelease(releaseState.primary, 'strict_status_authorized')) {
-              return;
-            }
-          }
-        } catch (error) {
-          pushEvent('status_check_error', {
-            retry_mode: 'strict',
-            error: error instanceof Error ? error.message : String(error)
-          }, 'error');
-        }
-
-        if (pollCount >= STATUS_POLL_MAX_ATTEMPTS) {
-          pushEvent('strict_ready_timeout', { attempts: pollCount }, 'warning', 'Authorization not observed during strict poll window');
-          setStatus('Authorization succeeded, but captive release is taking longer than expected. Tap Continue to Internet.', false);
-          startBackgroundStatusPoll();
-          return;
-        }
-
-        window.setTimeout(tick, STATUS_POLL_INTERVAL_MS);
-      };
-
-      window.setTimeout(tick, 300);
-    };
-
-    const startImmediateReleaseFlow = (message) => {
-      timings.t_connect_success = Date.now();
-      setConnectedMode(message, releaseState);
+    const startReleaseFlow = () => {
+      setConnectedMode('You’re connected. Continuing to the internet now...');
       pushEvent('release_flow_started', {
         primary_target: releaseState.primary,
         continue_target: releaseState.continueTarget,
@@ -979,465 +595,119 @@
       });
       flushClientTrace('release_flow_started');
       if (debugMode) {
-        setStatus('Authorized. Debug mode is holding the page here so you can inspect and manually test release targets.', false);
-        startStrictStatusPoll();
+        setStatus('Authorized. Debug mode is holding the page here so you can inspect the release targets.', false);
         return;
       }
-      tryRelease(releaseState.primary, 'immediate_release');
       window.setTimeout(() => {
-        if (document.visibilityState === 'visible' && !releaseState.autoFallbackTriggered) {
-          releaseState.autoFallbackTriggered = true;
-          pushEvent('release_fallback_triggered', {
-            continue_target: releaseState.continueTarget
-          }, 'warning');
-          tryRelease(releaseState.continueTarget, 'auto_http_fallback');
+        redirectTo(releaseState.primary, 'primary_release');
+      }, 250);
+      window.setTimeout(() => {
+        if (document.visibilityState === 'visible') {
+          redirectTo(releaseState.continueTarget, 'http_fallback_release');
         }
       }, AUTO_FALLBACK_REDIRECT_DELAY_MS);
-      startStrictStatusPoll();
-      setTimeout(tryCloseWindow, 600);
-      setTimeout(tryCloseWindow, 1800);
     };
 
-    const applyConnectResponse = (result) => {
-      if (!result || typeof result !== 'object') {
-        throw new Error('Invalid connect response payload');
-      }
-
-      if (result.trace_id) {
-        hiddenFields.trace_id.value = String(result.trace_id);
-        query.trace_id = String(result.trace_id);
-      }
-
-      if (result.release_target) {
-        releaseState.primary = safeUrl(result.release_target, releaseState.primary || HTTP_RELEASE_FALLBACK);
-      }
-      if (result.continue_target) {
-        releaseState.continueTarget = safeUrl(result.continue_target, releaseState.continueTarget || HTTP_RELEASE_FALLBACK);
-      }
-      if (result.secondary_target) {
-        releaseState.secondaryTarget = safeUrl(result.secondary_target, releaseState.secondaryTarget || WEBSITE_FALLBACK);
-      }
-      if (result.final_redirect_url) {
-        releaseState.finalRedirectUrl = safeUrl(result.final_redirect_url, releaseState.finalRedirectUrl || '');
-      }
-      if (result.release_mode) {
-        releaseState.redirectMode = String(result.release_mode);
-      }
-      if (result.debug && typeof result.debug === 'object') {
-        releaseState.lastConnectDebug = result.debug;
-      }
-      renderDebug();
-    };
-
-    const submitFormViaIframe = () => new Promise((resolve, reject) => {
-      if (!submitFrame) {
-        reject(new Error('Submit frame is not available'));
-        return;
-      }
-
-      const originalAction = form.getAttribute('action');
-      const originalTarget = form.getAttribute('target');
-      const iframe = submitFrame;
-      let settled = false;
-
-      const cleanup = () => {
-        iframe.removeEventListener('load', handleLoad);
-        if (originalAction) {
-          form.setAttribute('action', originalAction);
-        } else {
-          form.removeAttribute('action');
-        }
-        if (originalTarget) {
-          form.setAttribute('target', originalTarget);
-        } else {
-          form.removeAttribute('target');
-        }
-      };
-
-      const handleLoad = () => {
-        if (settled) return;
-        try {
-          const doc = iframe.contentDocument || iframe.contentWindow?.document;
-          const text = (doc?.body?.textContent || doc?.documentElement?.textContent || '').trim();
-          const iframeUrl = iframe.contentWindow?.location?.href || '';
-          const redirectResult = buildResultFromRedirectUrl(iframeUrl);
-          settled = true;
-          cleanup();
-          resolve({
-            status: redirectResult?.state === 'error' ? 400 : 200,
-            rawText: text,
-            redirectedUrl: iframeUrl,
-            redirectResult
-          });
-        } catch (error) {
-          settled = true;
-          cleanup();
-          reject(error);
-        }
-      };
-
-      iframe.addEventListener('load', handleLoad, { once: true });
-      form.setAttribute('action', CONNECT_SUBMIT_ENDPOINT);
-      form.setAttribute('target', 'submit-frame');
-      form.submit();
-
-      window.setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(new Error('Iframe submit timed out'));
-      }, 15000);
-    });
-
-    pushEvent('portal_loaded', {
-      request_path: window.location.pathname,
-      has_unifi_params: Boolean(unifi.client_mac && unifi.unifi_site),
-      query_params: query
-    });
-
-    if (!isMac(unifi.client_mac) || !unifi.unifi_site) {
-      setStatus('Please connect to the guest Wi-Fi first, then reopen this portal.', true);
-      submitButton.disabled = true;
-      pushEvent('missing_unifi_params', {
-        client_mac: unifi.client_mac || null,
-        unifi_site: unifi.unifi_site || null
-      }, 'error');
-    }
-
-    if (state === 'error') {
-      if (localStore) {
-        localStore.removeItem(pendingKey);
-      }
-      setStatus(query.error || 'We could not connect you right now. Please try again.', true);
-      submitButton.disabled = false;
-      submitButton.textContent = 'Connect and Agree';
-      pushEvent('error_state_loaded', { error: query.error || null }, 'error');
-    } else if (state === 'finalizing') {
-      timings.t_connect_response = Date.now();
-      pushEvent('finalizing_state_loaded', {
-        release_target: releaseState.primary,
-        continue_target: releaseState.continueTarget,
-        secondary_target: releaseState.secondaryTarget,
-        release_mode: releaseState.redirectMode
-      });
-      startImmediateReleaseFlow('Success, connecting you to Wi-Fi...');
-    } else if (state !== 'error') {
-      const pending = readJsonFromStore(localStore, pendingKey);
-      if (
-        pending &&
-        pending.status === 'pending' &&
-        pending.updated_at &&
-        (Date.now() - Number(pending.updated_at)) <= PENDING_RESUME_WINDOW_MS
-      ) {
-        if (!hiddenFields.trace_id.value && pending.trace_id) {
-          hiddenFields.trace_id.value = pending.trace_id;
-        }
-        if (!query.trace_id && pending.trace_id) {
-          query.trace_id = pending.trace_id;
-        }
-        if (pending.attempt_no && Number.isFinite(Number(pending.attempt_no))) {
-          attemptNo = Math.max(attemptNo, Number(pending.attempt_no));
-          if (sessionStore) {
-            sessionStore.setItem(attemptKey, String(attemptNo));
-          }
-        }
-        pushEvent('pending_submission_resumed', {
-          trace_id: pending.trace_id || null,
-          attempt_no: pending.attempt_no || null
-        });
-        setConnectedMode('Authorization is already in progress. Releasing internet access now...', releaseState);
-        startStrictStatusPoll();
-      }
-    }
-
-    const startInitialAuthorizationCheck = async () => {
-      if (state === 'error' || state === 'finalizing') return;
-      if (!isMac(unifi.client_mac) || !unifi.unifi_site) return;
-      if (pendingKey && localStore && localStore.getItem(pendingKey)) return;
-
-      try {
-        const data = await runStatusCheck();
-        applyServerReleasePlan(data);
-        if (!data || data.authorized !== true) return;
-        if (localStore) {
-          localStore.removeItem(pendingKey);
-        }
-        timings.t_connect_success = Date.now();
-        pushEvent('initial_authorized_detected', {
-          redirect_mode: data.redirect_mode || null,
-          release_target: releaseState.primary
-        });
-        setConnectedMode(debugMode
-          ? 'Already connected. Debug mode is holding the page so you can inspect and manually test release targets.'
-          : 'Already connected. Continuing to the internet now...', releaseState);
-        tryRelease(releaseState.primary, 'initial_authorized');
-      } catch (error) {
-        pushEvent('initial_status_check_error', {
-          error: error instanceof Error ? error.message : String(error)
-        }, 'error');
-      }
-    };
-
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      if (postcodeError) {
-        postcodeError.style.display = 'none';
-      }
-
-      timings.t_form_submit_clicked = Date.now();
-      timings.t_submit_clicked = timings.t_form_submit_clicked;
-      timings.t_client_validation_started = Date.now();
-      pushEvent('form_submit_clicked', {
-        unifi_params: {
-          client_mac: unifi.client_mac,
-          ap_mac: unifi.ap_mac,
-          unifi_site: unifi.unifi_site,
-          redirect_url: unifi.redirect_url
-        }
-      });
-      pushEvent('client_validation_started');
-
-      const postcodeValue = String(postcodeInput.value || '').trim();
+    form.addEventListener('submit', (event) => {
+      const postcodeValue = postcodeInput.value.trim();
       if (postcodeValue && !/^\d{4}$/.test(postcodeValue)) {
-        timings.t_client_validation_finished = Date.now();
-        pushEvent('client_validation_finished', {}, 'error', 'Invalid postcode format');
+        event.preventDefault();
         postcodeError.style.display = 'block';
-        updateHiddenValues();
+        postcodeInput.focus();
         return;
       }
 
-      if (!isMac(unifi.client_mac) || !unifi.unifi_site) {
-        setStatus('Missing required Wi-Fi session details. Please reconnect to Guest Wi-Fi.', true);
-        pushEvent('form_submit_blocked_missing_unifi', {
-          client_mac: unifi.client_mac || null,
-          unifi_site: unifi.unifi_site || null
-        }, 'error');
-        updateHiddenValues();
-        return;
-      }
-
-      timings.t_client_validation_finished = Date.now();
-      timings.t_submit = Date.now();
-      pushEvent('client_validation_finished');
-
-      attemptNo += 1;
-      if (sessionStore) {
-        sessionStore.setItem(attemptKey, String(attemptNo));
-      }
-
-      const traceId = buildTraceId(attemptNo);
-      hiddenFields.trace_id.value = traceId;
-      hiddenFields.session_id.value = sessionId;
-      hiddenFields.attempt_no.value = String(attemptNo);
-
-      if (localStore) {
-        localStore.setItem(pendingKey, JSON.stringify({
-          status: 'pending',
-          trace_id: traceId,
-          session_id: sessionId,
-          attempt_no: attemptNo,
-          updated_at: Date.now(),
-          website: websiteUrl || WEBSITE_FALLBACK
-        }));
-      }
-
-      updateHiddenValues();
-      pushEvent('supabase_insert_started', { endpoint: '/connect/submit' });
-      pushEvent('auth_request_started', { endpoint: '/connect/submit' });
-      hiddenFields.trace_events_json.value = JSON.stringify(traceEvents);
-
+      postcodeError.style.display = 'none';
       submitButton.disabled = true;
       submitButton.textContent = 'Connecting...';
-      setStatus('Connecting you to Wi-Fi...', false);
-      renderDebug();
-
-      const requestStartedAt = Date.now();
-      try {
-        let responseStatus = 0;
-        let rawText = '';
-        let iframeRedirectResult = null;
-
-        if (shouldUseIframeSubmit) {
-          pushEvent('iframe_submit_started', {
-            endpoint: CONNECT_SUBMIT_ENDPOINT
-          });
-          const iframeResult = await submitFormViaIframe();
-          responseStatus = iframeResult.status;
-          rawText = iframeResult.rawText || '';
-          iframeRedirectResult = iframeResult.redirectResult || null;
-          pushEvent('iframe_submit_finished', {
-            endpoint: CONNECT_SUBMIT_ENDPOINT,
-            response_length: rawText.length,
-            redirected_url: iframeResult.redirectedUrl || null,
-            redirected_state: iframeRedirectResult?.state || null
-          });
-        } else {
-          const formBody = new URLSearchParams(new FormData(form));
-          const response = await fetch(CONNECT_SUBMIT_ENDPOINT, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-              'Accept': 'application/json'
-            },
-            body: formBody.toString(),
-            credentials: 'same-origin'
-          });
-          responseStatus = response.status;
-          rawText = await response.text();
-        }
-
-        timings.t_connect_response = Date.now();
-        let result = {};
-        let hasParsedJson = false;
-        try {
-          result = rawText ? JSON.parse(rawText) : {};
-          hasParsedJson = true;
-        } catch {
-          result = {
-            error: rawText ? rawText.slice(0, 600) : 'Non-JSON response'
-          };
-        }
-        if (!hasParsedJson && iframeRedirectResult) {
-          result = iframeRedirectResult;
-          pushEvent('iframe_redirect_result_detected', {
-            state: iframeRedirectResult.state || null,
-            next_url: iframeRedirectResult.next_url || null
-          });
-        }
-        pushEvent('connect_response_received', {
-          status: responseStatus,
-          elapsed_ms: Date.now() - requestStartedAt,
-          state: result.state || null,
-          success: result.success === true,
-          next_url: result.next_url || null,
-          response_preview: rawText ? rawText.slice(0, 240) : null
-        }, (responseStatus >= 200 && responseStatus < 300) ? 'ok' : 'error', (responseStatus >= 200 && responseStatus < 300) ? null : (result.error || 'Connect request failed'));
-        applyConnectResponse(result);
-
-        if (
-          shouldUseIframeSubmit &&
-          responseStatus >= 200 &&
-          responseStatus < 300 &&
-          !hasParsedJson &&
-          iframeRedirectResult?.state === 'finalizing'
-        ) {
-          pushEvent('iframe_submit_redirect_success', {
-            status: responseStatus,
-            response_length: rawText.length,
-            next_url: iframeRedirectResult.next_url || null
-          }, 'ok');
-          await resumePostAuthorizationFlow('iframe_redirect_success', result);
-          return;
-        }
-
-        if (
-          shouldUseIframeSubmit &&
-          responseStatus >= 200 &&
-          responseStatus < 300 &&
-          !hasParsedJson &&
-          !iframeRedirectResult
-        ) {
-          pushEvent('iframe_submit_status_fallback_started', {
-            status: responseStatus
-          }, 'warning', 'Iframe submit returned an empty body; falling back to compatibility status check.');
-          const statusResult = await runStatusCheck('compat');
-          applyServerReleasePlan(statusResult);
-          if (statusResult && statusResult.authorized === true) {
-            await resumePostAuthorizationFlow('iframe_status_fallback', {
-              success: true,
-              state: 'finalizing',
-              trace_id: statusResult.trace_id || hiddenFields.trace_id.value || null,
-              release_target: statusResult.release_target || null,
-              continue_target: statusResult.continue_target || null,
-              secondary_target: statusResult.secondary_target || null,
-              final_redirect_url: statusResult.final_redirect_url || null,
-              release_mode: statusResult.redirect_mode || null,
-              release_result: statusResult.release_result || null,
-              website_url: statusResult.website_url || null
-            });
-            return;
-          }
-        }
-
-        if (!(responseStatus >= 200 && responseStatus < 300) || result.success !== true || result.state === 'error') {
-          if (localStore) {
-            localStore.removeItem(pendingKey);
-          }
-          const errorMessage = result.error || `Connect request failed with status ${responseStatus}.`;
-          setStatus(errorMessage, true);
-          submitButton.disabled = false;
-          submitButton.textContent = 'Connect and Agree';
-          await flushClientTrace('connect_response_error');
-          return;
-        }
-
-        await resumePostAuthorizationFlow('direct_success', result);
-      } catch (error) {
-        pushEvent('connect_fetch_failed', {
-          error: error instanceof Error ? error.message : String(error)
-        }, 'error');
-        submitButton.disabled = false;
-        submitButton.textContent = 'Connect and Agree';
-        setStatus('Connect request failed before authorization completed. Please try again.', true);
-        await flushClientTrace('connect_fetch_failed');
-      }
+      setStatus('Submitting your details and authorizing this device now.', false);
+      timings.t_submit_clicked = Date.now();
+      pushEvent('form_submitted', {
+        name_present: Boolean(form.name.value),
+        email_present: Boolean(form.email.value),
+        postcode_present: Boolean(form.postcode.value),
+        marketing_opt_in: form.terms.checked
+      });
+      updateHiddenValues();
+      flushClientTrace('form_submitted');
     });
 
-    if (debugReleasePrimaryButton) {
-      debugReleasePrimaryButton.addEventListener('click', async () => {
-        pushEvent('debug_release_primary_clicked', {
-          target: releaseState.primary
-        });
-        await flushClientTrace('debug_release_primary_clicked');
-        window.location.href = safeUrl(releaseState.primary, HTTP_RELEASE_FALLBACK);
-      });
+    closeWindowButton.addEventListener('click', () => {
+      pushEvent('close_window_clicked');
+      flushClientTrace('close_window_clicked', true);
+      window.close();
+    });
+
+    window.addEventListener('pagehide', () => {
+      timings.t_page_hidden = Date.now();
+      pushEvent('page_hidden');
+      flushClientTrace('page_hidden', true);
+    });
+
+    window.addEventListener('beforeunload', () => {
+      timings.t_page_unload = Date.now();
+      pushEvent('page_unload');
+      flushClientTrace('page_unload', true);
+    });
+
+    debugReleasePrimaryButton.addEventListener('click', async () => {
+      pushEvent('debug_release_primary_clicked', { target: releaseState.primary });
+      await flushClientTrace('debug_release_primary_clicked');
+      window.location.href = safeUrl(releaseState.primary, HTTP_RELEASE_FALLBACK);
+    });
+
+    debugReleaseHttpButton.addEventListener('click', async () => {
+      pushEvent('debug_release_http_clicked', { target: HTTP_RELEASE_FALLBACK });
+      await flushClientTrace('debug_release_http_clicked');
+      window.location.href = HTTP_RELEASE_FALLBACK;
+    });
+
+    debugRelease204Button.addEventListener('click', async () => {
+      pushEvent('debug_release_204_clicked', { target: CAPTIVE_GENERATE_204 });
+      await flushClientTrace('debug_release_204_clicked');
+      window.location.href = CAPTIVE_GENERATE_204;
+    });
+
+    debugRefreshStatusButton.addEventListener('click', async () => {
+      pushEvent('debug_refresh_clicked', { note: 'The portal no longer polls backend status before release.' });
+      await flushClientTrace('debug_refresh_clicked');
+      renderDebug();
+    });
+
+    debugUploadLogsButton.addEventListener('click', async () => {
+      pushEvent('debug_upload_logs_clicked');
+      await flushClientTrace('manual_debug_upload');
+    });
+
+    pushEvent('portal_page_loaded', {
+      state: query.state || 'form',
+      client_mac: unifi.client_mac,
+      ap_mac: unifi.ap_mac,
+      site: unifi.site,
+      ssid: unifi.ssid,
+      redirect_url: unifi.redirect_url
+    });
+
+    if (IS_CAPTIVE_ASSISTANT && !query.state) {
+      assistantNote.style.display = 'block';
+      assistantNote.textContent = 'Submit the form to connect. This window should close after Wi-Fi is authorized.';
     }
 
-    if (debugReleaseHttpButton) {
-      debugReleaseHttpButton.addEventListener('click', async () => {
-        pushEvent('debug_release_http_clicked', {
-          target: HTTP_RELEASE_FALLBACK
-        });
-        await flushClientTrace('debug_release_http_clicked');
-        window.location.href = HTTP_RELEASE_FALLBACK;
+    if (query.state === 'error') {
+      setStatus(query.error || 'Could not connect to Wi-Fi right now. Please try again.', true);
+      pushEvent('error_state_rendered', { error: query.error || null }, 'error');
+    } else if (query.state === 'connected' || query.state === 'finalizing' || query.state === 'success') {
+      timings.t_connect_success = Date.now();
+      pushEvent('connected_state_rendered', {
+        release_target: releaseState.primary,
+        continue_target: releaseState.continueTarget,
+        release_mode: releaseState.redirectMode
       });
-    }
-
-    if (debugRelease204Button) {
-      debugRelease204Button.addEventListener('click', async () => {
-        pushEvent('debug_release_204_clicked', {
-          target: CAPTIVE_GENERATE_204
-        });
-        await flushClientTrace('debug_release_204_clicked');
-        window.location.href = CAPTIVE_GENERATE_204;
-      });
-    }
-
-    if (debugRefreshStatusButton) {
-      debugRefreshStatusButton.addEventListener('click', async () => {
-        pushEvent('debug_refresh_status_clicked');
-        await flushClientTrace('debug_refresh_status_clicked');
-        try {
-          const data = await runStatusCheck();
-          applyServerReleasePlan(data);
-        } catch (error) {
-          pushEvent('debug_refresh_status_failed', {
-            error: error instanceof Error ? error.message : String(error)
-          }, 'error');
-        }
-      });
-    }
-
-    if (debugUploadLogsButton) {
-      debugUploadLogsButton.addEventListener('click', async () => {
-        pushEvent('debug_upload_logs_clicked');
-        await flushClientTrace('manual_debug_upload');
-      });
+      startReleaseFlow();
     }
 
     updateHiddenValues();
     renderDebug();
-    startInitialAuthorizationCheck();
   </script>
 </body>
 </html>

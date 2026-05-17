@@ -124,7 +124,7 @@ export const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         action: 'status',
-        status_mode: requestUrl.searchParams.get('status_mode') || 'compat',
+        status_mode: 'strict',
         trace_id: traceId || undefined,
         venue_slug: unifiSite,
         session_id: sessionId || undefined,
@@ -167,7 +167,7 @@ export const handler: Handler = async (event) => {
     trace_id: data.trace_id || traceId || null,
     authorized,
     authorized_unifi: data.authorized_unifi === true,
-    authorized_fallback: data.authorized_fallback === true,
+    authorized_fallback: false,
     status_source: data.status_source || 'none',
     status_mode: data.status_mode || 'strict',
     redirect_mode: authorized

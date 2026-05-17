@@ -24,7 +24,7 @@ type WifiConnectResponse = {
 
 type FetchSubmitResponse = {
   success: boolean;
-  state: 'finalizing' | 'error';
+  state: 'connected' | 'error';
   trace_id?: string;
   error?: string;
   next_url?: string;
@@ -293,7 +293,7 @@ export const handler: Handler = async (event) => {
   );
 
   const params = new URLSearchParams(forwardParams);
-  params.set('state', 'finalizing');
+  params.set('state', 'connected');
   params.set('website', websiteUrl);
   params.set('release_target', releasePlan.releaseTarget);
   params.set('continue_target', releasePlan.continueTarget);
@@ -327,7 +327,7 @@ export const handler: Handler = async (event) => {
   if (fetchMode) {
     return jsonResponse(200, {
       success: true,
-      state: 'finalizing',
+      state: 'connected',
       trace_id: effectiveTraceId || undefined,
       next_url: nextUrl,
       website_url: websiteUrl,
