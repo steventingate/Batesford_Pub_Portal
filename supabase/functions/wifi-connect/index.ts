@@ -2669,6 +2669,7 @@ Deno.serve(async (req: Request) => {
 
   if (action === "deauthorize_test") {
     let deauthorizeResult;
+    let fallbackClearedCount = 0;
     const deauthorizeStartedAtMs = Date.now();
     pushBackendPointEvent("unifi_deauthorize_started", "ok");
     try {
@@ -2776,10 +2777,35 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    if (supabase) {
+      try {
+        let deleteQuery = supabase
+          .from("wifi_authorization_events")
+          .delete()
+          .eq("client_mac", payload.client_mac.toLowerCase())
+          .eq("unifi_site", site);
+        if (payload.unifi_t) {
+          deleteQuery = deleteQuery.eq("unifi_t", payload.unifi_t);
+        }
+        const { data: deletedRows, error: deleteError } = await deleteQuery.select("client_mac");
+        if (deleteError) {
+          console.log("Authorization fallback delete warning", deleteError.message);
+        } else {
+          fallbackClearedCount = Array.isArray(deletedRows) ? deletedRows.length : 0;
+        }
+      } catch (err) {
+        console.log(
+          "Authorization fallback delete warning",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
     pushBackendPointEvent("response_build_started", "ok");
     pushBackendPointEvent("response_sent", "ok");
     await persistTraceSummaryAndEvents("deauthorized", null, {
       stage: "unifi_deauthorize",
+      fallback_cleared_count: fallbackClearedCount,
     });
 
     return new Response(
@@ -2804,6 +2830,7 @@ Deno.serve(async (req: Request) => {
           response_status: authorizeResponseStatus,
           response_body: authorizeResponseBody,
           elapsed_ms: Date.now() - requestStartMs,
+          fallback_cleared_count: fallbackClearedCount,
         },
         debug: debugEnabled ? debugInfo : undefined,
       }),
