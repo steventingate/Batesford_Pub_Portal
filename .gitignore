@@ -6,3 +6,4 @@ dist/
 .netlify/
 coverage/
 *.log
+ssh-access.txt
