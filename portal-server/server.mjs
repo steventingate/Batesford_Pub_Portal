@@ -16,6 +16,8 @@ const WIFI_CONNECT_FUNCTION_URL = (
 ).trim();
 const DEFAULT_WEBSITE_URL = (process.env.PORTAL_DEFAULT_WEBSITE_URL ||
   "https://www.thebatesfordhotel.com.au/").trim();
+const DEFAULT_RELEASE_BASE_URL = (process.env.PORTAL_RELEASE_BASE_URL ||
+  "http://release.batesfordguestwifi.gearedit.com.au/release").trim();
 const DEFAULT_BRAND_NAME = (process.env.PORTAL_BRAND_NAME || "Guest Wi-Fi").trim();
 const SESSION_WINDOW_MINUTES = Math.max(
   5,
@@ -120,13 +122,15 @@ function toTitleCase(value) {
 function getSiteConfig(site) {
   const configured = SITE_MAP[site] || {};
   const websiteUrl = safeUrl(configured.websiteUrl, DEFAULT_WEBSITE_URL);
+  const releaseBaseUrl = safeUrl(configured.releaseBaseUrl, DEFAULT_RELEASE_BASE_URL);
   return {
     site,
     label: configured.label || toTitleCase(site) || DEFAULT_BRAND_NAME,
     heroTitle: configured.heroTitle || "Guest Wi-Fi Connect",
     brandName: configured.brandName || DEFAULT_BRAND_NAME,
     websiteUrl,
-    continueUrl: safeUrl(configured.continueUrl, "http://neverssl.com/"),
+    continueUrl: releaseBaseUrl,
+    releaseBaseUrl,
     successMessage: configured.successMessage ||
       "Connecting you to guest Wi-Fi. This can take a few seconds on some phones.",
     termsLabel: configured.termsLabel ||
@@ -134,15 +138,30 @@ function getSiteConfig(site) {
   };
 }
 
+function buildReleaseUrl(baseUrl, sessionKey, site, websiteUrl) {
+  const fallbackBase = safeUrl(baseUrl, DEFAULT_RELEASE_BASE_URL);
+  const url = new URL(fallbackBase);
+  url.searchParams.set("session_key", sessionKey);
+  url.searchParams.set("site", site);
+  url.searchParams.set("website", websiteUrl);
+  return url.toString();
+}
+
 function buildBaseSession(site, query, userAgent) {
   const siteConfig = getSiteConfig(site);
   const clientMac = normalizeMac(query.id || query.client_mac);
   const apMac = normalizeMac(query.ap || query.ap_mac);
   const redirectUrl = typeof query.url === "string" ? query.url : null;
-  const releaseTarget = siteConfig.continueUrl;
+  const sessionKey = crypto.randomUUID();
+  const releaseTarget = buildReleaseUrl(
+    siteConfig.releaseBaseUrl,
+    sessionKey,
+    site,
+    siteConfig.websiteUrl,
+  );
 
   return {
-    session_key: crypto.randomUUID(),
+    session_key: sessionKey,
     site_slug: site,
     client_mac: clientMac,
     ap_mac: apMac || null,
@@ -151,9 +170,9 @@ function buildBaseSession(site, query, userAgent) {
     redirect_url: redirectUrl,
     user_agent: userAgent || null,
     status: "presented",
-        trace_id: `portal-${crypto.randomUUID()}`,
-        release_target: releaseTarget,
-        continue_target: releaseTarget,
+    trace_id: `portal-${crypto.randomUUID()}`,
+    release_target: releaseTarget,
+    continue_target: releaseTarget,
     secondary_target: siteConfig.websiteUrl,
     final_redirect_url: siteConfig.websiteUrl,
     website_url: siteConfig.websiteUrl,
@@ -497,6 +516,51 @@ function renderProgressPage({ siteConfig, site, session }) {
   });
 }
 
+function renderReleasePage({ siteConfig, websiteUrl }) {
+  return renderPage({
+    title: `${siteConfig.label} Connected`,
+    body: `
+      <div class="brand">${escapeHtml(siteConfig.brandName)}</div>
+      <div class="card status-card">
+        <div style="font-size:56px; line-height:1; margin-bottom:16px;">✓</div>
+        <h1>Guest Wi-Fi</h1>
+        <h2>You're Connected</h2>
+        <p id="release-copy" class="lead">Finishing your connection and opening the venue website now.</p>
+        <div class="actions">
+          <a id="release-website-link" class="btn" href="${escapeHtml(websiteUrl)}">Open venue website</a>
+          <button id="release-done" type="button" class="btn secondary">Done</button>
+        </div>
+        <p class="footer-note subtle">If this window stays open, the website should open automatically in a moment.</p>
+      </div>
+      <script>
+        const websiteUrl = ${JSON.stringify(websiteUrl)};
+        const isAppleCaptive = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        const copy = document.getElementById("release-copy");
+        const doneButton = document.getElementById("release-done");
+        const websiteLink = document.getElementById("release-website-link");
+
+        function openWebsite() {
+          window.location.assign(websiteUrl);
+        }
+
+        websiteLink?.addEventListener("click", (event) => {
+          event.preventDefault();
+          openWebsite();
+        });
+
+        doneButton?.addEventListener("click", () => {
+          window.close();
+        });
+
+        setTimeout(() => {
+          if (copy) copy.textContent = "You're connected. Opening the venue website now.";
+          openWebsite();
+        }, isAppleCaptive ? 700 : 1200);
+      </script>
+    `,
+  });
+}
+
 function renderInfoPage() {
   return renderPage({
     title: "Wi-Fi Portal",
@@ -613,6 +677,32 @@ app.get(["/", "/portal"], async (req, res) => {
   res.redirect(`/guest/s/${encodeURIComponent(site)}/?${params.toString()}`);
 });
 
+app.get("/release", async (req, res) => {
+  const site = normalizeSite(req.query.site);
+  const sessionKey = String(req.query.session_key || "").trim();
+  const siteConfig = getSiteConfig(site);
+  const websiteUrl = safeUrl(req.query.website, siteConfig.websiteUrl);
+
+  if (sessionKey) {
+    try {
+      await updateSession(sessionKey, {
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        final_redirect_url: websiteUrl,
+        website_url: websiteUrl,
+      });
+    } catch (error) {
+      log("release_session_update_error", {
+        site,
+        session_key: sessionKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  res.status(200).send(renderReleasePage({ siteConfig, websiteUrl }));
+});
+
 app.get("/guest/s/:site/", async (req, res) => {
   const site = normalizeSite(req.params.site || req.query.site);
   const clientMac = normalizeMac(req.query.id || req.query.client_mac);
@@ -632,13 +722,19 @@ app.get("/guest/s/:site/", async (req, res) => {
   try {
     const existing = await findRecentRecoverableSession(site, clientMac);
     if (existing) {
+      const releaseTarget = buildReleaseUrl(
+        siteConfig.releaseBaseUrl,
+        existing.session_key,
+        site,
+        siteConfig.websiteUrl,
+      );
       await updateSession(existing.session_key, {
         ap_mac: normalizeMac(req.query.ap || req.query.ap_mac) || existing.ap_mac,
         unifi_t: typeof req.query.t === "string" ? req.query.t : existing.unifi_t,
         redirect_url: typeof req.query.url === "string" ? req.query.url : existing.redirect_url,
         user_agent: req.headers["user-agent"] || existing.user_agent,
-        release_target: siteConfig.continueUrl,
-        continue_target: siteConfig.continueUrl,
+        release_target: releaseTarget,
+        continue_target: releaseTarget,
         secondary_target: siteConfig.websiteUrl,
         final_redirect_url: siteConfig.websiteUrl,
         website_url: siteConfig.websiteUrl,
@@ -769,7 +865,12 @@ app.post("/guest/s/:site/connect", async (req, res) => {
     }
 
     const redirectContract = connectResult.body?.redirect_contract || {};
-    const releaseTarget = siteConfig.continueUrl;
+    const releaseTarget = buildReleaseUrl(
+      siteConfig.releaseBaseUrl,
+      session.session_key,
+      site,
+      siteConfig.websiteUrl,
+    );
     const websiteUrl = safeUrl(
       redirectContract.website_url,
       session.website_url || siteConfig.websiteUrl,

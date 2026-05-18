@@ -47,6 +47,7 @@ Set these stack environment variables:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `WIFI_CONNECT_FUNCTION_URL`
 - `PORTAL_DEFAULT_WEBSITE_URL`
+- `PORTAL_RELEASE_BASE_URL`
 - `PORTAL_BRAND_NAME`
 - `PORTAL_SESSION_WINDOW_MINUTES`
 - `PORTAL_SITE_MAP`
@@ -54,13 +55,13 @@ Set these stack environment variables:
 
 Example `PORTAL_SITE_MAP`:
 ```json
-{"xlgkkyrq":{"label":"Madi House","brandName":"Steven Guest","heroTitle":"Guest Wi-Fi Connect","websiteUrl":"https://www.thebatesfordhotel.com.au/","continueUrl":"http://neverssl.com/"}}
+{"xlgkkyrq":{"label":"Madi House","brandName":"Steven Guest","heroTitle":"Guest Wi-Fi Connect","websiteUrl":"https://www.thebatesfordhotel.com.au/","releaseBaseUrl":"http://release.batesfordguestwifi.gearedit.com.au/release"}}
 ```
 
 Set `PROXY_NETWORK=proxy` when Nginx Proxy Manager is already attached to your shared Docker `proxy` network.
 
 ### Reverse proxy
-Put Nginx in front of the container and point a stable hostname such as `batesfordguestwifi.gearedit.com.au` to the `wifi-portal` container on port `3000`.
+Put Nginx in front of the container and point stable hostnames such as `batesfordguestwifi.gearedit.com.au` and `release.batesfordguestwifi.gearedit.com.au` to the `wifi-portal` container on port `3000`.
 
 Example config:
 - `portal-server/nginx.portal.conf.example`
@@ -70,6 +71,15 @@ Recommended UniFi target:
 
 Fallback target if you prefer query-based routing:
 - `https://batesfordguestwifi.gearedit.com.au/portal?site=xlgkkyrq`
+
+Recommended Nginx Proxy Manager setup:
+- `batesfordguestwifi.gearedit.com.au`
+  - HTTPS enabled
+  - Force SSL enabled
+- `release.batesfordguestwifi.gearedit.com.au`
+  - HTTP only
+  - do not force SSL
+  - same upstream target: `wifi-portal:3000`
 
 ### Required database change
 Apply the migration:
