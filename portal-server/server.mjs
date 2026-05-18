@@ -412,6 +412,7 @@ function renderProgressPage({ siteConfig, site, session }) {
         const manualActions = document.getElementById("manual-actions");
         const continueLink = document.getElementById("continue-link");
         const websiteLink = document.getElementById("website-link");
+        const isAppleCaptive = /iPhone|iPad|iPod/i.test(navigator.userAgent);
         let releaseStarted = false;
         let websiteFallbackTimer = null;
 
@@ -439,7 +440,7 @@ function renderProgressPage({ siteConfig, site, session }) {
             if (!document.hidden) {
               navigate(websiteUrl);
             }
-          }, 2200);
+          }, isAppleCaptive ? 900 : 1800);
         }
 
         async function pollSession() {
