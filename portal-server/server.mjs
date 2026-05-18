@@ -139,9 +139,7 @@ function buildBaseSession(site, query, userAgent) {
   const clientMac = normalizeMac(query.id || query.client_mac);
   const apMac = normalizeMac(query.ap || query.ap_mac);
   const redirectUrl = typeof query.url === "string" ? query.url : null;
-  const releaseTarget = isProbeUrl(redirectUrl)
-    ? safeUrl(redirectUrl, siteConfig.continueUrl)
-    : siteConfig.continueUrl;
+  const releaseTarget = siteConfig.continueUrl;
 
   return {
     session_key: crypto.randomUUID(),
@@ -153,9 +151,9 @@ function buildBaseSession(site, query, userAgent) {
     redirect_url: redirectUrl,
     user_agent: userAgent || null,
     status: "presented",
-    trace_id: `portal-${crypto.randomUUID()}`,
-    release_target: releaseTarget,
-    continue_target: releaseTarget,
+        trace_id: `portal-${crypto.randomUUID()}`,
+        release_target: releaseTarget,
+        continue_target: releaseTarget,
     secondary_target: siteConfig.websiteUrl,
     final_redirect_url: siteConfig.websiteUrl,
     website_url: siteConfig.websiteUrl,
@@ -638,6 +636,11 @@ app.get("/guest/s/:site/", async (req, res) => {
         unifi_t: typeof req.query.t === "string" ? req.query.t : existing.unifi_t,
         redirect_url: typeof req.query.url === "string" ? req.query.url : existing.redirect_url,
         user_agent: req.headers["user-agent"] || existing.user_agent,
+        release_target: siteConfig.continueUrl,
+        continue_target: siteConfig.continueUrl,
+        secondary_target: siteConfig.websiteUrl,
+        final_redirect_url: siteConfig.websiteUrl,
+        website_url: siteConfig.websiteUrl,
       });
       res.redirect(`/guest/s/${encodeURIComponent(site)}/progress?session_key=${encodeURIComponent(existing.session_key)}`);
       return;
@@ -765,10 +768,7 @@ app.post("/guest/s/:site/connect", async (req, res) => {
     }
 
     const redirectContract = connectResult.body?.redirect_contract || {};
-    const releaseTarget = safeUrl(
-      session.continue_target || siteConfig.continueUrl,
-      siteConfig.continueUrl,
-    );
+    const releaseTarget = siteConfig.continueUrl;
     const websiteUrl = safeUrl(
       redirectContract.website_url,
       session.website_url || siteConfig.websiteUrl,
