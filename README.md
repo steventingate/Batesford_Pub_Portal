@@ -57,16 +57,16 @@ Example `PORTAL_SITE_MAP`:
 ```
 
 ### Reverse proxy
-Put Nginx in front of the container and point a stable hostname such as `wifi.yourdomain.com` to the `wifi-portal` container on port `3000`.
+Put Nginx in front of the container and point a stable hostname such as `batesfordguestwifi.gearedit.com.au` to the `wifi-portal` container on port `3000`.
 
 Example config:
 - `portal-server/nginx.portal.conf.example`
 
 Recommended UniFi target:
-- `https://wifi.yourdomain.com/guest/s/xlgkkyrq/`
+- `https://batesfordguestwifi.gearedit.com.au/guest/s/xlgkkyrq/`
 
 Fallback target if you prefer query-based routing:
-- `https://wifi.yourdomain.com/portal?site=xlgkkyrq`
+- `https://batesfordguestwifi.gearedit.com.au/portal?site=xlgkkyrq`
 
 ### Required database change
 Apply the migration:
