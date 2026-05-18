@@ -436,12 +436,12 @@ function renderProgressPage({ siteConfig, site, session }) {
           if (statusTitle) statusTitle.textContent = "Connecting You To Guest Wi-Fi";
           if (statusCopy) statusCopy.textContent = "You're connected. Opening the internet now.";
           showManualActions();
-          setTimeout(() => navigate(continueUrl), 250);
+          setTimeout(() => navigate(continueUrl), 150);
           websiteFallbackTimer = setTimeout(() => {
             if (!document.hidden) {
               navigate(websiteUrl);
             }
-          }, 4500);
+          }, 2200);
         }
 
         async function pollSession() {
@@ -766,8 +766,8 @@ app.post("/guest/s/:site/connect", async (req, res) => {
 
     const redirectContract = connectResult.body?.redirect_contract || {};
     const releaseTarget = safeUrl(
-      redirectContract.redirect_url,
       session.continue_target || siteConfig.continueUrl,
+      siteConfig.continueUrl,
     );
     const websiteUrl = safeUrl(
       redirectContract.website_url,
