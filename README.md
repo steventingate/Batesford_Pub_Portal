@@ -50,11 +50,14 @@ Set these stack environment variables:
 - `PORTAL_BRAND_NAME`
 - `PORTAL_SESSION_WINDOW_MINUTES`
 - `PORTAL_SITE_MAP`
+- `PROXY_NETWORK`
 
 Example `PORTAL_SITE_MAP`:
 ```json
 {"xlgkkyrq":{"label":"Madi House","brandName":"Steven Guest","heroTitle":"Guest Wi-Fi Connect","websiteUrl":"https://www.thebatesfordhotel.com.au/","continueUrl":"http://neverssl.com/"}}
 ```
+
+Set `PROXY_NETWORK=proxy` when Nginx Proxy Manager is already attached to your shared Docker `proxy` network.
 
 ### Reverse proxy
 Put Nginx in front of the container and point a stable hostname such as `batesfordguestwifi.gearedit.com.au` to the `wifi-portal` container on port `3000`.
