@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.netlify
+coverage
+*.log
+.env
+.env.*
+!.env.portal.example

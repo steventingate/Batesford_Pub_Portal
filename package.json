@@ -6,12 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "node ./node_modules/typescript/lib/tsc.js -b && node ./node_modules/vite/bin/vite.js build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "portal:dev": "node portal-server/server.mjs",
+    "portal:start": "node portal-server/server.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
+    "express": "^5.2.1",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "react": "^18.3.1",
@@ -19,6 +22,7 @@
     "react-router-dom": "^6.26.2"
   },
   "devDependencies": {
+    "@netlify/functions": "^2.8.1",
     "@types/leaflet": "^1.9.12",
     "@types/node": "^22.13.1",
     "@types/react": "^18.3.5",
@@ -28,7 +32,6 @@
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3",
-    "vite": "^5.4.10",
-    "@netlify/functions": "^2.8.1"
+    "vite": "^5.4.10"
   }
 }

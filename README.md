@@ -18,6 +18,62 @@ Admin web app for managing guest Wi-Fi submissions, tags, notes, and marketing c
 3. Run the app
    npm run dev
 
+## Docker captive portal
+The production captive portal path should now run as a dedicated server app instead of the Netlify portal page.
+
+### Files
+- `portal-server/server.mjs`: Express captive portal server
+- `portal-server/Dockerfile`: container build for the portal service
+- `docker-compose.portal.yml`: Portainer stack file
+- `.env.portal.example`: required environment variables
+
+### Local portal development
+1. Install dependencies
+   npm install
+2. Copy `.env.portal.example` to `.env.portal` and fill in the real secrets
+3. Start the portal service
+   npm run portal:dev
+4. Open
+   `http://localhost:3000/portal?site=xlgkkyrq&id=62:b7:88:d6:e1:6f&ap=f4:e2:c6:e3:94:c0&t=test-token&ssid=Steven%20Guest&url=http://captive.apple.com/hotspot-detect.html`
+
+### Portainer stack deployment
+Use Portainer `Create stack` with:
+- `Repository URL`: your GitHub repo URL
+- `Repository reference`: `refs/heads/main`
+- `Compose path`: `docker-compose.portal.yml`
+
+Set these stack environment variables:
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `WIFI_CONNECT_FUNCTION_URL`
+- `PORTAL_DEFAULT_WEBSITE_URL`
+- `PORTAL_BRAND_NAME`
+- `PORTAL_SESSION_WINDOW_MINUTES`
+- `PORTAL_SITE_MAP`
+
+Example `PORTAL_SITE_MAP`:
+```json
+{"xlgkkyrq":{"label":"Madi House","brandName":"Steven Guest","heroTitle":"Guest Wi-Fi Connect","websiteUrl":"https://www.thebatesfordhotel.com.au/","continueUrl":"http://neverssl.com/"}}
+```
+
+### Reverse proxy
+Put Nginx in front of the container and point a stable hostname such as `wifi.yourdomain.com` to the `wifi-portal` container on port `3000`.
+
+Example config:
+- `portal-server/nginx.portal.conf.example`
+
+Recommended UniFi target:
+- `https://wifi.yourdomain.com/guest/s/xlgkkyrq/`
+
+Fallback target if you prefer query-based routing:
+- `https://wifi.yourdomain.com/portal?site=xlgkkyrq`
+
+### Required database change
+Apply the migration:
+- `supabase/migrations/20260518093000_portal_sessions.sql`
+
+This creates `public.portal_sessions`, which is the backend source of truth for captive progress and recovery.
+
 ## Supabase setup
 1. Run the migration in supabase/migrations to create admin tables and policies.
 2. Create an admin profile for each staff member.
