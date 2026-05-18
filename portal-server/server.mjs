@@ -552,10 +552,16 @@ function renderReleasePage({ siteConfig, websiteUrl }) {
           window.close();
         });
 
-        setTimeout(() => {
-          if (copy) copy.textContent = "You're connected. Opening the venue website now.";
-          openWebsite();
-        }, isAppleCaptive ? 700 : 1200);
+        if (isAppleCaptive) {
+          if (copy) {
+            copy.textContent = "You're connected. Tap Done to close this window, or open the venue website if you want to keep browsing here.";
+          }
+        } else {
+          setTimeout(() => {
+            if (copy) copy.textContent = "You're connected. Opening the venue website now.";
+            openWebsite();
+          }, 1200);
+        }
       </script>
     `,
   });
