@@ -524,23 +524,34 @@ function renderReleasePage({ siteConfig, websiteUrl }) {
       <div class="card status-card">
         <div style="font-size:56px; line-height:1; margin-bottom:16px;">✓</div>
         <h1>Guest Wi-Fi</h1>
-        <h2>You're Connected</h2>
+        <h2 id="release-title">You're Connected</h2>
         <p id="release-copy" class="lead">Finishing your connection and opening the venue website now.</p>
         <div class="actions">
           <a id="release-website-link" class="btn" href="${escapeHtml(websiteUrl)}">Open venue website</a>
           <button id="release-done" type="button" class="btn secondary">Done</button>
         </div>
-        <p class="footer-note subtle">If this window stays open, the website should open automatically in a moment.</p>
+        <p id="release-note" class="footer-note subtle">If this window stays open, the website should open automatically in a moment.</p>
       </div>
       <script>
         const websiteUrl = ${JSON.stringify(websiteUrl)};
         const isAppleCaptive = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        const title = document.getElementById("release-title");
         const copy = document.getElementById("release-copy");
+        const note = document.getElementById("release-note");
         const doneButton = document.getElementById("release-done");
         const websiteLink = document.getElementById("release-website-link");
+        let closeAttempts = 0;
 
         function openWebsite() {
           window.location.assign(websiteUrl);
+        }
+
+        function tryCloseWindow() {
+          closeAttempts += 1;
+          window.close();
+          if (closeAttempts < 6 && !document.hidden) {
+            setTimeout(tryCloseWindow, 900);
+          }
         }
 
         websiteLink?.addEventListener("click", (event) => {
@@ -553,9 +564,16 @@ function renderReleasePage({ siteConfig, websiteUrl }) {
         });
 
         if (isAppleCaptive) {
-          if (copy) {
-            copy.textContent = "You're connected. Tap Done to close this window, or open the venue website if you want to keep browsing here.";
+          if (title) {
+            title.textContent = "Finishing Your Connection";
           }
+          if (copy) {
+            copy.textContent = "Your Wi-Fi access has been approved. This window should close automatically in a moment.";
+          }
+          if (note) {
+            note.textContent = "If it does not close, tap Done. If you prefer, you can also open the venue website here.";
+          }
+          setTimeout(tryCloseWindow, 1200);
         } else {
           setTimeout(() => {
             if (copy) copy.textContent = "You're connected. Opening the venue website now.";
