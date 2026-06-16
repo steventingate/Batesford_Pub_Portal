@@ -47,7 +47,6 @@ Set these stack environment variables:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `WIFI_CONNECT_FUNCTION_URL`
 - `PORTAL_DEFAULT_WEBSITE_URL`
-- `PORTAL_RELEASE_BASE_URL`
 - `PORTAL_BRAND_NAME`
 - `PORTAL_SESSION_WINDOW_MINUTES`
 - `PORTAL_SITE_MAP`
@@ -55,13 +54,13 @@ Set these stack environment variables:
 
 Example `PORTAL_SITE_MAP`:
 ```json
-{"xlgkkyrq":{"label":"Madi House","brandName":"Steven Guest","heroTitle":"Guest Wi-Fi Connect","websiteUrl":"https://www.thebatesfordhotel.com.au/","releaseBaseUrl":"http://release.batesfordguestwifi.gearedit.com.au/release"}}
+{"xlgkkyrq":{"label":"Madi House","brandName":"Steven Guest","heroTitle":"Guest Wi-Fi Connect","websiteUrl":"https://www.thebatesfordhotel.com.au/"}}
 ```
 
 Set `PROXY_NETWORK=proxy` when Nginx Proxy Manager is already attached to your shared Docker `proxy` network.
 
 ### Reverse proxy
-Put Nginx in front of the container and point stable hostnames such as `batesfordguestwifi.gearedit.com.au` and `release.batesfordguestwifi.gearedit.com.au` to the `wifi-portal` container on port `3000`.
+Put Nginx or Cloudflare Tunnel in front of the container and point `batesfordguestwifi.gearedit.com.au` to the `wifi-portal` container on port `3000`.
 
 Example config:
 - `portal-server/nginx.portal.conf.example`
@@ -76,16 +75,29 @@ Recommended Nginx Proxy Manager setup:
 - `batesfordguestwifi.gearedit.com.au`
   - HTTPS enabled
   - Force SSL enabled
-- `release.batesfordguestwifi.gearedit.com.au`
-  - HTTP only
-  - do not force SSL
-  - same upstream target: `wifi-portal:3000`
+
+The portal no longer needs `release.batesfordguestwifi.gearedit.com.au`. After UniFi authorization, the server performs one internal `/release` hop and then sends a `303` redirect to the original OS captive probe URL from UniFi's `url` parameter.
+
+Do not use the Netlify `/connect.html` or `/guest/*` static path as the production captive portal. Netlify should remain for admin/marketing only.
+
+### UniFi guest network settings
+Use this external portal URL:
+
+`https://batesfordguestwifi.gearedit.com.au/guest/s/xlgkkyrq/`
+
+Walled garden pre-auth allow list:
+- `batesfordguestwifi.gearedit.com.au`
+
+Do not pre-auth allow Supabase from the client. The portal server calls Supabase and UniFi server-side.
+
+Disable any UniFi setting that redirects or intercepts HTTPS before authorization. HTTPS interception is what produces the certificate warnings on iOS and Android.
 
 ### Required database change
-Apply the migration:
+Apply these migrations:
 - `supabase/migrations/20260518093000_portal_sessions.sql`
+- `supabase/migrations/20260616203154_portal_session_release_attempt_state.sql`
 
-This creates `public.portal_sessions`, which is the backend source of truth for captive progress and recovery.
+These create and extend `public.portal_sessions`, which is the backend source of truth for captive progress, one-shot OS probe release, and recovery.
 
 ## Supabase setup
 1. Run the migration in supabase/migrations to create admin tables and policies.

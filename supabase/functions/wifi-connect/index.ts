@@ -2313,9 +2313,7 @@ Deno.serve(async (req: Request) => {
 
   if (action !== "status") {
     const verifyStartMs = Date.now();
-    pushBackendPointEvent("optional_unifi_verify_started", "ok");
-    pushBackendPointEvent("verify_started", "ok");
-    pushBackendPointEvent("verify_start", "ok");
+    pushBackendPointEvent("unifi_session_verify_started", "ok");
     let sessionCheck;
     try {
       sessionCheck = await verifyUnifiSession(
@@ -2325,7 +2323,7 @@ Deno.serve(async (req: Request) => {
       );
     } catch (err) {
       pushBackendSpanEvent(
-        "optional_unifi_verify_finished",
+        "unifi_session_verify_finished",
         verifyStartMs,
         Date.now(),
         "error",
@@ -2352,7 +2350,7 @@ Deno.serve(async (req: Request) => {
       sessionCheck.body.includes("LoginRequired")
     ) {
       pushBackendSpanEvent(
-        "optional_unifi_verify_finished",
+        "unifi_session_verify_finished",
         verifyStartMs,
         Date.now(),
         "error",
@@ -2373,24 +2371,15 @@ Deno.serve(async (req: Request) => {
       );
     }
     pushBackendSpanEvent(
-      "optional_unifi_verify_finished",
-      verifyStartMs,
-      Date.now(),
-      "ok",
-    );
-    pushBackendSpanEvent(
-      "verify_finished",
+      "unifi_session_verify_finished",
       verifyStartMs,
       Date.now(),
       "ok",
     );
   } else if (debugEnabled) {
     debugInfo.unifi_session_verify = { skipped: true, reason: "status_fast_path" };
-    pushBackendPointEvent("optional_unifi_verify_started", "skipped");
-    pushBackendPointEvent("verify_started", "skipped");
-    pushBackendPointEvent("verify_start", "skipped");
-    pushBackendPointEvent("optional_unifi_verify_finished", "skipped");
-    pushBackendPointEvent("verify_finished", "skipped");
+    pushBackendPointEvent("unifi_session_verify_started", "skipped");
+    pushBackendPointEvent("unifi_session_verify_finished", "skipped");
   }
 
   if (action === "status") {

@@ -21,13 +21,13 @@
 
 [[redirects]]
   from = "/connect"
-  to = "/connect.html"
-  status = 200
+  to = "https://batesfordguestwifi.gearedit.com.au/portal?site=xlgkkyrq"
+  status = 302
 
 [[redirects]]
   from = "/portal"
-  to = "/connect.html"
-  status = 200
+  to = "https://batesfordguestwifi.gearedit.com.au/portal?site=xlgkkyrq"
+  status = 302
 
 [[redirects]]
   from = "/connect/submit"
@@ -67,8 +67,8 @@
 
 [[redirects]]
   from = "/guest/*"
-  to = "/connect.html"
-  status = 200
+  to = "https://batesfordguestwifi.gearedit.com.au/guest/:splat"
+  status = 302
 
 [[redirects]]
   from = "/"

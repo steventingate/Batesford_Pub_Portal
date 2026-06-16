@@ -16,8 +16,6 @@ const WIFI_CONNECT_FUNCTION_URL = (
 ).trim();
 const DEFAULT_WEBSITE_URL = (process.env.PORTAL_DEFAULT_WEBSITE_URL ||
   "https://www.thebatesfordhotel.com.au/").trim();
-const DEFAULT_RELEASE_BASE_URL = (process.env.PORTAL_RELEASE_BASE_URL ||
-  "http://release.batesfordguestwifi.gearedit.com.au/release").trim();
 const DEFAULT_BRAND_NAME = (process.env.PORTAL_BRAND_NAME || "Guest Wi-Fi").trim();
 const SESSION_WINDOW_MINUTES = Math.max(
   5,
@@ -122,15 +120,13 @@ function toTitleCase(value) {
 function getSiteConfig(site) {
   const configured = SITE_MAP[site] || {};
   const websiteUrl = safeUrl(configured.websiteUrl, DEFAULT_WEBSITE_URL);
-  const releaseBaseUrl = safeUrl(configured.releaseBaseUrl, DEFAULT_RELEASE_BASE_URL);
   return {
     site,
     label: configured.label || toTitleCase(site) || DEFAULT_BRAND_NAME,
     heroTitle: configured.heroTitle || "Guest Wi-Fi Connect",
     brandName: configured.brandName || DEFAULT_BRAND_NAME,
     websiteUrl,
-    continueUrl: releaseBaseUrl,
-    releaseBaseUrl,
+    continueUrl: websiteUrl,
     successMessage: configured.successMessage ||
       "Connecting you to guest Wi-Fi. This can take a few seconds on some phones.",
     termsLabel: configured.termsLabel ||
@@ -138,13 +134,30 @@ function getSiteConfig(site) {
   };
 }
 
-function buildReleaseUrl(baseUrl, sessionKey, site, websiteUrl) {
-  const fallbackBase = safeUrl(baseUrl, DEFAULT_RELEASE_BASE_URL);
-  const url = new URL(fallbackBase);
-  url.searchParams.set("session_key", sessionKey);
-  url.searchParams.set("site", site);
-  url.searchParams.set("website", websiteUrl);
-  return url.toString();
+function buildInternalReleaseUrl(site, sessionKey) {
+  return `/guest/s/${encodeURIComponent(site)}/release?session_key=${encodeURIComponent(sessionKey)}`;
+}
+
+function buildWebsiteRedirectUrl(site, sessionKey) {
+  return `/guest/s/${encodeURIComponent(site)}/website?session_key=${encodeURIComponent(sessionKey)}`;
+}
+
+function getOriginalProbeUrl(session) {
+  const candidate = safeUrl(session?.redirect_url, "");
+  return isProbeUrl(candidate) ? candidate : "";
+}
+
+function buildReleaseFields(session, siteConfig) {
+  const websiteUrl = safeUrl(session?.website_url, siteConfig.websiteUrl);
+  const probeUrl = getOriginalProbeUrl(session);
+  return {
+    release_target: probeUrl ? buildInternalReleaseUrl(siteConfig.site, session.session_key) : null,
+    continue_target: buildWebsiteRedirectUrl(siteConfig.site, session.session_key),
+    secondary_target: buildWebsiteRedirectUrl(siteConfig.site, session.session_key),
+    final_redirect_url: probeUrl || websiteUrl,
+    website_url: websiteUrl,
+    release_mode: probeUrl ? "original_probe_redirect" : "manual_connected_page",
+  };
 }
 
 function buildBaseSession(site, query, userAgent) {
@@ -153,14 +166,7 @@ function buildBaseSession(site, query, userAgent) {
   const apMac = normalizeMac(query.ap || query.ap_mac);
   const redirectUrl = typeof query.url === "string" ? query.url : null;
   const sessionKey = crypto.randomUUID();
-  const releaseTarget = buildReleaseUrl(
-    siteConfig.releaseBaseUrl,
-    sessionKey,
-    site,
-    siteConfig.websiteUrl,
-  );
-
-  return {
+  const session = {
     session_key: sessionKey,
     site_slug: site,
     client_mac: clientMac,
@@ -171,12 +177,12 @@ function buildBaseSession(site, query, userAgent) {
     user_agent: userAgent || null,
     status: "presented",
     trace_id: `portal-${crypto.randomUUID()}`,
-    release_target: releaseTarget,
-    continue_target: releaseTarget,
-    secondary_target: siteConfig.websiteUrl,
-    final_redirect_url: siteConfig.websiteUrl,
     website_url: siteConfig.websiteUrl,
-    release_mode: "http_release_then_website",
+  };
+
+  return {
+    ...session,
+    ...buildReleaseFields(session, siteConfig),
   };
 }
 
@@ -418,10 +424,10 @@ function renderProgressPage({ siteConfig, site, session }) {
         <h2 id="status-title">Connecting You To Guest Wi-Fi</h2>
         <p id="status-copy" class="lead">${escapeHtml(siteConfig.successMessage)}</p>
         <div id="manual-actions" class="actions hidden">
-          <a id="continue-link" class="btn" href="${escapeHtml(session.continue_target || siteConfig.continueUrl)}">Continue to Internet</a>
-          <a id="website-link" class="btn secondary" href="${escapeHtml(session.website_url || siteConfig.websiteUrl)}">Open venue website</a>
+          <a id="website-link" class="btn" href="${escapeHtml(session.continue_target || buildWebsiteRedirectUrl(site, session.session_key))}">Open venue website</a>
+          <button id="done-button" type="button" class="btn secondary">Done</button>
         </div>
-        <p class="footer-note subtle">If this window stays open, tap Continue to Internet or open the venue website.</p>
+        <p class="footer-note subtle">Your Wi-Fi access has been approved. If this window stays open, tap Done or open the venue website manually.</p>
       </div>
       <script>
         const sessionKey = ${JSON.stringify(session.session_key)};
@@ -429,11 +435,9 @@ function renderProgressPage({ siteConfig, site, session }) {
         const statusTitle = document.getElementById("status-title");
         const statusCopy = document.getElementById("status-copy");
         const manualActions = document.getElementById("manual-actions");
-        const continueLink = document.getElementById("continue-link");
         const websiteLink = document.getElementById("website-link");
-        const isAppleCaptive = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        const doneButton = document.getElementById("done-button");
         let releaseStarted = false;
-        let websiteFallbackTimer = null;
 
         function navigate(url) {
           if (!url) return;
@@ -447,19 +451,17 @@ function renderProgressPage({ siteConfig, site, session }) {
         function beginRelease(payload) {
           if (releaseStarted) return;
           releaseStarted = true;
-          const continueUrl = payload.continue_target || payload.release_target;
-          const websiteUrl = payload.website_url || payload.secondary_target;
-          if (continueLink && continueUrl) continueLink.href = continueUrl;
+          const releaseUrl = payload.release_target;
+          const websiteUrl = payload.continue_target || payload.website_url || payload.secondary_target;
           if (websiteLink && websiteUrl) websiteLink.href = websiteUrl;
-          if (statusTitle) statusTitle.textContent = "Connecting You To Guest Wi-Fi";
-          if (statusCopy) statusCopy.textContent = "You're connected. Opening the internet now.";
+          if (statusTitle) statusTitle.textContent = "Finishing Your Connection";
+          if (statusCopy) statusCopy.textContent = "Your Wi-Fi access has been approved. This window should close automatically.";
+          if (releaseUrl) {
+            setTimeout(() => navigate(releaseUrl), 150);
+            setTimeout(showManualActions, 5000);
+            return;
+          }
           showManualActions();
-          setTimeout(() => navigate(continueUrl), 150);
-          websiteFallbackTimer = setTimeout(() => {
-            if (!document.hidden) {
-              navigate(websiteUrl);
-            }
-          }, isAppleCaptive ? 900 : 1800);
         }
 
         async function pollSession() {
@@ -469,7 +471,7 @@ function renderProgressPage({ siteConfig, site, session }) {
             if (!res.ok || !data.success) {
               throw new Error(data.error || "Unable to check Wi-Fi status.");
             }
-            if (data.phase === "release") {
+            if (data.phase === "release" || data.phase === "connected") {
               beginRelease(data);
               return;
             }
@@ -487,19 +489,18 @@ function renderProgressPage({ siteConfig, site, session }) {
           }
         }
 
-        continueLink?.addEventListener("click", (event) => {
-          event.preventDefault();
-          navigate(continueLink.href);
-        });
         websiteLink?.addEventListener("click", (event) => {
           event.preventDefault();
           navigate(websiteLink.href);
         });
+        doneButton?.addEventListener("click", () => {
+          window.close();
+        });
 
         if (${JSON.stringify(session.status)} === "completed") {
           beginRelease(${JSON.stringify({
+            release_target: Number(session.release_attempt_count || 0) < 1 ? session.release_target : null,
             continue_target: session.continue_target,
-            release_target: session.release_target,
             website_url: session.website_url,
             secondary_target: session.secondary_target,
           })});
@@ -508,50 +509,38 @@ function renderProgressPage({ siteConfig, site, session }) {
           setTimeout(showManualActions, 5000);
         }
 
-        window.addEventListener("pagehide", () => {
-          if (websiteFallbackTimer) clearTimeout(websiteFallbackTimer);
-        });
       </script>
     `,
   });
 }
 
 function renderReleasePage({ siteConfig, websiteUrl }) {
+  const rawWebsiteUrl = String(websiteUrl || "");
+  const websiteRedirectUrl = rawWebsiteUrl.startsWith("/")
+    ? rawWebsiteUrl
+    : safeUrl(rawWebsiteUrl, siteConfig.websiteUrl);
   return renderPage({
     title: `${siteConfig.label} Connected`,
     body: `
       <div class="brand">${escapeHtml(siteConfig.brandName)}</div>
       <div class="card status-card">
-        <div style="font-size:56px; line-height:1; margin-bottom:16px;">✓</div>
+        <div style="font-size:56px; line-height:1; margin-bottom:16px;">&#10003;</div>
         <h1>Guest Wi-Fi</h1>
-        <h2 id="release-title">You're Connected</h2>
-        <p id="release-copy" class="lead">Finishing your connection and opening the venue website now.</p>
+        <h2 id="release-title">Finishing Your Connection</h2>
+        <p id="release-copy" class="lead">Your Wi-Fi access has been approved. This window should close automatically.</p>
         <div class="actions">
-          <a id="release-website-link" class="btn" href="${escapeHtml(websiteUrl)}">Open venue website</a>
+          <a id="release-website-link" class="btn" href="${escapeHtml(websiteRedirectUrl)}">Open venue website</a>
           <button id="release-done" type="button" class="btn secondary">Done</button>
         </div>
-        <p id="release-note" class="footer-note subtle">If this window stays open, the website should open automatically in a moment.</p>
+        <p id="release-note" class="footer-note subtle">If it does not close, tap Done. You can open the venue website manually after Wi-Fi is connected.</p>
       </div>
       <script>
-        const websiteUrl = ${JSON.stringify(websiteUrl)};
-        const isAppleCaptive = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-        const title = document.getElementById("release-title");
-        const copy = document.getElementById("release-copy");
-        const note = document.getElementById("release-note");
+        const websiteUrl = ${JSON.stringify(websiteRedirectUrl)};
         const doneButton = document.getElementById("release-done");
         const websiteLink = document.getElementById("release-website-link");
-        let closeAttempts = 0;
 
         function openWebsite() {
           window.location.assign(websiteUrl);
-        }
-
-        function tryCloseWindow() {
-          closeAttempts += 1;
-          window.close();
-          if (closeAttempts < 6 && !document.hidden) {
-            setTimeout(tryCloseWindow, 900);
-          }
         }
 
         websiteLink?.addEventListener("click", (event) => {
@@ -562,24 +551,6 @@ function renderReleasePage({ siteConfig, websiteUrl }) {
         doneButton?.addEventListener("click", () => {
           window.close();
         });
-
-        if (isAppleCaptive) {
-          if (title) {
-            title.textContent = "Finishing Your Connection";
-          }
-          if (copy) {
-            copy.textContent = "Your Wi-Fi access has been approved. This window should close automatically in a moment.";
-          }
-          if (note) {
-            note.textContent = "If it does not close, tap Done. If you prefer, you can also open the venue website here.";
-          }
-          setTimeout(tryCloseWindow, 1200);
-        } else {
-          setTimeout(() => {
-            if (copy) copy.textContent = "You're connected. Opening the venue website now.";
-            openWebsite();
-          }, 1200);
-        }
       </script>
     `,
   });
@@ -618,6 +589,47 @@ async function upsertSession(values) {
     .single();
   if (error) throw error;
   return data;
+}
+
+function recordTraceEvent(session, stageName, { status = "ok", message = null, metadata = {} } = {}) {
+  if (!session?.trace_id) return;
+  void (async () => {
+    const now = new Date().toISOString();
+    try {
+      await supabase
+        .from("wifi_auth_traces")
+        .upsert({
+          trace_id: session.trace_id,
+          venue_slug: session.site_slug,
+          site_id: session.site_slug,
+          client_mac: session.client_mac,
+          ssid: session.ssid,
+          ap_mac: session.ap_mac,
+          request_url: session.redirect_url,
+          user_agent: session.user_agent,
+        }, { onConflict: "trace_id" });
+
+      const { error } = await supabase
+        .from("wifi_auth_trace_events")
+        .insert({
+          trace_id: session.trace_id,
+          stage_name: stageName,
+          started_at: now,
+          ended_at: now,
+          duration_ms: 0,
+          status,
+          message,
+          metadata,
+        });
+      if (error) throw error;
+    } catch (error) {
+      log("trace_event_insert_error", {
+        trace_id: session.trace_id,
+        stage_name: stageName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  })();
 }
 
 async function updateSession(sessionKey, values) {
@@ -701,22 +713,113 @@ app.get(["/", "/portal"], async (req, res) => {
   res.redirect(`/guest/s/${encodeURIComponent(site)}/?${params.toString()}`);
 });
 
-app.get("/release", async (req, res) => {
-  const site = normalizeSite(req.query.site);
+async function handleReleaseRequest(req, res, routeSite = "") {
+  const site = normalizeSite(routeSite || req.query.site);
   const sessionKey = String(req.query.session_key || "").trim();
   const siteConfig = getSiteConfig(site);
-  const websiteUrl = safeUrl(req.query.website, siteConfig.websiteUrl);
+
+  if (!sessionKey) {
+    res.status(400).send(renderMissingParamsPage("Missing Wi-Fi release session."));
+    return;
+  }
+
+  try {
+    const session = await getSession(sessionKey);
+    if (!session || (site && session.site_slug !== site)) {
+      res.status(404).send(renderMissingParamsPage("Wi-Fi release session not found."));
+      return;
+    }
+
+    const effectiveSiteConfig = getSiteConfig(session.site_slug || site);
+    const websiteUrl = safeUrl(session.website_url || req.query.website, effectiveSiteConfig.websiteUrl);
+    const probeUrl = getOriginalProbeUrl(session);
+    const releaseAttempts = Number(session.release_attempt_count || 0);
+    const now = new Date().toISOString();
+
+    if (probeUrl && releaseAttempts < 1) {
+      const updated = await updateSession(sessionKey, {
+        status: "completed",
+        completed_at: session.completed_at || now,
+        release_attempted_at: now,
+        release_attempt_count: releaseAttempts + 1,
+        release_result: "probe_release_redirect",
+        final_redirect_url: probeUrl,
+        website_url: websiteUrl,
+      });
+
+      log("probe_release_redirect", {
+        site: updated.site_slug,
+        session_key: sessionKey,
+        client_mac: updated.client_mac,
+        target: probeUrl,
+      });
+      recordTraceEvent(updated, "probe_release_redirect", {
+        metadata: {
+          release_attempt_count: releaseAttempts + 1,
+          target_host: new URL(probeUrl).hostname,
+        },
+      });
+      res.redirect(303, probeUrl);
+      return;
+    }
+
+    const releaseResult = probeUrl ? "release_already_attempted" : "no_valid_probe_manual_connected";
+    const updated = await updateSession(sessionKey, {
+      status: "completed",
+      completed_at: session.completed_at || now,
+      release_attempted_at: session.release_attempted_at || now,
+      release_result: releaseResult,
+      final_redirect_url: websiteUrl,
+      website_url: websiteUrl,
+    });
+    recordTraceEvent(updated, releaseResult, {
+      metadata: {
+        release_attempt_count: releaseAttempts,
+        has_probe_url: Boolean(probeUrl),
+      },
+    });
+
+    res.status(200).send(renderReleasePage({
+      siteConfig: effectiveSiteConfig,
+      websiteUrl: buildWebsiteRedirectUrl(effectiveSiteConfig.site, sessionKey),
+    }));
+  } catch (error) {
+    log("release_session_error", {
+      site,
+      session_key: sessionKey,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).send(renderMissingParamsPage("Could not complete the Wi-Fi release right now."));
+  }
+}
+
+app.get("/release", async (req, res) => {
+  await handleReleaseRequest(req, res);
+});
+
+app.get("/guest/s/:site/release", async (req, res) => {
+  await handleReleaseRequest(req, res, req.params.site);
+});
+
+app.get("/guest/s/:site/website", async (req, res) => {
+  const site = normalizeSite(req.params.site);
+  const sessionKey = String(req.query.session_key || "").trim();
+  const siteConfig = getSiteConfig(site);
 
   if (sessionKey) {
     try {
-      await updateSession(sessionKey, {
-        status: "completed",
-        completed_at: new Date().toISOString(),
-        final_redirect_url: websiteUrl,
-        website_url: websiteUrl,
-      });
+      const session = await getSession(sessionKey);
+      if (session && session.site_slug === site) {
+        recordTraceEvent(session, "manual_website_clicked", {
+          metadata: {
+            release_attempt_count: Number(session.release_attempt_count || 0),
+          },
+        });
+        res.redirect(303, safeUrl(session.website_url, siteConfig.websiteUrl));
+        return;
+      }
     } catch (error) {
-      log("release_session_update_error", {
+      log("manual_website_trace_error", {
         site,
         session_key: sessionKey,
         error: error instanceof Error ? error.message : String(error),
@@ -724,7 +827,7 @@ app.get("/release", async (req, res) => {
     }
   }
 
-  res.status(200).send(renderReleasePage({ siteConfig, websiteUrl }));
+  res.redirect(303, siteConfig.websiteUrl);
 });
 
 app.get("/guest/s/:site/", async (req, res) => {
@@ -746,23 +849,28 @@ app.get("/guest/s/:site/", async (req, res) => {
   try {
     const existing = await findRecentRecoverableSession(site, clientMac);
     if (existing) {
-      const releaseTarget = buildReleaseUrl(
-        siteConfig.releaseBaseUrl,
-        existing.session_key,
-        site,
-        siteConfig.websiteUrl,
-      );
-      await updateSession(existing.session_key, {
+      const refreshedSession = {
+        ...existing,
         ap_mac: normalizeMac(req.query.ap || req.query.ap_mac) || existing.ap_mac,
         unifi_t: typeof req.query.t === "string" ? req.query.t : existing.unifi_t,
         redirect_url: typeof req.query.url === "string" ? req.query.url : existing.redirect_url,
         user_agent: req.headers["user-agent"] || existing.user_agent,
-        release_target: releaseTarget,
-        continue_target: releaseTarget,
-        secondary_target: siteConfig.websiteUrl,
-        final_redirect_url: siteConfig.websiteUrl,
         website_url: siteConfig.websiteUrl,
+      };
+      const updated = await updateSession(existing.session_key, {
+        ap_mac: normalizeMac(req.query.ap || req.query.ap_mac) || existing.ap_mac,
+        unifi_t: typeof req.query.t === "string" ? req.query.t : existing.unifi_t,
+        redirect_url: typeof req.query.url === "string" ? req.query.url : existing.redirect_url,
+        user_agent: req.headers["user-agent"] || existing.user_agent,
+        ...buildReleaseFields(refreshedSession, siteConfig),
       });
+      if (updated.status === "completed" && Number(updated.release_attempt_count || 0) < 1) {
+        recordTraceEvent(updated, "release_recovered", {
+          metadata: {
+            has_probe_url: Boolean(getOriginalProbeUrl(updated)),
+          },
+        });
+      }
       res.redirect(`/guest/s/${encodeURIComponent(site)}/progress?session_key=${encodeURIComponent(existing.session_key)}`);
       return;
     }
@@ -837,6 +945,12 @@ app.post("/guest/s/:site/connect", async (req, res) => {
       submitted_at: new Date().toISOString(),
       last_error: null,
     });
+    recordTraceEvent(session, "portal_submit", {
+      metadata: {
+        has_probe_url: Boolean(getOriginalProbeUrl(session)),
+        ssid: session.ssid,
+      },
+    });
 
     const connectPayload = {
       action: "connect",
@@ -889,27 +1003,30 @@ app.post("/guest/s/:site/connect", async (req, res) => {
     }
 
     const redirectContract = connectResult.body?.redirect_contract || {};
-    const releaseTarget = buildReleaseUrl(
-      siteConfig.releaseBaseUrl,
-      session.session_key,
-      site,
-      siteConfig.websiteUrl,
-    );
     const websiteUrl = safeUrl(
       redirectContract.website_url,
       session.website_url || siteConfig.websiteUrl,
     );
+    const releaseFields = buildReleaseFields({
+      ...session,
+      website_url: websiteUrl,
+    }, siteConfig);
     const completedSession = await updateSession(sessionKey, {
       status: "completed",
       trace_id: connectResult.body?.trace_id || session.trace_id,
       authorized_at: new Date().toISOString(),
-      release_target: releaseTarget,
-      continue_target: releaseTarget,
-      secondary_target: websiteUrl,
-      final_redirect_url: websiteUrl,
-      website_url: websiteUrl,
-      release_mode: redirectContract.redirect_mode || session.release_mode,
+      release_attempted_at: null,
+      release_attempt_count: 0,
+      release_result: null,
+      ...releaseFields,
       last_error: null,
+    });
+    recordTraceEvent(completedSession, "unifi_authorized", {
+      metadata: {
+        release_mode: completedSession.release_mode,
+        has_probe_url: Boolean(getOriginalProbeUrl(completedSession)),
+        wifi_trace_id: connectResult.body?.trace_id || session.trace_id,
+      },
     });
 
     res.redirect(`/guest/s/${encodeURIComponent(site)}/progress?session_key=${encodeURIComponent(completedSession.session_key)}`);
@@ -978,14 +1095,17 @@ app.get("/guest/s/:site/session", async (req, res) => {
     }
 
     if (session.status === "completed") {
+      const shouldRelease = Boolean(session.release_target) &&
+        Number(session.release_attempt_count || 0) < 1;
       res.json({
         success: true,
-        phase: "release",
+        phase: shouldRelease ? "release" : "connected",
         session_key: session.session_key,
-        release_target: session.release_target,
+        release_target: shouldRelease ? session.release_target : null,
         continue_target: session.continue_target,
         secondary_target: session.secondary_target,
         website_url: session.website_url,
+        release_attempt_count: Number(session.release_attempt_count || 0),
       });
       return;
     }
@@ -1015,16 +1135,20 @@ app.get("/guest/s/:site/session", async (req, res) => {
       const updated = await updateSession(session.session_key, {
         status: "completed",
         authorized_at: session.authorized_at || new Date().toISOString(),
+        ...buildReleaseFields(session, getSiteConfig(site)),
         last_error: null,
       });
+      const shouldRelease = Boolean(updated.release_target) &&
+        Number(updated.release_attempt_count || 0) < 1;
       res.json({
         success: true,
-        phase: "release",
+        phase: shouldRelease ? "release" : "connected",
         session_key: updated.session_key,
-        release_target: updated.release_target,
+        release_target: shouldRelease ? updated.release_target : null,
         continue_target: updated.continue_target,
         secondary_target: updated.secondary_target,
         website_url: updated.website_url,
+        release_attempt_count: Number(updated.release_attempt_count || 0),
       });
       return;
     }
