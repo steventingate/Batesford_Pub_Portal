@@ -80,17 +80,44 @@ The portal no longer needs `release.batesfordguestwifi.gearedit.com.au`. After U
 
 Do not use the Netlify `/connect.html` or `/guest/*` static path as the production captive portal. Netlify should remain for admin/marketing only.
 
+Successful submissions should not stop on the `/progress` spinner page. After verified UniFi auth, `portal-server` redirects straight to `/guest/s/<site>/release`, which then redirects to the original OS probe URL. The `/progress` page is now only a fallback for pending auth, failed auth, or sessions without a safe probe URL.
+
 ### UniFi guest network settings
-Use this external portal URL:
+Use this external portal URL/domain:
 
 `https://batesfordguestwifi.gearedit.com.au/guest/s/xlgkkyrq/`
 
-Walled garden pre-auth allow list:
+Mirror the vendor-style UniFi settings shown by Spotipo:
+- External Portal Server: the static public IP address of the portal reverse proxy, not a Cloudflare Tunnel-only hostname.
+- Domain / Secure Portal: `batesfordguestwifi.gearedit.com.au`
+- HTTPS Redirection Support: enabled.
+- Secure Portal: enabled.
+- Encrypted URL: leave disabled unless you have deliberately implemented UniFi encrypted URL support.
+
+Pre-authorization allowances:
+- Static portal server IP address.
 - `batesfordguestwifi.gearedit.com.au`
+
+Post-authorization restrictions:
+- Add RFC1918/private networks if guests should not reach LAN infrastructure:
+  - `10.0.0.0/8`
+  - `172.16.0.0/12`
+  - `192.168.0.0/16`
 
 Do not pre-auth allow Supabase from the client. The portal server calls Supabase and UniFi server-side.
 
 Disable any UniFi setting that redirects or intercepts HTTPS before authorization. HTTPS interception is what produces the certificate warnings on iOS and Android.
+
+Do not pre-auth allow Apple, Google, Microsoft captive probe hosts, or the venue website. They should be blocked before auth and immediately reachable after UniFi marks the guest authorized. If iOS still takes 30-45 seconds after traces show `probe_release_redirect`, check post-auth DNS/firewall/content-filtering for `captive.apple.com` and the Google/Microsoft probe hosts.
+
+Use `GUEST_WIFI_NETWORK_FIRST_RUNBOOK.md` for onsite validation and run `supabase/sql/captive_release_network_diagnostics.sql` after tests to separate portal timing from UniFi/network captive release delay.
+
+For long-term auth stability, prefer UniFi External Hotspot API v1 in the Supabase Edge Function when supported by the self-hosted controller:
+- `UNIFI_AUTH_MODE=v1`
+- `UNIFI_V1_API_KEY=<controller API key>`
+- `UNIFI_V1_SITE_ID=xlgkkyrq`
+
+Keep legacy username/password auth only as rollback. Legacy auth must continue passing the AP MAC (`ap_mac`) when used.
 
 ### Required database change
 Apply these migrations:

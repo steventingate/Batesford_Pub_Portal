@@ -57,6 +57,8 @@ const SLOW_THRESHOLDS = {
 } as const;
 
 const TRACE_FETCH_LIMIT = 200;
+const RELEASE_OK_MS = 4000;
+const CAPTIVE_TICK_TARGET_MS = 15000;
 
 const toDurationMs = (event: TraceEventRow) => {
   if (typeof event.duration_ms === 'number' && Number.isFinite(event.duration_ms)) {
@@ -102,6 +104,16 @@ const parseTraceContext = (trace: TraceRow | null) => {
   const rawContext = (metadata as Record<string, unknown>).trace_context;
   if (!rawContext || typeof rawContext !== 'object') return null;
   return rawContext as Record<string, unknown>;
+};
+
+const getEventTimeMs = (event: TraceEventRow | undefined) => {
+  if (!event) return null;
+  const parsed = Date.parse(event.started_at);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const findFirstEvent = (events: TraceEventRow[], stageName: string) => {
+  return events.find((event) => event.stage_name === stageName);
 };
 
 export default function Traces() {
@@ -304,6 +316,66 @@ export default function Traces() {
     const frontendMs = selectedTrace.frontend_duration_ms ?? 0;
     return backendMs > 0 && backendMs <= 2000 && frontendMs > SLOW_THRESHOLDS.totalFlowMs;
   }, [selectedTrace]);
+
+  const releaseDiagnosis = useMemo(() => {
+    if (!events.length) return null;
+
+    const postAuth = findFirstEvent(events, 'post_auth_redirect_issued');
+    const releaseRoute = findFirstEvent(events, 'release_route_received');
+    const probeRelease = findFirstEvent(events, 'probe_release_redirect');
+    const pageHiddenEvents = events.filter((event) => event.stage_name === 'page_hidden');
+    const manualWebsite = findFirstEvent(events, 'manual_website_clicked');
+
+    const postAuthMs = getEventTimeMs(postAuth);
+    const probeReleaseMs = getEventTimeMs(probeRelease);
+    const pageHidden = probeReleaseMs === null
+      ? pageHiddenEvents[0]
+      : pageHiddenEvents.find((event) => {
+          const eventMs = getEventTimeMs(event);
+          return eventMs !== null && eventMs >= probeReleaseMs;
+        });
+    const pageHiddenMs = getEventTimeMs(pageHidden);
+    const submitMs = getEventTimeMs(findFirstEvent(events, 'portal_submit'));
+
+    const submitToProbeMs = submitMs !== null && probeReleaseMs !== null
+      ? Math.max(0, Math.round(probeReleaseMs - submitMs))
+      : null;
+    const postAuthToProbeMs = postAuthMs !== null && probeReleaseMs !== null
+      ? Math.max(0, Math.round(probeReleaseMs - postAuthMs))
+      : null;
+    const probeToHiddenMs = probeReleaseMs !== null && pageHiddenMs !== null
+      ? Math.max(0, Math.round(pageHiddenMs - probeReleaseMs))
+      : null;
+
+    let status = 'No release data yet';
+    let tone: 'ok' | 'warn' | 'slow' = 'warn';
+
+    if (!probeRelease) {
+      status = 'No OS probe release was recorded. Check missing UniFi url param or release route.';
+      tone = 'slow';
+    } else if (submitToProbeMs !== null && submitToProbeMs <= RELEASE_OK_MS && !pageHidden) {
+      status = 'Backend released quickly. If the blue tick was slow, investigate UniFi/AP/DNS captive probe passthrough.';
+      tone = 'warn';
+    } else if (probeToHiddenMs !== null && probeToHiddenMs > CAPTIVE_TICK_TARGET_MS) {
+      status = 'Probe release happened, but the captive window stayed open too long. Treat this as network/client release delay.';
+      tone = 'slow';
+    } else {
+      status = 'Release timing looks healthy.';
+      tone = 'ok';
+    }
+
+    return {
+      status,
+      tone,
+      submitToProbeMs,
+      postAuthToProbeMs,
+      probeToHiddenMs,
+      hasReleaseRoute: Boolean(releaseRoute),
+      hasProbeRelease: Boolean(probeRelease),
+      hasPageHidden: Boolean(pageHidden),
+      manualWebsiteClicked: Boolean(manualWebsite)
+    };
+  }, [events]);
 
   const handleCopyTraceId = useCallback(async () => {
     if (!selectedTraceId) return;
@@ -521,6 +593,22 @@ export default function Traces() {
               {backendFastFrontendSlow && (
                 <div className="trace-note-slow">
                   Backend completed quickly, but frontend/captive release appears slow for this trace.
+                </div>
+              )}
+
+              {releaseDiagnosis && (
+                <div className={releaseDiagnosis.tone === 'slow' ? 'trace-note-slow' : 'trace-context-box'}>
+                  <p className="font-semibold mb-2">Captive release diagnosis</p>
+                  <p className="text-sm mb-2">{releaseDiagnosis.status}</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div><strong>Submit to probe:</strong> {releaseDiagnosis.submitToProbeMs ?? '-'} ms</div>
+                    <div><strong>Post-auth to probe:</strong> {releaseDiagnosis.postAuthToProbeMs ?? '-'} ms</div>
+                    <div><strong>Probe to page hidden:</strong> {releaseDiagnosis.probeToHiddenMs ?? '-'} ms</div>
+                    <div><strong>Release route hit:</strong> {releaseDiagnosis.hasReleaseRoute ? 'yes' : 'no'}</div>
+                    <div><strong>Probe release:</strong> {releaseDiagnosis.hasProbeRelease ? 'yes' : 'no'}</div>
+                    <div><strong>Page hidden:</strong> {releaseDiagnosis.hasPageHidden ? 'yes' : 'no'}</div>
+                    <div><strong>Manual website:</strong> {releaseDiagnosis.manualWebsiteClicked ? 'yes' : 'no'}</div>
+                  </div>
                 </div>
               )}
 

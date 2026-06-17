@@ -138,6 +138,10 @@ function buildInternalReleaseUrl(site, sessionKey) {
   return `/guest/s/${encodeURIComponent(site)}/release?session_key=${encodeURIComponent(sessionKey)}`;
 }
 
+function buildProgressUrl(site, sessionKey) {
+  return `/guest/s/${encodeURIComponent(site)}/progress?session_key=${encodeURIComponent(sessionKey)}`;
+}
+
 function buildWebsiteRedirectUrl(site, sessionKey) {
   return `/guest/s/${encodeURIComponent(site)}/website?session_key=${encodeURIComponent(sessionKey)}`;
 }
@@ -402,12 +406,39 @@ function renderFormPage({ siteConfig, site, session, errorMessage = "", values =
       <script>
         const form = document.getElementById("portal-form");
         const submitButton = document.getElementById("submit-button");
+        const eventUrl = ${JSON.stringify(`/guest/s/${site}/event?session_key=${encodeURIComponent(session.session_key)}`)};
+        let pageHiddenSent = false;
+
+        function sendPageHidden(reason) {
+          if (pageHiddenSent) return;
+          pageHiddenSent = true;
+          const payload = JSON.stringify({
+            stage_name: "page_hidden",
+            reason,
+            page: "form",
+          });
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon(eventUrl, new Blob([payload], { type: "application/json" }));
+            return;
+          }
+          fetch(eventUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {});
+        }
+
         form?.addEventListener("submit", () => {
           if (submitButton) {
             submitButton.disabled = true;
             submitButton.textContent = "Connecting you to Wi-Fi...";
           }
         });
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") sendPageHidden("visibility_hidden");
+        });
+        window.addEventListener("pagehide", () => sendPageHidden("pagehide"));
       </script>
     `,
   });
@@ -432,12 +463,14 @@ function renderProgressPage({ siteConfig, site, session }) {
       <script>
         const sessionKey = ${JSON.stringify(session.session_key)};
         const sessionUrl = ${JSON.stringify(`/guest/s/${site}/session?session_key=${encodeURIComponent(session.session_key)}`)};
+        const eventUrl = ${JSON.stringify(`/guest/s/${site}/event?session_key=${encodeURIComponent(session.session_key)}`)};
         const statusTitle = document.getElementById("status-title");
         const statusCopy = document.getElementById("status-copy");
         const manualActions = document.getElementById("manual-actions");
         const websiteLink = document.getElementById("website-link");
         const doneButton = document.getElementById("done-button");
         let releaseStarted = false;
+        let pageHiddenSent = false;
 
         function navigate(url) {
           if (!url) return;
@@ -446,6 +479,27 @@ function renderProgressPage({ siteConfig, site, session }) {
 
         function showManualActions() {
           manualActions?.classList.remove("hidden");
+        }
+
+        function sendPageHidden(reason) {
+          if (pageHiddenSent) return;
+          pageHiddenSent = true;
+          const payload = JSON.stringify({
+            stage_name: "page_hidden",
+            reason,
+            page: "progress",
+            release_started: releaseStarted,
+          });
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon(eventUrl, new Blob([payload], { type: "application/json" }));
+            return;
+          }
+          fetch(eventUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {});
         }
 
         function beginRelease(payload) {
@@ -496,6 +550,10 @@ function renderProgressPage({ siteConfig, site, session }) {
         doneButton?.addEventListener("click", () => {
           window.close();
         });
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") sendPageHidden("visibility_hidden");
+        });
+        window.addEventListener("pagehide", () => sendPageHidden("pagehide"));
 
         if (${JSON.stringify(session.status)} === "completed") {
           beginRelease(${JSON.stringify({
@@ -514,7 +572,7 @@ function renderProgressPage({ siteConfig, site, session }) {
   });
 }
 
-function renderReleasePage({ siteConfig, websiteUrl }) {
+function renderReleasePage({ siteConfig, websiteUrl, eventUrl = "" }) {
   const rawWebsiteUrl = String(websiteUrl || "");
   const websiteRedirectUrl = rawWebsiteUrl.startsWith("/")
     ? rawWebsiteUrl
@@ -536,11 +594,33 @@ function renderReleasePage({ siteConfig, websiteUrl }) {
       </div>
       <script>
         const websiteUrl = ${JSON.stringify(websiteRedirectUrl)};
+        const eventUrl = ${JSON.stringify(eventUrl)};
         const doneButton = document.getElementById("release-done");
         const websiteLink = document.getElementById("release-website-link");
+        let pageHiddenSent = false;
 
         function openWebsite() {
           window.location.assign(websiteUrl);
+        }
+
+        function sendPageHidden(reason) {
+          if (!eventUrl || pageHiddenSent) return;
+          pageHiddenSent = true;
+          const payload = JSON.stringify({
+            stage_name: "page_hidden",
+            reason,
+            page: "release",
+          });
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon(eventUrl, new Blob([payload], { type: "application/json" }));
+            return;
+          }
+          fetch(eventUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {});
         }
 
         websiteLink?.addEventListener("click", (event) => {
@@ -551,6 +631,10 @@ function renderReleasePage({ siteConfig, websiteUrl }) {
         doneButton?.addEventListener("click", () => {
           window.close();
         });
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") sendPageHidden("visibility_hidden");
+        });
+        window.addEventListener("pagehide", () => sendPageHidden("pagehide"));
       </script>
     `,
   });
@@ -735,6 +819,21 @@ async function handleReleaseRequest(req, res, routeSite = "") {
     const probeUrl = getOriginalProbeUrl(session);
     const releaseAttempts = Number(session.release_attempt_count || 0);
     const now = new Date().toISOString();
+    const releaseEventUrl = `/guest/s/${encodeURIComponent(effectiveSiteConfig.site)}/event?session_key=${encodeURIComponent(sessionKey)}`;
+
+    log("release_route_received", {
+      site: session.site_slug,
+      session_key: sessionKey,
+      client_mac: session.client_mac,
+      has_probe_url: Boolean(probeUrl),
+      release_attempt_count: releaseAttempts,
+    });
+    recordTraceEvent(session, "release_route_received", {
+      metadata: {
+        has_probe_url: Boolean(probeUrl),
+        release_attempt_count: releaseAttempts,
+      },
+    });
 
     if (probeUrl && releaseAttempts < 1) {
       const updated = await updateSession(sessionKey, {
@@ -782,6 +881,7 @@ async function handleReleaseRequest(req, res, routeSite = "") {
     res.status(200).send(renderReleasePage({
       siteConfig: effectiveSiteConfig,
       websiteUrl: buildWebsiteRedirectUrl(effectiveSiteConfig.site, sessionKey),
+      eventUrl: releaseEventUrl,
     }));
   } catch (error) {
     log("release_session_error", {
@@ -830,6 +930,39 @@ app.get("/guest/s/:site/website", async (req, res) => {
   res.redirect(303, siteConfig.websiteUrl);
 });
 
+app.post("/guest/s/:site/event", async (req, res) => {
+  const site = normalizeSite(req.params.site);
+  const sessionKey = String(req.query.session_key || req.body?.session_key || "").trim();
+  const stageName = String(req.body?.stage_name || "").trim();
+
+  if (!site || !sessionKey || stageName !== "page_hidden") {
+    res.status(204).end();
+    return;
+  }
+
+  try {
+    const session = await getSession(sessionKey);
+    if (session && session.site_slug === site) {
+      recordTraceEvent(session, stageName, {
+        metadata: {
+          reason: String(req.body?.reason || ""),
+          page: String(req.body?.page || ""),
+          release_started: Boolean(req.body?.release_started),
+        },
+      });
+    }
+  } catch (error) {
+    log("client_event_trace_error", {
+      site,
+      session_key: sessionKey,
+      stage_name: stageName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  res.status(204).end();
+});
+
 app.get("/guest/s/:site/", async (req, res) => {
   const site = normalizeSite(req.params.site || req.query.site);
   const clientMac = normalizeMac(req.query.id || req.query.client_mac);
@@ -871,7 +1004,12 @@ app.get("/guest/s/:site/", async (req, res) => {
           },
         });
       }
-      res.redirect(`/guest/s/${encodeURIComponent(site)}/progress?session_key=${encodeURIComponent(existing.session_key)}`);
+      const recoveryTarget = updated.status === "completed" &&
+          updated.release_target &&
+          Number(updated.release_attempt_count || 0) < 1
+        ? updated.release_target
+        : buildProgressUrl(site, existing.session_key);
+      res.redirect(303, recoveryTarget);
       return;
     }
 
@@ -1029,7 +1167,24 @@ app.post("/guest/s/:site/connect", async (req, res) => {
       },
     });
 
-    res.redirect(`/guest/s/${encodeURIComponent(site)}/progress?session_key=${encodeURIComponent(completedSession.session_key)}`);
+    const postAuthTarget = completedSession.release_target ||
+      buildProgressUrl(site, completedSession.session_key);
+    log("post_auth_redirect_issued", {
+      site,
+      session_key: completedSession.session_key,
+      client_mac: completedSession.client_mac,
+      target: postAuthTarget,
+      release_mode: completedSession.release_mode,
+    });
+    recordTraceEvent(completedSession, "post_auth_redirect_issued", {
+      metadata: {
+        target: postAuthTarget,
+        release_mode: completedSession.release_mode,
+        has_probe_url: Boolean(getOriginalProbeUrl(completedSession)),
+      },
+    });
+
+    res.redirect(303, postAuthTarget);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected connection error.";
     log("portal_connect_error", {
@@ -1069,8 +1224,29 @@ app.get("/guest/s/:site/progress", async (req, res) => {
       res.status(404).send(renderMissingParamsPage("Wi-Fi progress session not found."));
       return;
     }
+    const siteConfig = getSiteConfig(site);
+    if (session.status === "completed") {
+      const shouldRelease = Boolean(session.release_target) &&
+        Number(session.release_attempt_count || 0) < 1;
+      if (shouldRelease) {
+        recordTraceEvent(session, "release_recovered", {
+          metadata: {
+            source: "progress",
+            has_probe_url: Boolean(getOriginalProbeUrl(session)),
+          },
+        });
+        res.redirect(303, session.release_target);
+        return;
+      }
+      res.status(200).send(renderReleasePage({
+        siteConfig,
+        websiteUrl: buildWebsiteRedirectUrl(site, session.session_key),
+        eventUrl: `/guest/s/${encodeURIComponent(site)}/event?session_key=${encodeURIComponent(session.session_key)}`,
+      }));
+      return;
+    }
     res.status(200).send(renderProgressPage({
-      siteConfig: getSiteConfig(site),
+      siteConfig,
       site,
       session,
     }));
