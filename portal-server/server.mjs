@@ -17,6 +17,14 @@ const WIFI_CONNECT_FUNCTION_URL = (
 const DEFAULT_WEBSITE_URL = (process.env.PORTAL_DEFAULT_WEBSITE_URL ||
   "https://www.thebatesfordhotel.com.au/").trim();
 const DEFAULT_BRAND_NAME = (process.env.PORTAL_BRAND_NAME || "Guest Wi-Fi").trim();
+const MAX_RELEASE_ATTEMPTS = Math.max(
+  2,
+  Number.parseInt(process.env.PORTAL_MAX_RELEASE_ATTEMPTS || "5", 10) || 5,
+);
+const RELEASE_RETRY_DELAY_MS = Math.max(
+  1500,
+  Number.parseInt(process.env.PORTAL_RELEASE_RETRY_DELAY_MS || "4000", 10) || 4000,
+);
 const SESSION_WINDOW_MINUTES = Math.max(
   5,
   Number.parseInt(process.env.PORTAL_SESSION_WINDOW_MINUTES || "20", 10) || 20,
@@ -144,6 +152,10 @@ function buildProgressUrl(site, sessionKey) {
 
 function buildWebsiteRedirectUrl(site, sessionKey) {
   return `/guest/s/${encodeURIComponent(site)}/website?session_key=${encodeURIComponent(sessionKey)}`;
+}
+
+function buildFinishConnectionUrl(site, sessionKey, source = "manual") {
+  return `/guest/s/${encodeURIComponent(site)}/finish?session_key=${encodeURIComponent(sessionKey)}&source=${encodeURIComponent(source)}`;
 }
 
 function getOriginalProbeUrl(session) {
@@ -572,35 +584,67 @@ function renderProgressPage({ siteConfig, site, session }) {
   });
 }
 
-function renderReleasePage({ siteConfig, websiteUrl, eventUrl = "" }) {
+function renderReleasePage({
+  siteConfig,
+  websiteUrl,
+  eventUrl = "",
+  finishUrl = "",
+  releaseAttempts = 0,
+  maxReleaseAttempts = MAX_RELEASE_ATTEMPTS,
+}) {
   const rawWebsiteUrl = String(websiteUrl || "");
   const websiteRedirectUrl = rawWebsiteUrl.startsWith("/")
     ? rawWebsiteUrl
     : safeUrl(rawWebsiteUrl, siteConfig.websiteUrl);
+  const retryable = Boolean(finishUrl);
   return renderPage({
     title: `${siteConfig.label} Connected`,
     body: `
       <div class="brand">${escapeHtml(siteConfig.brandName)}</div>
       <div class="card status-card">
-        <div style="font-size:56px; line-height:1; margin-bottom:16px;">&#10003;</div>
+        <div class="spinner"></div>
         <h1>Guest Wi-Fi</h1>
         <h2 id="release-title">Finishing Your Connection</h2>
-        <p id="release-copy" class="lead">Your Wi-Fi access has been approved. This window should close automatically.</p>
+        <p id="release-copy" class="lead">Your Wi-Fi access has been approved. We are finishing the captive network check now.</p>
         <div class="actions">
-          <a id="release-website-link" class="btn" href="${escapeHtml(websiteRedirectUrl)}">Open venue website</a>
+          ${retryable
+            ? `<a id="release-finish-link" class="btn" href="${escapeHtml(finishUrl)}">Try to finish connection</a>`
+            : ""}
+          <a id="release-website-link" class="btn secondary" href="${escapeHtml(websiteRedirectUrl)}">Open venue website</a>
           <button id="release-done" type="button" class="btn secondary">Done</button>
         </div>
-        <p id="release-note" class="footer-note subtle">If it does not close, tap Done. You can open the venue website manually after Wi-Fi is connected.</p>
+        <p id="release-note" class="footer-note subtle">If this page stays open, we will retry the Apple captive check automatically. You can also trigger it manually.</p>
       </div>
       <script>
         const websiteUrl = ${JSON.stringify(websiteRedirectUrl)};
+        const finishUrl = ${JSON.stringify(finishUrl)};
         const eventUrl = ${JSON.stringify(eventUrl)};
+        const retryable = ${JSON.stringify(retryable)};
+        const releaseAttempts = ${JSON.stringify(releaseAttempts)};
+        const maxReleaseAttempts = ${JSON.stringify(maxReleaseAttempts)};
+        const retryDelayMs = ${JSON.stringify(RELEASE_RETRY_DELAY_MS)};
         const doneButton = document.getElementById("release-done");
+        const finishLink = document.getElementById("release-finish-link");
         const websiteLink = document.getElementById("release-website-link");
+        const releaseCopy = document.getElementById("release-copy");
+        const releaseNote = document.getElementById("release-note");
         let pageHiddenSent = false;
+        let retryTriggered = false;
 
-        function openWebsite() {
-          window.location.assign(websiteUrl);
+        function navigate(url) {
+          if (!url) return;
+          window.location.assign(url);
+        }
+
+        function updateRetryMessage() {
+          if (!releaseCopy || !releaseNote) return;
+          if (retryable) {
+            releaseCopy.textContent = "Your Wi-Fi access has been approved. We are retrying the Apple captive check now.";
+            releaseNote.textContent = "If the network still has not closed, tap Try to finish connection. Open venue website is only a fallback.";
+            return;
+          }
+          releaseCopy.textContent = "Your Wi-Fi access has been approved. This window may stay open until your device finishes its captive network check.";
+          releaseNote.textContent = "If it does not close, tap Done. You can open the venue website manually after Wi-Fi is connected.";
         }
 
         function sendPageHidden(reason) {
@@ -623,9 +667,24 @@ function renderReleasePage({ siteConfig, websiteUrl, eventUrl = "" }) {
           }).catch(() => {});
         }
 
+        function beginRetry(source) {
+          if (!retryable || retryTriggered) return;
+          retryTriggered = true;
+          const nextUrl = new URL(finishUrl, window.location.origin);
+          nextUrl.searchParams.set("source", source);
+          navigate(nextUrl.toString());
+        }
+
+        updateRetryMessage();
+
+        finishLink?.addEventListener("click", (event) => {
+          event.preventDefault();
+          beginRetry("manual");
+        });
+
         websiteLink?.addEventListener("click", (event) => {
           event.preventDefault();
-          openWebsite();
+          navigate(websiteUrl);
         });
 
         doneButton?.addEventListener("click", () => {
@@ -635,6 +694,10 @@ function renderReleasePage({ siteConfig, websiteUrl, eventUrl = "" }) {
           if (document.visibilityState === "hidden") sendPageHidden("visibility_hidden");
         });
         window.addEventListener("pagehide", () => sendPageHidden("pagehide"));
+
+        if (retryable && releaseAttempts < maxReleaseAttempts) {
+          setTimeout(() => beginRetry("auto"), retryDelayMs);
+        }
       </script>
     `,
   });
@@ -797,10 +860,12 @@ app.get(["/", "/portal"], async (req, res) => {
   res.redirect(`/guest/s/${encodeURIComponent(site)}/?${params.toString()}`);
 });
 
-async function handleReleaseRequest(req, res, routeSite = "") {
+async function handleReleaseRequest(req, res, routeSite = "", options = {}) {
   const site = normalizeSite(routeSite || req.query.site);
   const sessionKey = String(req.query.session_key || "").trim();
   const siteConfig = getSiteConfig(site);
+  const source = String(options.source || req.query.source || "release").trim();
+  const forceRetry = Boolean(options.forceRetry);
 
   if (!sessionKey) {
     res.status(400).send(renderMissingParamsPage("Missing Wi-Fi release session."));
@@ -832,34 +897,50 @@ async function handleReleaseRequest(req, res, routeSite = "") {
       metadata: {
         has_probe_url: Boolean(probeUrl),
         release_attempt_count: releaseAttempts,
+        source,
       },
     });
 
-    if (probeUrl && releaseAttempts < 1) {
+    if (probeUrl && (releaseAttempts < 1 || (forceRetry && releaseAttempts < MAX_RELEASE_ATTEMPTS))) {
+      const nextAttempt = releaseAttempts + 1;
+      const redirectStage = releaseAttempts < 1 ? "probe_release_redirect" : "probe_retry_redirect";
       const updated = await updateSession(sessionKey, {
         status: "completed",
         completed_at: session.completed_at || now,
         release_attempted_at: now,
-        release_attempt_count: releaseAttempts + 1,
-        release_result: "probe_release_redirect",
+        release_attempt_count: nextAttempt,
+        release_result: redirectStage,
         final_redirect_url: probeUrl,
         website_url: websiteUrl,
       });
 
-      log("probe_release_redirect", {
+      log(redirectStage, {
         site: updated.site_slug,
         session_key: sessionKey,
         client_mac: updated.client_mac,
         target: probeUrl,
+        source,
+        release_attempt_count: nextAttempt,
       });
-      recordTraceEvent(updated, "probe_release_redirect", {
+      recordTraceEvent(updated, redirectStage, {
         metadata: {
-          release_attempt_count: releaseAttempts + 1,
+          release_attempt_count: nextAttempt,
           target_host: new URL(probeUrl).hostname,
+          source,
         },
       });
       res.redirect(303, probeUrl);
       return;
+    }
+
+    if (probeUrl && forceRetry && releaseAttempts >= MAX_RELEASE_ATTEMPTS) {
+      recordTraceEvent(session, "release_retry_exhausted", {
+        metadata: {
+          release_attempt_count: releaseAttempts,
+          max_release_attempts: MAX_RELEASE_ATTEMPTS,
+          source,
+        },
+      });
     }
 
     const releaseResult = probeUrl ? "release_already_attempted" : "no_valid_probe_manual_connected";
@@ -882,6 +963,11 @@ async function handleReleaseRequest(req, res, routeSite = "") {
       siteConfig: effectiveSiteConfig,
       websiteUrl: buildWebsiteRedirectUrl(effectiveSiteConfig.site, sessionKey),
       eventUrl: releaseEventUrl,
+      finishUrl: probeUrl && releaseAttempts < MAX_RELEASE_ATTEMPTS
+        ? buildFinishConnectionUrl(effectiveSiteConfig.site, sessionKey, "manual")
+        : "",
+      releaseAttempts,
+      maxReleaseAttempts: MAX_RELEASE_ATTEMPTS,
     }));
   } catch (error) {
     log("release_session_error", {
@@ -899,6 +985,13 @@ app.get("/release", async (req, res) => {
 
 app.get("/guest/s/:site/release", async (req, res) => {
   await handleReleaseRequest(req, res, req.params.site);
+});
+
+app.get("/guest/s/:site/finish", async (req, res) => {
+  await handleReleaseRequest(req, res, req.params.site, {
+    forceRetry: true,
+    source: String(req.query.source || "manual"),
+  });
 });
 
 app.get("/guest/s/:site/website", async (req, res) => {
@@ -1242,6 +1335,12 @@ app.get("/guest/s/:site/progress", async (req, res) => {
         siteConfig,
         websiteUrl: buildWebsiteRedirectUrl(site, session.session_key),
         eventUrl: `/guest/s/${encodeURIComponent(site)}/event?session_key=${encodeURIComponent(session.session_key)}`,
+        finishUrl: Boolean(getOriginalProbeUrl(session)) &&
+          Number(session.release_attempt_count || 0) < MAX_RELEASE_ATTEMPTS
+          ? buildFinishConnectionUrl(site, session.session_key, "manual")
+          : "",
+        releaseAttempts: Number(session.release_attempt_count || 0),
+        maxReleaseAttempts: MAX_RELEASE_ATTEMPTS,
       }));
       return;
     }
@@ -1281,6 +1380,10 @@ app.get("/guest/s/:site/session", async (req, res) => {
         continue_target: session.continue_target,
         secondary_target: session.secondary_target,
         website_url: session.website_url,
+        finish_target: Boolean(getOriginalProbeUrl(session)) &&
+          Number(session.release_attempt_count || 0) < MAX_RELEASE_ATTEMPTS
+          ? buildFinishConnectionUrl(site, session.session_key, "manual")
+          : null,
         release_attempt_count: Number(session.release_attempt_count || 0),
       });
       return;
@@ -1324,6 +1427,10 @@ app.get("/guest/s/:site/session", async (req, res) => {
         continue_target: updated.continue_target,
         secondary_target: updated.secondary_target,
         website_url: updated.website_url,
+        finish_target: Boolean(getOriginalProbeUrl(updated)) &&
+          Number(updated.release_attempt_count || 0) < MAX_RELEASE_ATTEMPTS
+          ? buildFinishConnectionUrl(site, updated.session_key, "manual")
+          : null,
         release_attempt_count: Number(updated.release_attempt_count || 0),
       });
       return;
