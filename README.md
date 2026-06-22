@@ -45,7 +45,13 @@ Use Portainer `Create stack` with:
 Set these stack environment variables:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `WIFI_CONNECT_FUNCTION_URL`
+- `UNIFI_AUTH_BACKEND` (`direct` for production/direct controller auth, `edge` for rollback)
+- `UNIFI_BASE_URL` (example: `https://103.214.220.232:8443`)
+- `UNIFI_USERNAME`
+- `UNIFI_PASSWORD`
+- `UNIFI_SITE_NAME` (usually `default` for a single-site self-hosted controller)
+- `UNIFI_ALLOW_INVALID_TLS` (`true` only when the UniFi controller uses a self-signed/invalid cert)
+- `WIFI_CONNECT_FUNCTION_URL` (rollback only when `UNIFI_AUTH_BACKEND=edge`)
 - `PORTAL_DEFAULT_WEBSITE_URL`
 - `PORTAL_BRAND_NAME`
 - `PORTAL_SESSION_WINDOW_MINUTES`
@@ -106,18 +112,22 @@ Post-authorization restrictions:
 
 Do not pre-auth allow Supabase from the client. The portal server calls Supabase and UniFi server-side.
 
+In direct auth mode, Supabase is not in the critical UniFi authorization path. The portal server:
+- writes the portal session/guest details to Supabase,
+- logs trace events to Supabase best-effort,
+- logs into the UniFi controller directly,
+- authorizes the client using `/api/s/<site>/cmd/stamgr`,
+- verifies authorization, then releases the OS captive probe.
+
+For self-hosted controllers with default UniFi certificates, set `UNIFI_ALLOW_INVALID_TLS=true` on the portal server. This intentionally allows the portal server to talk to `https://<controller>:8443` even when the certificate is self-signed or hostname-mismatched. Do not expose this setting to client-side code.
+
 Disable any UniFi setting that redirects or intercepts HTTPS before authorization. HTTPS interception is what produces the certificate warnings on iOS and Android.
 
 Do not pre-auth allow Apple, Google, Microsoft captive probe hosts, or the venue website. They should be blocked before auth and immediately reachable after UniFi marks the guest authorized. If iOS still takes 30-45 seconds after traces show `probe_release_redirect`, check post-auth DNS/firewall/content-filtering for `captive.apple.com` and the Google/Microsoft probe hosts.
 
 Use `GUEST_WIFI_NETWORK_FIRST_RUNBOOK.md` for onsite validation and run `supabase/sql/captive_release_network_diagnostics.sql` after tests to separate portal timing from UniFi/network captive release delay.
 
-For long-term auth stability, prefer UniFi External Hotspot API v1 in the Supabase Edge Function when supported by the self-hosted controller:
-- `UNIFI_AUTH_MODE=v1`
-- `UNIFI_V1_API_KEY=<controller API key>`
-- `UNIFI_V1_SITE_ID=xlgkkyrq`
-
-Keep legacy username/password auth only as rollback. Legacy auth must continue passing the AP MAC (`ap_mac`) when used.
+For this deployment, prefer `portal-server` direct auth over Supabase Edge auth. Hosted Supabase Edge cannot proceed through an invalid UniFi TLS certificate, but the portal server can be configured to allow that only for the UniFi controller path. Legacy auth must continue passing the AP MAC (`ap_mac`) when used.
 
 ### Required database change
 Apply these migrations:

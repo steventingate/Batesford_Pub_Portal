@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import http from "node:http";
+import https from "node:https";
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 
@@ -14,6 +16,35 @@ const WIFI_CONNECT_FUNCTION_URL = (
   process.env.WIFI_CONNECT_FUNCTION_URL ||
   (SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/wifi-connect` : "")
 ).trim();
+const UNIFI_BASE_URL = (process.env.UNIFI_BASE_URL || "").trim().replace(/\/$/, "");
+const UNIFI_USERNAME = (process.env.UNIFI_USERNAME || "").trim();
+const UNIFI_PASSWORD = (process.env.UNIFI_PASSWORD || "").trim();
+const UNIFI_SITE_NAME = (process.env.UNIFI_SITE_NAME || "").trim();
+const UNIFI_ALLOW_INVALID_TLS = process.env.UNIFI_ALLOW_INVALID_TLS === "true";
+const UNIFI_AUTH_BACKEND = (
+  process.env.UNIFI_AUTH_BACKEND || (UNIFI_BASE_URL ? "direct" : "edge")
+).trim().toLowerCase();
+const UNIFI_TIMEOUT_MS = Math.max(
+  1000,
+  Number.parseInt(process.env.UNIFI_TIMEOUT_MS || "8000", 10) || 8000,
+);
+const UNIFI_STATUS_TIMEOUT_MS = Math.max(
+  1000,
+  Number.parseInt(process.env.UNIFI_STATUS_TIMEOUT_MS || "2500", 10) || 2500,
+);
+const UNIFI_AUTH_MINUTES = Math.max(
+  1,
+  Number.parseInt(process.env.UNIFI_AUTH_MINUTES || "480", 10) || 480,
+);
+const UNIFI_VERIFY_ATTEMPTS = Math.max(
+  1,
+  Number.parseInt(process.env.UNIFI_VERIFY_ATTEMPTS || "5", 10) || 5,
+);
+const UNIFI_VERIFY_DELAY_MS = Math.max(
+  0,
+  Number.parseInt(process.env.UNIFI_VERIFY_DELAY_MS || "500", 10) || 500,
+);
+const UNIFI_STATUS_LIST_FALLBACK = process.env.UNIFI_STATUS_LIST_FALLBACK === "true";
 const DEFAULT_WEBSITE_URL = (process.env.PORTAL_DEFAULT_WEBSITE_URL ||
   "https://www.thebatesfordhotel.com.au/").trim();
 const DEFAULT_BRAND_NAME = (process.env.PORTAL_BRAND_NAME || "Guest Wi-Fi").trim();
@@ -39,8 +70,12 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
 }
 
-if (!WIFI_CONNECT_FUNCTION_URL) {
+if (UNIFI_AUTH_BACKEND === "edge" && !WIFI_CONNECT_FUNCTION_URL) {
   throw new Error("Missing WIFI_CONNECT_FUNCTION_URL.");
+}
+
+if (UNIFI_AUTH_BACKEND === "direct" && (!UNIFI_BASE_URL || !UNIFI_USERNAME || !UNIFI_PASSWORD)) {
+  throw new Error("Missing direct UniFi configuration: UNIFI_BASE_URL, UNIFI_USERNAME, and UNIFI_PASSWORD are required.");
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -72,6 +107,10 @@ function normalizeMac(value) {
     .toLowerCase();
   if (compact.length !== 12) return "";
   return compact.match(/.{1,2}/g).join(":");
+}
+
+function normalizeUnifiSite(routeSite) {
+  return UNIFI_SITE_NAME || normalizeSite(routeSite);
 }
 
 function normalizeSite(value) {
@@ -869,6 +908,399 @@ async function callWifiConnect(payload) {
   return { ok: res.ok, status: res.status, body };
 }
 
+function extractCookies(setCookie) {
+  if (!setCookie) return "";
+  const values = Array.isArray(setCookie) ? setCookie : [setCookie];
+  return values
+    .flatMap((item) => String(item).split(/,(?=[^;]+=[^;]+)/g))
+    .map((item) => item.split(";")[0])
+    .filter(Boolean)
+    .join("; ");
+}
+
+function readJson(text) {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isPrivateIpv4Host(hostname) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (!match) return false;
+  const octets = match.slice(1).map((item) => Number(item));
+  if (octets.some((item) => !Number.isFinite(item) || item < 0 || item > 255)) return true;
+  const [first, second] = octets;
+  if (first === 10 || first === 127) return true;
+  if (first === 169 && second === 254) return true;
+  if (first === 172 && second >= 16 && second <= 31) return true;
+  if (first === 192 && second === 168) return true;
+  return false;
+}
+
+function isSafeExternalUrl(value) {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    if (!host || host === "localhost" || host.endsWith(".local")) return false;
+    if (isPrivateIpv4Host(host)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildRedirectContract(redirectUrl, verifyAuthorized, verifyAttempts, websiteUrl) {
+  const safeWebsite = isSafeExternalUrl(websiteUrl)
+    ? websiteUrl
+    : "https://www.thebatesfordhotel.com.au/";
+  const safeProbe = redirectUrl && isProbeUrl(redirectUrl) && isSafeExternalUrl(redirectUrl)
+    ? redirectUrl
+    : null;
+
+  if (verifyAuthorized) {
+    return {
+      redirect_mode: safeProbe ? "probe_redirect" : "website_redirect",
+      redirect_url: safeProbe || safeWebsite,
+      website_url: safeWebsite,
+      release_result: "authorized_verified",
+      verify_attempts: Math.max(1, verifyAttempts),
+    };
+  }
+
+  return {
+    redirect_mode: "verify_timeout_success_page",
+    redirect_url: null,
+    website_url: safeWebsite,
+    release_result: "authorized_unverified_timeout",
+    verify_attempts: Math.max(1, verifyAttempts),
+  };
+}
+
+function unifiRequest(path, {
+  method = "GET",
+  headers = {},
+  body = null,
+  timeoutMs = UNIFI_TIMEOUT_MS,
+} = {}) {
+  if (!UNIFI_BASE_URL) {
+    throw new Error("Missing UNIFI_BASE_URL.");
+  }
+
+  const url = new URL(path, `${UNIFI_BASE_URL}/`);
+  const useHttps = url.protocol === "https:";
+  const transport = useHttps ? https : http;
+  const requestOptions = {
+    method,
+    hostname: url.hostname,
+    port: url.port || (useHttps ? 443 : 80),
+    path: `${url.pathname}${url.search}`,
+    headers,
+    timeout: timeoutMs,
+    rejectUnauthorized: useHttps ? !UNIFI_ALLOW_INVALID_TLS : undefined,
+  };
+
+  return new Promise((resolve, reject) => {
+    const req = transport.request(requestOptions, (res) => {
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        resolve({
+          status: res.statusCode || 0,
+          ok: Boolean(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
+          headers: res.headers,
+          body: text.length > 4000 ? `${text.slice(0, 4000)}...` : text,
+        });
+      });
+    });
+    req.on("timeout", () => {
+      req.destroy(new Error(`UniFi request timed out after ${timeoutMs}ms`));
+    });
+    req.on("error", reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+async function directUnifiLogin() {
+  const payload = JSON.stringify({
+    username: UNIFI_USERNAME,
+    password: UNIFI_PASSWORD,
+    remember: true,
+  });
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "Content-Length": Buffer.byteLength(payload),
+  };
+
+  let result = await unifiRequest("/api/auth/login", {
+    method: "POST",
+    headers,
+    body: payload,
+  });
+  let endpoint = "/api/auth/login";
+  if (!result.ok) {
+    result = await unifiRequest("/api/login", {
+      method: "POST",
+      headers,
+      body: payload,
+    });
+    endpoint = "/api/login";
+  }
+
+  if (!result.ok) {
+    throw new Error(`UniFi authentication failed (${endpoint}) status=${result.status} body=${result.body}`);
+  }
+
+  const cookie = extractCookies(result.headers["set-cookie"]);
+  if (!cookie) {
+    throw new Error("UniFi authentication did not return a session cookie.");
+  }
+
+  return {
+    cookie,
+    endpoint,
+    status: result.status,
+  };
+}
+
+async function directUnifiAuthorize({ site, clientMac, apMac, minutes }) {
+  const loginStarted = Date.now();
+  const login = await directUnifiLogin();
+  const loginMs = Date.now() - loginStarted;
+  const normalizedMac = normalizeMac(clientMac);
+  const normalizedApMac = normalizeMac(apMac);
+  const unifiSite = normalizeUnifiSite(site);
+
+  const payloadObj = {
+    cmd: "authorize-guest",
+    mac: normalizedMac || clientMac,
+    minutes,
+  };
+  if (normalizedApMac) payloadObj.ap_mac = normalizedApMac;
+  const payload = JSON.stringify(payloadObj);
+  const endpoint = `/api/s/${encodeURIComponent(unifiSite)}/cmd/stamgr`;
+  const authorizeStarted = Date.now();
+  const authorizeResult = await unifiRequest(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "Cookie": login.cookie,
+      "Content-Length": Buffer.byteLength(payload),
+    },
+    body: payload,
+  });
+  const authorizeMs = Date.now() - authorizeStarted;
+  const parsed = readJson(authorizeResult.body);
+  const authorizedCommandAccepted = authorizeResult.ok && parsed?.meta?.rc === "ok";
+  if (!authorizedCommandAccepted) {
+    throw new Error(`UniFi authorize failed status=${authorizeResult.status} body=${authorizeResult.body}`);
+  }
+
+  let verifyAuthorized = false;
+  let verifyAttempts = 0;
+  let statusEndpointUsed = null;
+  let statusMs = 0;
+  for (let index = 0; index < UNIFI_VERIFY_ATTEMPTS; index += 1) {
+    if (index > 0 && UNIFI_VERIFY_DELAY_MS) await delay(UNIFI_VERIFY_DELAY_MS);
+    verifyAttempts = index + 1;
+    const statusStarted = Date.now();
+    const status = await directUnifiStatus({
+      site,
+      clientMac,
+      cookie: login.cookie,
+      includeGuestListFallback: UNIFI_STATUS_LIST_FALLBACK,
+    });
+    statusMs += Date.now() - statusStarted;
+    statusEndpointUsed = status.endpointUsed;
+    if (status.authorized) {
+      verifyAuthorized = true;
+      break;
+    }
+  }
+
+  return {
+    success: true,
+    authorized: verifyAuthorized,
+    authorized_unifi: verifyAuthorized,
+    authorized_fallback: false,
+    status_source: verifyAuthorized ? "unifi" : "none",
+    status_endpoint_used: statusEndpointUsed,
+    redirect_contract: buildRedirectContract(null, verifyAuthorized, verifyAttempts, DEFAULT_WEBSITE_URL),
+    timing: {
+      login_ms: loginMs,
+      authorize_ms: authorizeMs,
+      status_ms: statusMs,
+      total_ms: loginMs + authorizeMs + statusMs,
+      cache_hit: false,
+    },
+    debug: {
+      unifi_authorize: {
+        mode: "direct_legacy",
+        endpoint,
+        status: authorizeResult.status,
+        site: unifiSite,
+        allow_invalid_tls: UNIFI_ALLOW_INVALID_TLS,
+      },
+    },
+  };
+}
+
+function deriveAuthorizedFromRow(row) {
+  if (!row || typeof row !== "object") return false;
+  const toBoolean = (value) => {
+    if (value === true || value === 1 || value === "1") return true;
+    if (typeof value === "string") {
+      const lowered = value.toLowerCase();
+      if (lowered === "true" || lowered === "yes") return true;
+      if (lowered === "false" || lowered === "no") return false;
+    }
+    if (value === false || value === 0 || value === "0") return false;
+    return null;
+  };
+  const explicit = toBoolean(row.authorized ?? row.is_authorized ?? row.isAuthorized);
+  if (explicit !== null) return explicit;
+  if (toBoolean(row.blocked) === true || toBoolean(row.expired) === true) return false;
+  const endRaw = row.end ?? row.expire ?? row.expires;
+  if (typeof endRaw === "number" && Number.isFinite(endRaw) && endRaw > 0) {
+    const endMs = endRaw > 1_000_000_000_000 ? endRaw : endRaw * 1000;
+    return endMs > Date.now();
+  }
+  return false;
+}
+
+async function directUnifiStatus({
+  site,
+  clientMac,
+  cookie = null,
+  includeGuestListFallback = false,
+}) {
+  const login = cookie ? { cookie } : await directUnifiLogin();
+  const unifiSite = normalizeUnifiSite(site);
+  const normalizedMac = normalizeMac(clientMac);
+  const checks = [
+    { path: `/api/s/${encodeURIComponent(unifiSite)}/stat/user/${normalizedMac}`, kind: "single" },
+    { path: `/api/s/${encodeURIComponent(unifiSite)}/stat/sta/${normalizedMac}`, kind: "single" },
+    { path: `/api/s/${encodeURIComponent(unifiSite)}/stat/guest/${normalizedMac}`, kind: "single" },
+  ];
+  if (includeGuestListFallback) {
+    checks.push({ path: `/api/s/${encodeURIComponent(unifiSite)}/stat/guest`, kind: "list" });
+  }
+
+  let last = null;
+  for (const check of checks) {
+    const result = await unifiRequest(check.path, {
+      method: "GET",
+      timeoutMs: UNIFI_STATUS_TIMEOUT_MS,
+      headers: {
+        "Accept": "application/json",
+        "Cookie": login.cookie,
+      },
+    });
+    last = { result, endpointUsed: check.path };
+    if (
+      result.status === 404 ||
+      result.status === 405 ||
+      result.body.includes("api.err.UnknownUser") ||
+      result.body.includes("api.err.UnknownStation")
+    ) {
+      continue;
+    }
+
+    const parsed = readJson(result.body);
+    const dataRows = Array.isArray(parsed?.data) ? parsed.data : [];
+    const row = check.kind === "list"
+      ? dataRows.find((entry) => normalizeMac(String(entry?.mac || "")) === normalizedMac) || null
+      : dataRows.find((entry) => normalizeMac(String(entry?.mac || "")) === normalizedMac) || dataRows[0] || null;
+
+    const rowMac = row ? normalizeMac(String(row.mac || "")) : "";
+    if (row && rowMac && rowMac !== normalizedMac) continue;
+    if (deriveAuthorizedFromRow(row)) {
+      return {
+        authorized: true,
+        endpointUsed: check.path,
+        status: result.status,
+      };
+    }
+  }
+
+  return {
+    authorized: false,
+    endpointUsed: last?.endpointUsed || null,
+    status: last?.result?.status || 0,
+  };
+}
+
+async function authorizeWifi(payload) {
+  if (UNIFI_AUTH_BACKEND !== "direct") {
+    return callWifiConnect(payload);
+  }
+
+  const startedAt = Date.now();
+  const body = await directUnifiAuthorize({
+    site: payload.unifi_site,
+    clientMac: payload.client_mac,
+    apMac: payload.ap_mac,
+    minutes: UNIFI_AUTH_MINUTES,
+  });
+  const redirectContract = buildRedirectContract(
+    payload.redirect_url,
+    body.authorized === true,
+    body.redirect_contract?.verify_attempts || UNIFI_VERIFY_ATTEMPTS,
+    payload.website_url || DEFAULT_WEBSITE_URL,
+  );
+  body.redirect_contract = redirectContract;
+  log("direct_unifi_authorize_response", {
+    status: 200,
+    elapsed_ms: Date.now() - startedAt,
+    site: normalizeUnifiSite(payload.unifi_site),
+    client_mac: payload.client_mac,
+    authorized: body.authorized,
+    allow_invalid_tls: UNIFI_ALLOW_INVALID_TLS,
+  });
+  return { ok: true, status: 200, body };
+}
+
+async function checkWifiStatus(payload) {
+  if (UNIFI_AUTH_BACKEND !== "direct") {
+    return callWifiConnect(payload);
+  }
+  const startedAt = Date.now();
+  const status = await directUnifiStatus({
+    site: payload.unifi_site,
+    clientMac: payload.client_mac,
+  });
+  log("direct_unifi_status_response", {
+    status: 200,
+    elapsed_ms: Date.now() - startedAt,
+    site: normalizeUnifiSite(payload.unifi_site),
+    client_mac: payload.client_mac,
+    authorized: status.authorized,
+  });
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      success: true,
+      authorized: status.authorized,
+      authorized_unifi: status.authorized,
+      authorized_fallback: false,
+      status_source: status.authorized ? "unifi" : "none",
+      status_endpoint_used: status.endpointUsed,
+    },
+  };
+}
+
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true, service: "wifi-portal", ts: new Date().toISOString() });
 });
@@ -1226,15 +1658,17 @@ app.post("/guest/s/:site/connect", async (req, res) => {
       marketing_opt_in: true,
       trace_id: session.trace_id,
       venue_slug: site,
+      website_url: session.website_url || siteConfig.websiteUrl,
     };
 
     log("unifi_authorize_request_started", {
       site,
       session_key: sessionKey,
       client_mac: session.client_mac,
-      endpoint: WIFI_CONNECT_FUNCTION_URL,
+      endpoint: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_BASE_URL : WIFI_CONNECT_FUNCTION_URL,
+      backend: UNIFI_AUTH_BACKEND,
     });
-    const connectResult = await callWifiConnect(connectPayload);
+    const connectResult = await authorizeWifi(connectPayload);
     log("unifi_authorize_request_finished", {
       site,
       session_key: sessionKey,
@@ -1285,6 +1719,7 @@ app.post("/guest/s/:site/connect", async (req, res) => {
         release_mode: completedSession.release_mode,
         has_probe_url: Boolean(getOriginalProbeUrl(completedSession)),
         wifi_trace_id: connectResult.body?.trace_id || session.trace_id,
+        auth_backend: UNIFI_AUTH_BACKEND,
       },
     });
 
@@ -1428,7 +1863,7 @@ app.get("/guest/s/:site/session", async (req, res) => {
       return;
     }
 
-    const statusResult = await callWifiConnect({
+    const statusResult = await checkWifiStatus({
       action: "status",
       unifi_site: site,
       client_mac: session.client_mac,
@@ -1485,6 +1920,10 @@ app.listen(PORT, () => {
   log("portal_server_started", {
     port: PORT,
     session_window_minutes: SESSION_WINDOW_MINUTES,
+    auth_backend: UNIFI_AUTH_BACKEND,
+    unifi_base_url: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_BASE_URL : null,
+    unifi_site_name: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_SITE_NAME || "(route-site)" : null,
+    unifi_allow_invalid_tls: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_ALLOW_INVALID_TLS : null,
     wifi_connect_function_url: WIFI_CONNECT_FUNCTION_URL,
     configured_sites: Object.keys(SITE_MAP),
   });
