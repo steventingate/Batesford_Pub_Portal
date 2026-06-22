@@ -115,6 +115,13 @@ function normalizeUnifiSite(routeSite) {
   return UNIFI_SITE_NAME || normalizeSite(routeSite);
 }
 
+function getUnifiSiteCandidates(routeSite) {
+  return [...new Set([
+    UNIFI_SITE_NAME,
+    normalizeSite(routeSite),
+  ].map((site) => String(site || "").trim()).filter(Boolean))];
+}
+
 function normalizeSite(value) {
   return String(value || "").trim();
 }
@@ -1081,7 +1088,7 @@ async function directUnifiAuthorize({ site, clientMac, apMac, minutes }) {
   const loginMs = Date.now() - loginStarted;
   const normalizedMac = normalizeMac(clientMac);
   const normalizedApMac = normalizeMac(apMac);
-  const unifiSite = normalizeUnifiSite(site);
+  const unifiSiteCandidates = getUnifiSiteCandidates(site);
 
   const payloadObj = {
     cmd: "authorize-guest",
@@ -1090,23 +1097,42 @@ async function directUnifiAuthorize({ site, clientMac, apMac, minutes }) {
   };
   if (normalizedApMac) payloadObj.ap_mac = normalizedApMac;
   const payload = JSON.stringify(payloadObj);
-  const endpoint = `/api/s/${encodeURIComponent(unifiSite)}/cmd/stamgr`;
+  let endpoint = "";
+  let unifiSite = "";
+  let authorizeResult = null;
   const authorizeStarted = Date.now();
-  const authorizeResult = await unifiRequest(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "Cookie": login.cookie,
-      "Content-Length": Buffer.byteLength(payload),
-    },
-    body: payload,
-  });
+  for (const candidate of unifiSiteCandidates) {
+    unifiSite = candidate;
+    endpoint = `/api/s/${encodeURIComponent(candidate)}/cmd/stamgr`;
+    authorizeResult = await unifiRequest(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Cookie": login.cookie,
+        "Content-Length": Buffer.byteLength(payload),
+      },
+      body: payload,
+    });
+    if (
+      authorizeResult.ok ||
+      !authorizeResult.body.includes("api.err.NoSiteContext") ||
+      candidate === unifiSiteCandidates[unifiSiteCandidates.length - 1]
+    ) {
+      break;
+    }
+    log("direct_unifi_authorize_site_retry", {
+      attempted_site: candidate,
+      fallback_site: unifiSiteCandidates[unifiSiteCandidates.indexOf(candidate) + 1],
+      status: authorizeResult.status,
+      client_mac: normalizedMac || clientMac,
+    });
+  }
   const authorizeMs = Date.now() - authorizeStarted;
-  const parsed = readJson(authorizeResult.body);
-  const authorizedCommandAccepted = authorizeResult.ok && parsed?.meta?.rc === "ok";
+  const parsed = readJson(authorizeResult?.body);
+  const authorizedCommandAccepted = authorizeResult?.ok && parsed?.meta?.rc === "ok";
   if (!authorizedCommandAccepted) {
-    throw new Error(`UniFi authorize failed status=${authorizeResult.status} body=${authorizeResult.body}`);
+    throw new Error(`UniFi authorize failed status=${authorizeResult?.status || 0} body=${authorizeResult?.body || ""}`);
   }
 
   let verifyAuthorized = false;
@@ -1118,7 +1144,7 @@ async function directUnifiAuthorize({ site, clientMac, apMac, minutes }) {
     verifyAttempts = index + 1;
     const statusStarted = Date.now();
     const status = await directUnifiStatus({
-      site,
+      site: unifiSite,
       clientMac,
       cookie: login.cookie,
       includeGuestListFallback: UNIFI_STATUS_LIST_FALLBACK,
@@ -1188,15 +1214,17 @@ async function directUnifiStatus({
   includeGuestListFallback = false,
 }) {
   const login = cookie ? { cookie } : await directUnifiLogin();
-  const unifiSite = normalizeUnifiSite(site);
+  const unifiSiteCandidates = getUnifiSiteCandidates(site);
   const normalizedMac = normalizeMac(clientMac);
-  const checks = [
-    { path: `/api/s/${encodeURIComponent(unifiSite)}/stat/user/${normalizedMac}`, kind: "single" },
-    { path: `/api/s/${encodeURIComponent(unifiSite)}/stat/sta/${normalizedMac}`, kind: "single" },
-    { path: `/api/s/${encodeURIComponent(unifiSite)}/stat/guest/${normalizedMac}`, kind: "single" },
-  ];
+  const checks = unifiSiteCandidates.flatMap((unifiSite) => [
+    { path: `/api/s/${encodeURIComponent(unifiSite)}/stat/user/${normalizedMac}`, kind: "single", unifiSite },
+    { path: `/api/s/${encodeURIComponent(unifiSite)}/stat/sta/${normalizedMac}`, kind: "single", unifiSite },
+    { path: `/api/s/${encodeURIComponent(unifiSite)}/stat/guest/${normalizedMac}`, kind: "single", unifiSite },
+  ]);
   if (includeGuestListFallback) {
-    checks.push({ path: `/api/s/${encodeURIComponent(unifiSite)}/stat/guest`, kind: "list" });
+    for (const unifiSite of unifiSiteCandidates) {
+      checks.push({ path: `/api/s/${encodeURIComponent(unifiSite)}/stat/guest`, kind: "list", unifiSite });
+    }
   }
 
   let last = null;
