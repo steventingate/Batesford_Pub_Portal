@@ -21,9 +21,11 @@ const UNIFI_USERNAME = (process.env.UNIFI_USERNAME || "").trim();
 const UNIFI_PASSWORD = (process.env.UNIFI_PASSWORD || "").trim();
 const UNIFI_SITE_NAME = (process.env.UNIFI_SITE_NAME || "").trim();
 const UNIFI_ALLOW_INVALID_TLS = process.env.UNIFI_ALLOW_INVALID_TLS === "true";
-const UNIFI_AUTH_BACKEND = (
-  process.env.UNIFI_AUTH_BACKEND || (UNIFI_BASE_URL ? "direct" : "edge")
-).trim().toLowerCase();
+const UNIFI_DIRECT_CONFIGURED = Boolean(UNIFI_BASE_URL && UNIFI_USERNAME && UNIFI_PASSWORD);
+const UNIFI_AUTH_BACKEND_RAW = (process.env.UNIFI_AUTH_BACKEND || "auto").trim().toLowerCase();
+const UNIFI_AUTH_BACKEND = UNIFI_AUTH_BACKEND_RAW === "auto"
+  ? (UNIFI_DIRECT_CONFIGURED ? "direct" : "edge")
+  : UNIFI_AUTH_BACKEND_RAW;
 const UNIFI_TIMEOUT_MS = Math.max(
   1000,
   Number.parseInt(process.env.UNIFI_TIMEOUT_MS || "8000", 10) || 8000,
@@ -74,7 +76,7 @@ if (UNIFI_AUTH_BACKEND === "edge" && !WIFI_CONNECT_FUNCTION_URL) {
   throw new Error("Missing WIFI_CONNECT_FUNCTION_URL.");
 }
 
-if (UNIFI_AUTH_BACKEND === "direct" && (!UNIFI_BASE_URL || !UNIFI_USERNAME || !UNIFI_PASSWORD)) {
+if (UNIFI_AUTH_BACKEND === "direct" && !UNIFI_DIRECT_CONFIGURED) {
   throw new Error("Missing direct UniFi configuration: UNIFI_BASE_URL, UNIFI_USERNAME, and UNIFI_PASSWORD are required.");
 }
 

@@ -45,7 +45,7 @@ Use Portainer `Create stack` with:
 Set these stack environment variables:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `UNIFI_AUTH_BACKEND` (`direct` for production/direct controller auth, `edge` for rollback)
+- `UNIFI_AUTH_BACKEND` (`auto` recommended; direct auth is used when the UniFi URL, username, and password are present)
 - `UNIFI_BASE_URL` (example: `https://103.214.220.232:8443`)
 - `UNIFI_USERNAME`
 - `UNIFI_PASSWORD`
@@ -120,6 +120,8 @@ In direct auth mode, Supabase is not in the critical UniFi authorization path. T
 - verifies authorization, then releases the OS captive probe.
 
 For self-hosted controllers with default UniFi certificates, set `UNIFI_ALLOW_INVALID_TLS=true` on the portal server. This intentionally allows the portal server to talk to `https://<controller>:8443` even when the certificate is self-signed or hostname-mismatched. Do not expose this setting to client-side code.
+
+If the container starts with `auth_backend=edge`, Portainer is missing one of the direct UniFi variables. Add `UNIFI_BASE_URL`, `UNIFI_USERNAME`, and `UNIFI_PASSWORD` to the stack environment and redeploy.
 
 Disable any UniFi setting that redirects or intercepts HTTPS before authorization. HTTPS interception is what produces the certificate warnings on iOS and Android.
 
