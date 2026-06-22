@@ -123,6 +123,8 @@ For self-hosted controllers with default UniFi certificates, set `UNIFI_ALLOW_IN
 
 If the container starts with `auth_backend=edge`, Portainer is missing one of the direct UniFi variables. Add `UNIFI_BASE_URL`, `UNIFI_USERNAME`, and `UNIFI_PASSWORD` to the stack environment and redeploy.
 
+If logs show `direct_unifi_authorize_response ... authorized=true` in under a few seconds, but iOS keeps loading the portal for 30-60 seconds, the portal has already authorized the client. At that point the delay is UniFi/AP captive release propagation or post-auth probe handling. The portal will keep retrying the original OS probe URL automatically; default retries are `PORTAL_MAX_AUTO_RELEASE_ATTEMPTS=20` every `PORTAL_RELEASE_RETRY_DELAY_MS=3000`.
+
 Disable any UniFi setting that redirects or intercepts HTTPS before authorization. HTTPS interception is what produces the certificate warnings on iOS and Android.
 
 Do not pre-auth allow Apple, Google, Microsoft captive probe hosts, or the venue website. They should be blocked before auth and immediately reachable after UniFi marks the guest authorized. If iOS still takes 30-45 seconds after traces show `probe_release_redirect`, check post-auth DNS/firewall/content-filtering for `captive.apple.com` and the Google/Microsoft probe hosts.

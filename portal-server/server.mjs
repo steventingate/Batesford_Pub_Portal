@@ -52,15 +52,15 @@ const DEFAULT_WEBSITE_URL = (process.env.PORTAL_DEFAULT_WEBSITE_URL ||
 const DEFAULT_BRAND_NAME = (process.env.PORTAL_BRAND_NAME || "Guest Wi-Fi").trim();
 const MAX_AUTO_RELEASE_ATTEMPTS = Math.max(
   2,
-  Number.parseInt(process.env.PORTAL_MAX_AUTO_RELEASE_ATTEMPTS || process.env.PORTAL_MAX_RELEASE_ATTEMPTS || "5", 10) || 5,
+  Number.parseInt(process.env.PORTAL_MAX_AUTO_RELEASE_ATTEMPTS || process.env.PORTAL_MAX_RELEASE_ATTEMPTS || "20", 10) || 20,
 );
 const MAX_MANUAL_RELEASE_ATTEMPTS = Math.max(
   MAX_AUTO_RELEASE_ATTEMPTS,
-  Number.parseInt(process.env.PORTAL_MAX_MANUAL_RELEASE_ATTEMPTS || "20", 10) || 20,
+  Number.parseInt(process.env.PORTAL_MAX_MANUAL_RELEASE_ATTEMPTS || "30", 10) || 30,
 );
 const RELEASE_RETRY_DELAY_MS = Math.max(
   1500,
-  Number.parseInt(process.env.PORTAL_RELEASE_RETRY_DELAY_MS || "4000", 10) || 4000,
+  Number.parseInt(process.env.PORTAL_RELEASE_RETRY_DELAY_MS || "3000", 10) || 3000,
 );
 const SESSION_WINDOW_MINUTES = Math.max(
   5,
