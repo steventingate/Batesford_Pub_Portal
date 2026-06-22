@@ -46,10 +46,10 @@ Set these stack environment variables:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `UNIFI_AUTH_BACKEND` (`auto` recommended; direct auth is used when the UniFi URL, username, and password are present)
-- `UNIFI_BASE_URL` (example: `https://103.214.220.232:8443`)
+- `UNIFI_BASE_URL` (example: `https://unifi.gearedit.com.au:8443`)
 - `UNIFI_USERNAME`
 - `UNIFI_PASSWORD`
-- `UNIFI_SITE_NAME` (usually `default` for a single-site self-hosted controller)
+- `UNIFI_SITE_NAME` (`xlgkkyrq` for the Batesford/Hotel hosted-controller site; omit for route-driven site selection)
 - `UNIFI_ALLOW_INVALID_TLS` (`true` only when the UniFi controller uses a self-signed/invalid cert)
 - `WIFI_CONNECT_FUNCTION_URL` (rollback only when `UNIFI_AUTH_BACKEND=edge`)
 - `PORTAL_DEFAULT_WEBSITE_URL`
@@ -86,7 +86,7 @@ The portal no longer needs `release.batesfordguestwifi.gearedit.com.au`. After U
 
 Do not use the Netlify `/connect.html` or `/guest/*` static path as the production captive portal. Netlify should remain for admin/marketing only.
 
-Successful submissions should not stop on the `/progress` spinner page. After verified UniFi auth, `portal-server` redirects straight to `/guest/s/<site>/release`, which then redirects to the original OS probe URL. The `/progress` page is now only a fallback for pending auth, failed auth, or sessions without a safe probe URL.
+Successful submissions should not stop on the `/progress` spinner page. After verified UniFi auth, `portal-server` redirects straight to `/guest/s/<site>/release`, which redirects to the original OS probe URL. If UniFi did not provide a safe probe URL, the portal infers one from the captive browser user-agent for iOS/macOS, Android, or Windows before falling back to the manual connected page.
 
 ### UniFi guest network settings
 Use this external portal URL/domain:
@@ -123,7 +123,9 @@ For self-hosted controllers with default UniFi certificates, set `UNIFI_ALLOW_IN
 
 If the container starts with `auth_backend=edge`, Portainer is missing one of the direct UniFi variables. Add `UNIFI_BASE_URL`, `UNIFI_USERNAME`, and `UNIFI_PASSWORD` to the stack environment and redeploy.
 
-If logs show `direct_unifi_authorize_response ... authorized=true` in under a few seconds, but iOS keeps loading the portal for 30-60 seconds, the portal has already authorized the client. At that point the delay is UniFi/AP captive release propagation or post-auth probe handling. The portal will keep retrying the original OS probe URL automatically; default retries are `PORTAL_MAX_AUTO_RELEASE_ATTEMPTS=20` every `PORTAL_RELEASE_RETRY_DELAY_MS=3000`.
+If logs show `direct_unifi_authorize_response ... authorized=true` in under a few seconds, but iOS keeps loading the portal for 30-60 seconds, the portal has already authorized the client. At that point the delay is UniFi/AP captive release propagation or post-auth probe handling. The portal will keep retrying the original or inferred OS probe URL automatically; default retries are `PORTAL_MAX_AUTO_RELEASE_ATTEMPTS=20` every `PORTAL_RELEASE_RETRY_DELAY_MS=3000`.
+
+For a single session summary, open `/debug/session/<session_key>`. It returns auth timing, selected probe URL, probe source, release attempts, and release result.
 
 Disable any UniFi setting that redirects or intercepts HTTPS before authorization. HTTPS interception is what produces the certificate warnings on iOS and Android.
 

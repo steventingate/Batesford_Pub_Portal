@@ -80,6 +80,18 @@ if (UNIFI_AUTH_BACKEND === "direct" && !UNIFI_DIRECT_CONFIGURED) {
   throw new Error("Missing direct UniFi configuration: UNIFI_BASE_URL, UNIFI_USERNAME, and UNIFI_PASSWORD are required.");
 }
 
+if (
+  UNIFI_AUTH_BACKEND === "direct" &&
+  UNIFI_SITE_NAME &&
+  /[A-Z_\s]/.test(UNIFI_SITE_NAME) &&
+  !Object.prototype.hasOwnProperty.call(SITE_MAP, UNIFI_SITE_NAME)
+) {
+  log("unifi_site_name_warning", {
+    unifi_site_name: UNIFI_SITE_NAME,
+    message: "UNIFI_SITE_NAME should be the UniFi site key, not the display label. Prefer xlgkkyrq or leave it empty to use the route site.",
+  });
+}
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
@@ -159,6 +171,21 @@ function isProbeUrl(value) {
   }
 }
 
+function inferProbeUrlFromUserAgent(userAgent) {
+  const ua = String(userAgent || "").toLowerCase();
+  if (!ua) return "";
+  if (ua.includes("iphone") || ua.includes("ipad") || ua.includes("ipod") || ua.includes("mac os x") || ua.includes("captive")) {
+    return "http://captive.apple.com/hotspot-detect.html";
+  }
+  if (ua.includes("android")) {
+    return "http://connectivitycheck.gstatic.com/generate_204";
+  }
+  if (ua.includes("windows")) {
+    return "http://www.msftconnecttest.com/connecttest.txt";
+  }
+  return "";
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -211,12 +238,12 @@ function buildFinishConnectionUrl(site, sessionKey, source = "manual") {
 }
 
 function canAutoRetryRelease(session) {
-  return Boolean(getOriginalProbeUrl(session)) &&
+  return Boolean(getReleaseProbe(session).url) &&
     Number(session?.release_attempt_count || 0) < MAX_AUTO_RELEASE_ATTEMPTS;
 }
 
 function canManualRetryRelease(session) {
-  return Boolean(getOriginalProbeUrl(session)) &&
+  return Boolean(getReleaseProbe(session).url) &&
     Number(session?.release_attempt_count || 0) < MAX_MANUAL_RELEASE_ATTEMPTS;
 }
 
@@ -225,16 +252,30 @@ function getOriginalProbeUrl(session) {
   return isProbeUrl(candidate) ? candidate : "";
 }
 
+function getReleaseProbe(session) {
+  const original = getOriginalProbeUrl(session);
+  if (original) {
+    return { url: original, source: "original" };
+  }
+  const inferred = inferProbeUrlFromUserAgent(session?.user_agent);
+  if (inferred && isProbeUrl(inferred)) {
+    return { url: inferred, source: "inferred" };
+  }
+  return { url: "", source: "none" };
+}
+
 function buildReleaseFields(session, siteConfig) {
   const websiteUrl = safeUrl(session?.website_url, siteConfig.websiteUrl);
-  const probeUrl = getOriginalProbeUrl(session);
+  const probe = getReleaseProbe(session);
   return {
-    release_target: probeUrl ? buildInternalReleaseUrl(siteConfig.site, session.session_key) : null,
+    release_target: probe.url ? buildInternalReleaseUrl(siteConfig.site, session.session_key) : null,
     continue_target: buildWebsiteRedirectUrl(siteConfig.site, session.session_key),
     secondary_target: buildWebsiteRedirectUrl(siteConfig.site, session.session_key),
-    final_redirect_url: probeUrl || websiteUrl,
+    final_redirect_url: probe.url || websiteUrl,
     website_url: websiteUrl,
-    release_mode: probeUrl ? "original_probe_redirect" : "manual_connected_page",
+    release_mode: probe.url
+      ? (probe.source === "inferred" ? "inferred_probe_redirect" : "original_probe_redirect")
+      : "manual_connected_page",
   };
 }
 
@@ -1178,6 +1219,9 @@ async function directUnifiAuthorize({ site, clientMac, apMac, minutes }) {
         endpoint,
         status: authorizeResult.status,
         site: unifiSite,
+        resolved_site: unifiSite,
+        configured_site: UNIFI_SITE_NAME || null,
+        route_site: site,
         allow_invalid_tls: UNIFI_ALLOW_INVALID_TLS,
       },
     },
@@ -1293,7 +1337,8 @@ async function authorizeWifi(payload) {
   log("direct_unifi_authorize_response", {
     status: 200,
     elapsed_ms: Date.now() - startedAt,
-    site: normalizeUnifiSite(payload.unifi_site),
+    site: payload.unifi_site,
+    resolved_unifi_site: body.debug?.unifi_authorize?.resolved_site || normalizeUnifiSite(payload.unifi_site),
     client_mac: payload.client_mac,
     authorized: body.authorized,
     allow_invalid_tls: UNIFI_ALLOW_INVALID_TLS,
@@ -1314,6 +1359,7 @@ async function checkWifiStatus(payload) {
     status: 200,
     elapsed_ms: Date.now() - startedAt,
     site: normalizeUnifiSite(payload.unifi_site),
+    route_site: payload.unifi_site,
     client_mac: payload.client_mac,
     authorized: status.authorized,
   });
@@ -1369,21 +1415,28 @@ async function handleReleaseRequest(req, res, routeSite = "", options = {}) {
 
     const effectiveSiteConfig = getSiteConfig(session.site_slug || site);
     const websiteUrl = safeUrl(session.website_url || req.query.website, effectiveSiteConfig.websiteUrl);
-    const probeUrl = getOriginalProbeUrl(session);
+    const probe = getReleaseProbe(session);
+    const probeUrl = probe.url;
     const releaseAttempts = Number(session.release_attempt_count || 0);
     const now = new Date().toISOString();
     const releaseEventUrl = `/guest/s/${encodeURIComponent(effectiveSiteConfig.site)}/event?session_key=${encodeURIComponent(sessionKey)}`;
+    const authorizedAtMs = session.authorized_at ? Date.parse(session.authorized_at) : NaN;
+    const authToFirstProbeMs = Number.isFinite(authorizedAtMs) && releaseAttempts === 0
+      ? Math.max(0, Date.now() - authorizedAtMs)
+      : null;
 
     log("release_route_received", {
       site: session.site_slug,
       session_key: sessionKey,
       client_mac: session.client_mac,
       has_probe_url: Boolean(probeUrl),
+      release_probe_source: probe.source,
       release_attempt_count: releaseAttempts,
     });
     recordTraceEvent(session, "release_route_received", {
       metadata: {
         has_probe_url: Boolean(probeUrl),
+        release_probe_source: probe.source,
         release_attempt_count: releaseAttempts,
         source,
       },
@@ -1399,6 +1452,7 @@ async function handleReleaseRequest(req, res, routeSite = "", options = {}) {
         release_attempt_count: nextAttempt,
         release_result: redirectStage,
         final_redirect_url: probeUrl,
+        release_mode: probe.source === "inferred" ? "inferred_probe_redirect" : session.release_mode,
         website_url: websiteUrl,
       });
 
@@ -1408,12 +1462,16 @@ async function handleReleaseRequest(req, res, routeSite = "", options = {}) {
         client_mac: updated.client_mac,
         target: probeUrl,
         source,
+        release_probe_source: probe.source,
+        auth_to_first_probe_ms: authToFirstProbeMs,
         release_attempt_count: nextAttempt,
       });
       recordTraceEvent(updated, redirectStage, {
         metadata: {
           release_attempt_count: nextAttempt,
           target_host: new URL(probeUrl).hostname,
+          release_probe_source: probe.source,
+          auth_to_first_probe_ms: authToFirstProbeMs,
           source,
         },
       });
@@ -1427,12 +1485,21 @@ async function handleReleaseRequest(req, res, routeSite = "", options = {}) {
           release_attempt_count: releaseAttempts,
           max_auto_release_attempts: MAX_AUTO_RELEASE_ATTEMPTS,
           max_manual_release_attempts: MAX_MANUAL_RELEASE_ATTEMPTS,
+          release_exhausted: true,
           source,
         },
       });
     }
 
     const releaseResult = probeUrl ? "release_already_attempted" : "no_valid_probe_manual_connected";
+    log(releaseResult, {
+      site: session.site_slug,
+      session_key: sessionKey,
+      client_mac: session.client_mac,
+      release_attempt_count: releaseAttempts,
+      release_probe_source: probe.source,
+      release_exhausted: Boolean(probeUrl && releaseAttempts >= MAX_AUTO_RELEASE_ATTEMPTS),
+    });
     const updated = await updateSession(sessionKey, {
       status: "completed",
       completed_at: session.completed_at || now,
@@ -1445,6 +1512,8 @@ async function handleReleaseRequest(req, res, routeSite = "", options = {}) {
       metadata: {
         release_attempt_count: releaseAttempts,
         has_probe_url: Boolean(probeUrl),
+        release_probe_source: probe.source,
+        release_exhausted: Boolean(probeUrl && releaseAttempts >= MAX_AUTO_RELEASE_ATTEMPTS),
       },
     });
 
@@ -1583,7 +1652,8 @@ app.get("/guest/s/:site/", async (req, res) => {
       if (updated.status === "completed" && Number(updated.release_attempt_count || 0) < 1) {
         recordTraceEvent(updated, "release_recovered", {
           metadata: {
-            has_probe_url: Boolean(getOriginalProbeUrl(updated)),
+            has_probe_url: Boolean(getReleaseProbe(updated).url),
+            release_probe_source: getReleaseProbe(updated).source,
           },
         });
       }
@@ -1668,7 +1738,8 @@ app.post("/guest/s/:site/connect", async (req, res) => {
     });
     recordTraceEvent(session, "portal_submit", {
       metadata: {
-        has_probe_url: Boolean(getOriginalProbeUrl(session)),
+        has_probe_url: Boolean(getReleaseProbe(session).url),
+        release_probe_source: getReleaseProbe(session).source,
         ssid: session.ssid,
       },
     });
@@ -1747,9 +1818,11 @@ app.post("/guest/s/:site/connect", async (req, res) => {
     recordTraceEvent(completedSession, "unifi_authorized", {
       metadata: {
         release_mode: completedSession.release_mode,
-        has_probe_url: Boolean(getOriginalProbeUrl(completedSession)),
+        has_probe_url: Boolean(getReleaseProbe(completedSession).url),
+        release_probe_source: getReleaseProbe(completedSession).source,
         wifi_trace_id: connectResult.body?.trace_id || session.trace_id,
         auth_backend: UNIFI_AUTH_BACKEND,
+        resolved_unifi_site: connectResult.body?.debug?.unifi_authorize?.resolved_site || null,
       },
     });
 
@@ -1761,12 +1834,14 @@ app.post("/guest/s/:site/connect", async (req, res) => {
       client_mac: completedSession.client_mac,
       target: postAuthTarget,
       release_mode: completedSession.release_mode,
+      release_probe_source: getReleaseProbe(completedSession).source,
     });
     recordTraceEvent(completedSession, "post_auth_redirect_issued", {
       metadata: {
         target: postAuthTarget,
         release_mode: completedSession.release_mode,
-        has_probe_url: Boolean(getOriginalProbeUrl(completedSession)),
+        has_probe_url: Boolean(getReleaseProbe(completedSession).url),
+        release_probe_source: getReleaseProbe(completedSession).source,
       },
     });
 
@@ -1818,7 +1893,8 @@ app.get("/guest/s/:site/progress", async (req, res) => {
         recordTraceEvent(session, "release_recovered", {
           metadata: {
             source: "progress",
-            has_probe_url: Boolean(getOriginalProbeUrl(session)),
+            has_probe_url: Boolean(getReleaseProbe(session).url),
+            release_probe_source: getReleaseProbe(session).source,
           },
         });
         res.redirect(303, session.release_target);
@@ -1946,6 +2022,60 @@ app.get("/guest/s/:site/session", async (req, res) => {
   }
 });
 
+app.get("/debug/session/:sessionKey", async (req, res) => {
+  const sessionKey = String(req.params.sessionKey || "").trim();
+  if (!sessionKey) {
+    res.status(400).json({ success: false, error: "Missing session key." });
+    return;
+  }
+
+  try {
+    const session = await getSession(sessionKey);
+    if (!session) {
+      res.status(404).json({ success: false, error: "Session not found." });
+      return;
+    }
+    const probe = getReleaseProbe(session);
+    const submittedAtMs = session.submitted_at ? Date.parse(session.submitted_at) : NaN;
+    const authorizedAtMs = session.authorized_at ? Date.parse(session.authorized_at) : NaN;
+    const releaseAttemptedAtMs = session.release_attempted_at ? Date.parse(session.release_attempted_at) : NaN;
+    res.json({
+      success: true,
+      session_key: session.session_key,
+      trace_id: session.trace_id,
+      site_slug: session.site_slug,
+      client_mac: session.client_mac,
+      ap_mac: session.ap_mac,
+      ssid: session.ssid,
+      status: session.status,
+      submitted_at: session.submitted_at,
+      authorized_at: session.authorized_at,
+      release_attempted_at: session.release_attempted_at,
+      release_attempt_count: Number(session.release_attempt_count || 0),
+      release_result: session.release_result,
+      release_mode: session.release_mode,
+      release_probe_source: probe.source,
+      selected_probe_url: probe.url || null,
+      original_redirect_url: session.redirect_url || null,
+      website_url: session.website_url,
+      durations_ms: {
+        submit_to_authorized: Number.isFinite(submittedAtMs) && Number.isFinite(authorizedAtMs)
+          ? Math.max(0, authorizedAtMs - submittedAtMs)
+          : null,
+        authorized_to_first_release_attempt: Number.isFinite(authorizedAtMs) && Number.isFinite(releaseAttemptedAtMs)
+          ? Math.max(0, releaseAttemptedAtMs - authorizedAtMs)
+          : null,
+      },
+    });
+  } catch (error) {
+    log("debug_session_error", {
+      session_key: sessionKey,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ success: false, error: "Could not load debug session." });
+  }
+});
+
 app.listen(PORT, () => {
   log("portal_server_started", {
     port: PORT,
@@ -1954,6 +2084,8 @@ app.listen(PORT, () => {
     unifi_base_url: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_BASE_URL : null,
     unifi_site_name: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_SITE_NAME || "(route-site)" : null,
     unifi_allow_invalid_tls: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_ALLOW_INVALID_TLS : null,
+    max_auto_release_attempts: MAX_AUTO_RELEASE_ATTEMPTS,
+    release_retry_delay_ms: RELEASE_RETRY_DELAY_MS,
     wifi_connect_function_url: WIFI_CONNECT_FUNCTION_URL,
     configured_sites: Object.keys(SITE_MAP),
   });
