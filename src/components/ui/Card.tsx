@@ -9,7 +9,7 @@ export function Card({ tone = 'default', className, ...props }: CardProps) {
     <div
       className={clsx(
         'card p-6',
-        tone === 'muted' && 'bg-white/80 border border-white/70',
+        tone === 'muted' && 'bg-white/[0.03] border border-white/10',
         className
       )}
       {...props}

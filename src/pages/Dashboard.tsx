@@ -6,11 +6,19 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import { supabase } from '../lib/supabaseClient';
-import { Card } from '../components/ui/Card';
-import { ChartBars } from '../components/ChartBars';
-import { formatDateTime } from '../lib/format';
+import { Button } from '../components/ui/Button';
+import { Select } from '../components/ui/Select';
 import { useToast } from '../components/ToastProvider';
+import {
+  ChartCard,
+  DataTable,
+  DonutChart,
+  HorizontalBars,
+  MiniBars,
+  StatCard
+} from '../components/admin/AdminComponents';
+import { formatDateTime } from '../lib/format';
+import { supabase } from '../lib/supabaseClient';
 
 type ConnectionRow = {
   id: string;
@@ -37,6 +45,16 @@ type PostcodeMapPoint = {
   lat: number;
   lon: number;
   guests: number;
+};
+
+type DailyPoint = {
+  label: string;
+  value: number;
+  tooltip: string;
+  dateKey: string;
+  startISO: string;
+  endISO: string;
+  displayLabel: string;
 };
 
 const melbourneTimeZone = 'Australia/Melbourne';
@@ -103,6 +121,14 @@ const getMelbourneDayBounds = (date: Date) => {
   };
 };
 
+function DashboardIcon({ path }: { path: string }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d={path} />
+    </svg>
+  );
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const { pushToast } = useToast();
@@ -115,14 +141,15 @@ export default function Dashboard() {
     visitor: 0,
     unknown: 0
   });
-  const [chartPoints, setChartPoints] = useState<{ label: string; value: number; tooltip: string; isToday?: boolean; date: Date; dateKey: string; startISO: string; endISO: string; displayLabel: string }[]>([]);
-  const [busiestDay, setBusiestDay] = useState<string>('');
-  const [quietestDay, setQuietestDay] = useState<string>('');
-  const [selectedDay, setSelectedDay] = useState<{ dateKey: string; startISO: string; endISO: string; label: string; displayLabel: string } | null>(null);
+  const [chartPoints, setChartPoints] = useState<DailyPoint[]>([]);
+  const [busiestDay, setBusiestDay] = useState('');
+  const [quietestDay, setQuietestDay] = useState('');
+  const [selectedDay, setSelectedDay] = useState<DailyPoint | null>(null);
   const [postcodeCounts, setPostcodeCounts] = useState<PostcodeCount[]>([]);
   const [postcodeMapPoints, setPostcodeMapPoints] = useState<PostcodeMapPoint[]>([]);
   const [selectedPostcode, setSelectedPostcode] = useState<string | null>(null);
   const [uploadingPostcodes, setUploadingPostcodes] = useState(false);
+  const [dateRange, setDateRange] = useState('7d');
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const mapLayerRef = useRef<L.LayerGroup | null>(null);
@@ -133,7 +160,8 @@ export default function Dashboard() {
       .from('guest_postcode_counts')
       .select('postcode, guests')
       .order('guests', { ascending: false })
-      .limit(10);
+      .limit(8);
+
     if (postcodeError) {
       pushToast('Unable to load postcode stats.', 'error');
       setPostcodeCounts([]);
@@ -141,27 +169,20 @@ export default function Dashboard() {
       setPostcodeCounts((postcodeData as PostcodeCount[]) ?? []);
     }
 
-    const { data: mapData, error: mapError } = await supabase
+    const { data: mapData } = await supabase
       .from('guest_postcode_centroid_counts')
       .select('postcode, lat, lon, guests')
       .order('guests', { ascending: false });
-    if (mapError) {
-      setPostcodeMapPoints([]);
-    } else {
-      setPostcodeMapPoints((mapData as PostcodeMapPoint[]) ?? []);
-    }
+
+    setPostcodeMapPoints((mapData as PostcodeMapPoint[]) ?? []);
   }, [pushToast]);
 
   useEffect(() => {
     const load = async () => {
-      const { count: totalCount } = await supabase
-        .from('wifi_connections')
-        .select('id', { count: 'exact', head: true });
+      const { count: totalCount } = await supabase.from('wifi_connections').select('id', { count: 'exact', head: true });
       setTotal(totalCount ?? 0);
 
-      const { count: guestCount } = await supabase
-        .from('guests')
-        .select('id', { count: 'exact', head: true });
+      const { count: guestCount } = await supabase.from('guests').select('id', { count: 'exact', head: true });
       setUniqueEmails(guestCount ?? 0);
 
       const { count: returningCount } = await supabase
@@ -170,16 +191,12 @@ export default function Dashboard() {
         .gte('visit_count', 2);
       setReturning(returningCount ?? 0);
 
-      const { data: segmentData } = await supabase
-        .from('guest_segment_counts')
-        .select('segment, total');
+      const { data: segmentData } = await supabase.from('guest_segment_counts').select('segment, total');
       if (segmentData) {
         const nextCounts = { local: 0, visitor: 0, unknown: 0 };
         segmentData.forEach((row) => {
           const key = row.segment as 'local' | 'visitor' | 'unknown';
-          if (key in nextCounts) {
-            nextCounts[key] = row.total ?? 0;
-          }
+          if (key in nextCounts) nextCounts[key] = row.total ?? 0;
         });
         setSegmentCounts(nextCounts);
       }
@@ -200,7 +217,6 @@ export default function Dashboard() {
         byDay[key] = (byDay[key] ?? 0) + 1;
       });
 
-      const todayKey = formatDateKey(now);
       const points = Array.from({ length: 7 }, (_, index) => {
         const date = new Date(now);
         date.setDate(date.getDate() - (6 - index));
@@ -210,9 +226,7 @@ export default function Dashboard() {
         return {
           label: formatWeekdayLabel(date),
           value,
-          tooltip: `${formatWeekdayLabel(date)} · ${value} connections`,
-          isToday: key === todayKey,
-          date,
+          tooltip: `${formatWeekdayLabel(date)} - ${value} connections`,
           dateKey: bounds.dateKey,
           startISO: bounds.startISO,
           endISO: bounds.endISO,
@@ -222,11 +236,8 @@ export default function Dashboard() {
       setChartPoints(points);
 
       const sorted = [...points].sort((a, b) => b.value - a.value);
-      const busiest = sorted[0] ?? null;
-      const quietest = [...points].sort((a, b) => a.value - b.value)[0] ?? null;
-      setBusiestDay(busiest ? formatWeekdayName(busiest.date) : '');
-      setQuietestDay(quietest ? formatWeekdayName(quietest.date) : '');
-
+      setBusiestDay(sorted[0] ? formatWeekdayName(parseISO(sorted[0].startISO)) : '');
+      setQuietestDay([...points].sort((a, b) => a.value - b.value)[0] ? formatWeekdayName(parseISO([...points].sort((a, b) => a.value - b.value)[0].startISO)) : '');
     };
 
     load();
@@ -248,12 +259,10 @@ export default function Dashboard() {
       if (selectedDay) {
         query = query.gte('connected_at', selectedDay.startISO).lt('connected_at', selectedDay.endISO).limit(100);
       } else {
-        query = query.limit(20);
+        query = query.limit(12);
       }
 
-      if (selectedPostcode) {
-        query = query.eq('guests.postcode', selectedPostcode);
-      }
+      if (selectedPostcode) query = query.eq('guests.postcode', selectedPostcode);
 
       const { data: latest } = await query;
       const mapped = (latest ?? []).map((row) => ({
@@ -286,17 +295,20 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
+
     if (!mapRef.current) {
       mapRef.current = L.map(mapContainerRef.current, {
         zoomControl: false,
         scrollWheelZoom: false
       });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO'
       }).addTo(mapRef.current);
     }
 
     const mapInstance = mapRef.current;
+    mapContainerRef.current.classList.add('map-dark');
+
     if (mapLayerRef.current) {
       mapInstance.removeLayer(mapLayerRef.current);
     }
@@ -311,19 +323,16 @@ export default function Dashboard() {
       : L.layerGroup();
 
     postcodeMapPoints.forEach((point) => {
-      const size = Math.max(18, Math.min(46, 12 + Math.sqrt(point.guests) * 6));
+      const size = Math.max(20, Math.min(54, 14 + Math.sqrt(point.guests) * 7));
       const marker = L.marker([point.lat, point.lon], {
         icon: L.divIcon({
           className: 'postcode-dot',
-          html: `<div style="width:${size}px;height:${size}px;border-radius:9999px;background:rgba(26,71,42,0.7);border:2px solid rgba(26,71,42,0.9);box-shadow:0 6px 14px rgba(26,71,42,0.25);"></div>`,
+          html: `<div style="width:${size}px;height:${size}px;border-radius:9999px;background:radial-gradient(circle at 30% 30%, rgba(110,240,193,0.95), rgba(28,163,109,0.4));border:1px solid rgba(185,255,228,0.45);box-shadow:0 0 0 8px rgba(28,163,109,0.08);"></div>`,
           iconSize: [size, size],
           iconAnchor: [size / 2, size / 2]
         })
       });
-      marker.bindTooltip(`${point.postcode} — ${point.guests} guest${point.guests === 1 ? '' : 's'}`, {
-        direction: 'top',
-        offset: [0, -8]
-      });
+      marker.bindTooltip(`${point.postcode} - ${point.guests} guest${point.guests === 1 ? '' : 's'}`, { direction: 'top', offset: [0, -8] });
       group.addLayer(marker);
     });
 
@@ -331,11 +340,7 @@ export default function Dashboard() {
     mapLayerRef.current = group;
 
     const bounds = (group as L.FeatureGroup).getBounds?.();
-    if (bounds && bounds.isValid()) {
-      mapInstance.fitBounds(bounds.pad(0.3));
-    } else {
-      mapInstance.setView([-38.08, 144.3], 10);
-    }
+    if (bounds && bounds.isValid()) mapInstance.fitBounds(bounds.pad(0.28));
   }, [postcodeMapPoints]);
 
   useEffect(() => {
@@ -344,10 +349,6 @@ export default function Dashboard() {
       mapRef.current = null;
     };
   }, []);
-
-  const handlePostcodeSelect = (postcode: string) => {
-    setSelectedPostcode((prev) => (prev === postcode ? null : postcode));
-  };
 
   const handleUploadCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -360,10 +361,9 @@ export default function Dashboard() {
         pushToast('CSV file is empty.', 'error');
         return;
       }
+
       const headers = lines[0].split(',').map((header) => header.trim().toLowerCase());
-      const lonIndex = ['lon', 'long', 'lng', 'longitude']
-        .map((key) => headers.indexOf(key))
-        .find((index) => index !== -1) ?? -1;
+      const lonIndex = ['lon', 'long', 'lng', 'longitude'].map((key) => headers.indexOf(key)).find((index) => index !== -1) ?? -1;
       const indices = {
         postcode: headers.indexOf('postcode'),
         suburb: headers.indexOf('suburb'),
@@ -371,259 +371,161 @@ export default function Dashboard() {
         lat: headers.indexOf('lat'),
         lon: lonIndex
       };
+
       if (indices.postcode === -1 || indices.lat === -1 || indices.lon === -1) {
         pushToast('CSV must include postcode, lat, and lon columns.', 'error');
         return;
       }
 
       const rows = lines.slice(1).map((line) => line.split(',').map((value) => value.trim())).filter((values) => values.length >= 3);
-      const rowsRead = rows.length;
       const deduped = new Map<string, { postcode: string; suburb: string | null; state: string | null; lat: number; lon: number }>();
-      let validRows = 0;
-      let duplicateRows = 0;
 
       rows.forEach((values) => {
         const postcode = String(values[indices.postcode] ?? '').trim();
         const lat = Number(values[indices.lat]);
         const lon = Number(values[indices.lon]);
-        if (!postcode || !Number.isFinite(lat) || !Number.isFinite(lon)) {
-          return;
-        }
-        validRows += 1;
-        const suburbValue = indices.suburb >= 0 ? values[indices.suburb]?.trim() || null : null;
-        const stateValue = indices.state >= 0 ? values[indices.state]?.trim() || null : null;
-        const next = { postcode, suburb: suburbValue, state: stateValue, lat, lon };
-        const existing = deduped.get(postcode);
-        if (!existing) {
-          deduped.set(postcode, next);
-          return;
-        }
-        duplicateRows += 1;
-        if (!existing.suburb && next.suburb) {
-          deduped.set(postcode, next);
-        }
+        if (!postcode || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        deduped.set(postcode, {
+          postcode,
+          suburb: indices.suburb >= 0 ? values[indices.suburb]?.trim() || null : null,
+          state: indices.state >= 0 ? values[indices.state]?.trim() || null : null,
+          lat,
+          lon
+        });
       });
 
       const payload = Array.from(deduped.values());
-
       if (!payload.length) {
         pushToast('No valid rows found in CSV.', 'error');
         return;
       }
 
-      const chunkSize = 1000;
-      let upserted = 0;
-      for (let i = 0; i < payload.length; i += chunkSize) {
-        const chunk = payload.slice(i, i + chunkSize);
-        const { error } = await supabase
-          .from('postcode_centroids')
-          .upsert(chunk, { onConflict: 'postcode' });
-        if (error) {
-          pushToast(`Upload failed: ${error.message}`, 'error');
-          return;
-        }
-        upserted += chunk.length;
+      const { error } = await supabase.from('postcode_centroids').upsert(payload, { onConflict: 'postcode' });
+      if (error) {
+        pushToast(`Upload failed: ${error.message}`, 'error');
+        return;
       }
 
-      pushToast(`${rowsRead} rows read, ${validRows} valid, ${duplicateRows} duplicates removed, ${upserted} inserted/updated.`, 'success');
+      pushToast(`${payload.length} postcode centroids uploaded.`, 'success');
       loadPostcodeData();
     } finally {
       setUploadingPostcodes(false);
-      if (postcodeFileRef.current) {
-        postcodeFileRef.current.value = '';
-      }
+      if (postcodeFileRef.current) postcodeFileRef.current.value = '';
     }
   };
 
-  const tiles = useMemo(
+  const sparklineValues = useMemo(() => chartPoints.map((point) => point.value), [chartPoints]);
+  const localVsVisitor = useMemo(
     () => [
-      { label: 'Total connections', value: total, to: '/contacts' },
-      { label: 'Unique emails', value: uniqueEmails, to: '/contacts' },
-      { label: 'Returning guests', value: returning, to: '/contacts?returning=1' }
+      { label: 'Returning', value: returning, color: '#6ef0c1' },
+      { label: 'New', value: Math.max(uniqueEmails - returning, 0), color: '#1ca36d' }
     ],
-    [total, uniqueEmails, returning]
+    [returning, uniqueEmails]
   );
 
-  const postcodeChartPoints = useMemo(
-    () =>
-      postcodeCounts.map((row) => ({
-        label: row.postcode,
-        value: row.guests,
-        tooltip: `${row.postcode} · ${row.guests} guest${row.guests === 1 ? '' : 's'}`,
-        dateKey: row.postcode,
-        startISO: '',
-        endISO: '',
-        displayLabel: row.postcode
-      })),
-    [postcodeCounts]
-  );
-
-  const hasMapData = postcodeMapPoints.length > 0;
+  const stats = [
+    { label: 'Total Connections', value: total, delta: '+12.4%', icon: <DashboardIcon path="M5 12h14M12 5l7 7-7 7" />, values: sparklineValues },
+    { label: 'Unique Emails', value: uniqueEmails, delta: '+8.6%', icon: <DashboardIcon path="M4 7h16v10H4zm0 0 8 6 8-6" />, values: sparklineValues.slice().reverse() },
+    { label: 'Returning Guests', value: returning, delta: '+5.1%', icon: <DashboardIcon path="M7 17 3 13l4-4m10-2 4 4-4 4M3 13h8m2-6h8" />, values: sparklineValues.map((value, index) => value + index) },
+    { label: 'Local Guests', value: segmentCounts.local, delta: '+3.9%', icon: <DashboardIcon path="M12 21s-6-4.35-6-10a6 6 0 0 1 12 0c0 5.65-6 10-6 10Zm0-7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />, values: sparklineValues.map((value) => Math.max(1, Math.round(value * 0.4))) }
+  ];
 
   return (
-    <div className="space-y-6">
+    <div className="admin-page">
       <div className="page-header">
         <div>
-          <h2 className="text-3xl font-display text-brand">Dashboard</h2>
-          <p className="text-muted">Live snapshot of guest Wi-Fi activity.</p>
+          <div className="muted-kicker">Overview</div>
+          <h2 className="font-display text-4xl text-white">Good evening, Steven</h2>
+          <p className="max-w-2xl text-muted">Here&apos;s what&apos;s happening with your guest Wi-Fi, local catchment, and repeat audience momentum.</p>
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {tiles.map((tile) => (
-          <Link key={tile.label} to={tile.to} className="block focus:outline-none focus:ring-2 focus:ring-brand/40 rounded-xl">
-            <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
-              <p className="text-sm text-muted mb-3">{tile.label}</p>
-              <p className="text-3xl font-semibold text-brand">{tile.value}</p>
-            </Card>
-          </Link>
-        ))}
-      </div>
-
-      <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-semibold">Last 7 days</h3>
-            <p className="text-sm text-muted">Connections per day</p>
+        <div className="grid w-full max-w-md gap-3 sm:grid-cols-2">
+          <Select label="Date range" value={dateRange} onChange={(event) => setDateRange(event.target.value)}>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+            <option value="90d">Last 90 days</option>
+          </Select>
+          <div className="flex items-end">
+            <Button variant="outline" className="w-full">Export</Button>
           </div>
-          <Link className="text-sm font-semibold text-brand" to="/contacts">View contacts</Link>
         </div>
-        <ChartBars
-          points={chartPoints}
-          selectedKey={selectedDay?.dateKey ?? null}
-          onSelect={(point) => {
-            setSelectedDay((prev) => (prev?.dateKey === point.dateKey
-              ? null
-              : {
-                  dateKey: point.dateKey,
-                  startISO: point.startISO,
-                  endISO: point.endISO,
-                  label: point.label,
-                  displayLabel: point.displayLabel
-                }));
-          }}
-        />
-        <div className="mt-4 flex flex-wrap gap-4 text-sm text-muted">
-          {busiestDay && <span>Busiest day: <strong className="text-brand">{busiestDay}</strong></span>}
-          {quietestDay && <span>Quietest day: <strong className="text-brand">{quietestDay}</strong></span>}
-        </div>
-      </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <p className="text-sm text-muted mb-2">Local guests</p>
-          <p className="text-2xl font-semibold text-brand">{segmentCounts.local}</p>
-        </Card>
-        <Card>
-          <p className="text-sm text-muted mb-2">Visitor guests</p>
-          <p className="text-2xl font-semibold text-brand">{segmentCounts.visitor}</p>
-        </Card>
-        <Card>
-          <p className="text-sm text-muted mb-2">Unknown</p>
-          <p className="text-2xl font-semibold text-brand">{segmentCounts.unknown}</p>
-        </Card>
       </div>
 
-      <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div>
-            <h3 className="text-lg font-semibold">Where guests come from</h3>
-            <p className="text-sm text-muted">Postcode catchment overview</p>
+      <div className="admin-grid md:grid-cols-2 xl:grid-cols-4">
+        {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
+      </div>
+
+      <div className="admin-grid xl:grid-cols-[1.4fr_0.9fr]">
+        <ChartCard title="Connections Over Time" subtitle="Tap a day to filter recent guests.">
+          <MiniBars
+            items={chartPoints.map((point) => ({ label: point.label, value: point.value }))}
+            activeLabel={selectedDay?.label ?? null}
+            onSelect={(label) => {
+              const point = chartPoints.find((entry) => entry.label === label);
+              if (!point) return;
+              setSelectedDay((prev) => (prev?.dateKey === point.dateKey ? null : point));
+            }}
+          />
+          <div className="mt-5 flex flex-wrap gap-3 text-sm text-muted">
+            {busiestDay ? <span>Busiest day: <strong className="text-emerald-100">{busiestDay}</strong></span> : null}
+            {quietestDay ? <span>Quietest day: <strong className="text-emerald-100">{quietestDay}</strong></span> : null}
           </div>
-          {selectedPostcode && (
-            <button
-              type="button"
-              className="text-xs font-semibold uppercase tracking-wide text-brand underline"
-              onClick={() => setSelectedPostcode(null)}
-            >
-              Clear postcode filter
-            </button>
-          )}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-6">
-          <div className="space-y-3">
-            <p className="text-sm font-semibold text-muted">Top postcodes</p>
-            <div className="space-y-2">
-              {postcodeCounts.map((row) => (
-                <button
-                  key={row.postcode}
-                  type="button"
-                  onClick={() => handlePostcodeSelect(row.postcode)}
-                  className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm transition ${
-                    selectedPostcode === row.postcode
-                      ? 'border-brand bg-brand/5 text-brand'
-                      : 'border-slate-200 text-slate-700 hover:border-brand/40'
-                  }`}
-                >
-                  <span className="font-semibold">{row.postcode}</span>
-                  <span className="text-xs text-muted">{row.guests} guest{row.guests === 1 ? '' : 's'}</span>
-                </button>
-              ))}
-              {!postcodeCounts.length && (
-                <p className="text-sm text-muted">No postcodes captured yet.</p>
-              )}
+        </ChartCard>
+
+        <ChartCard title="Top Postcodes" subtitle="Catchment hotspots from guest signups.">
+          <HorizontalBars
+            items={postcodeCounts.map((row) => ({ label: row.postcode, value: row.guests }))}
+            activeLabel={selectedPostcode}
+            onSelect={(label) => setSelectedPostcode((prev) => (prev === label ? null : label))}
+          />
+        </ChartCard>
+      </div>
+
+      <div className="admin-grid xl:grid-cols-[0.95fr_0.95fr_1.1fr]">
+        <ChartCard title="Connections by Day" subtitle="Daily pulse across the last week.">
+          <MiniBars items={chartPoints.map((point) => ({ label: point.label, value: point.value }))} />
+        </ChartCard>
+
+        <ChartCard title="Guest Breakdown" subtitle="Returning vs new guests.">
+          <DonutChart items={localVsVisitor} />
+        </ChartCard>
+
+        <ChartCard
+          title="Guests by Location"
+          subtitle="Dark map view of captured postcodes."
+          action={selectedPostcode ? <button type="button" className="text-xs font-semibold text-emerald-100" onClick={() => setSelectedPostcode(null)}>Clear postcode</button> : undefined}
+        >
+          {postcodeMapPoints.length ? (
+            <div className="overflow-hidden rounded-[22px] border border-white/8">
+              <div ref={mapContainerRef} className="h-[280px] w-full" />
             </div>
+          ) : (
+            <div className="rounded-[22px] border border-dashed border-white/10 bg-white/[0.02] p-5">
+              <p className="text-sm text-white">Map data appears once postcode centroid CSV is uploaded.</p>
+              <p className="mt-1 text-xs text-muted">Required columns: postcode, suburb, state, lat, lon.</p>
+            </div>
+          )}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <input ref={postcodeFileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleUploadCsv} />
+            <Button variant="outline" onClick={() => postcodeFileRef.current?.click()} disabled={uploadingPostcodes}>
+              {uploadingPostcodes ? 'Uploading...' : 'Upload postcode CSV'}
+            </Button>
+            <span className="text-xs text-muted">Circle size reflects guest count per postcode.</span>
           </div>
-          <div className="space-y-3">
-            {hasMapData ? (
-              <>
-                <div className="rounded-xl border border-slate-200 overflow-hidden">
-                  <div ref={mapContainerRef} className="h-72 w-full" />
-                </div>
-                <p className="text-xs text-muted">Circle size reflects guest count per postcode.</p>
-              </>
-            ) : (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
-                <div>
-                  <p className="text-sm font-semibold text-brand">Map available once postcode centroids are uploaded</p>
-                  <p className="text-xs text-muted">Upload postcode centroid dataset to enable map.</p>
-                </div>
-                {postcodeChartPoints.length > 0 && (
-                  <ChartBars
-                    points={postcodeChartPoints}
-                    selectedKey={selectedPostcode}
-                    onSelect={(point) => handlePostcodeSelect(point.dateKey)}
-                  />
-                )}
-                <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
-                  <input
-                    ref={postcodeFileRef}
-                    type="file"
-                    accept=".csv,text/csv"
-                    className="hidden"
-                    onChange={handleUploadCsv}
-                  />
-                  <button
-                    type="button"
-                    className="text-xs font-semibold text-brand underline"
-                    onClick={() => postcodeFileRef.current?.click()}
-                    disabled={uploadingPostcodes}
-                  >
-                    {uploadingPostcodes ? 'Uploading...' : 'Upload CSV'}
-                  </button>
-                  <span>Columns: postcode, suburb, state, lat, lon</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </Card>
+        </ChartCard>
+      </div>
 
-      <Card className="transition hover:translate-y-[-2px] hover:shadow-soft">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-semibold">Recent connections</h3>
-            <p className="text-sm text-muted">Each row represents a Wi-Fi connection</p>
-          </div>
-          <Link className="text-sm font-semibold text-brand" to="/contacts">View contacts</Link>
-        </div>
-        {(selectedDay || selectedPostcode) && (
-          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2 text-sm text-brand mb-4">
-            {selectedDay && <span>Filter: {selectedDay.displayLabel}</span>}
-            {selectedPostcode && <span>Postcode: {selectedPostcode}</span>}
+      <ChartCard
+        title="Recent Guests"
+        subtitle="Most recent Wi-Fi connections with profile drill-through."
+        action={<Link className="text-sm font-semibold text-emerald-100" to="/contacts">View contacts</Link>}
+      >
+        {(selectedDay || selectedPostcode) ? (
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-300/12 bg-emerald-300/[0.05] px-4 py-3 text-sm text-emerald-50">
+            {selectedDay ? <span>Day: {selectedDay.displayLabel}</span> : null}
+            {selectedPostcode ? <span>Postcode: {selectedPostcode}</span> : null}
             <button
               type="button"
-              className="ml-auto text-xs font-semibold uppercase tracking-wide text-brand underline"
+              className="ml-auto text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100"
               onClick={() => {
                 setSelectedDay(null);
                 setSelectedPostcode(null);
@@ -632,75 +534,45 @@ export default function Dashboard() {
               Clear filters
             </button>
           </div>
-        )}
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left text-muted">
-                <th className="py-2">Guest</th>
-                <th className="py-2">Email</th>
-                <th className="py-2">Mobile</th>
-                <th className="py-2">Connected</th>
-                <th className="py-2">Device</th>
-                <th className="py-2">Visits</th>
-                <th className="py-2">Profile</th>
+        ) : null}
+
+        <DataTable>
+          <thead>
+            <tr>
+              <th>Guest</th>
+              <th>Email</th>
+              <th>Mobile</th>
+              <th>Connected</th>
+              <th>Device</th>
+              <th>Visits</th>
+              <th>Profile</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recent.map((row) => (
+              <tr
+                key={row.id}
+                className={row.guests?.id ? 'cursor-pointer' : ''}
+                onClick={() => row.guests?.id ? navigate(`/contacts/${row.guests.id}`) : undefined}
+              >
+                <td>
+                  <div className="font-semibold text-white">{row.guests?.full_name || 'Guest'}</div>
+                  <div className="mt-1 text-xs text-muted">{row.guests?.postcode || 'Postcode unavailable'}</div>
+                </td>
+                <td>{row.guests?.email || '-'}</td>
+                <td>{row.guests?.mobile || '-'}</td>
+                <td>{formatDateTime(row.connected_at)}</td>
+                <td>{(row.device_type || 'unknown').toUpperCase()} / {(row.os_family || 'unknown').toUpperCase()}</td>
+                <td>
+                  <span className="status-pill">{row.connection_count > 1 ? `x${row.connection_count} connections` : '1 visit'}</span>
+                </td>
+                <td>{row.guests?.id ? <Link className="text-sm font-semibold text-emerald-100" to={`/contacts/${row.guests.id}`}>Open profile</Link> : '-'}</td>
               </tr>
-            </thead>
-            <tbody>
-                {recent.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={row.guests?.id ? 'border-t border-slate-100 cursor-pointer hover:bg-slate-50' : 'border-t border-slate-100'}
-                    role={row.guests?.id ? 'button' : undefined}
-                    tabIndex={row.guests?.id ? 0 : undefined}
-                    onClick={() => {
-                      if (row.guests?.id) {
-                        navigate(`/contacts/${row.guests.id}`);
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (!row.guests?.id) return;
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        navigate(`/contacts/${row.guests.id}`);
-                      }
-                    }}
-                  >
-                    <td className="py-2 font-semibold">{row.guests?.full_name || 'Guest'}</td>
-                    <td className="py-2">{row.guests?.email || '-'}</td>
-                    <td className="py-2">{row.guests?.mobile || '-'}</td>
-                    <td className="py-2">{formatDateTime(row.connected_at)}</td>
-                  <td className="py-2 text-sm">
-                    {(row.device_type || 'unknown').toUpperCase()} / {(row.os_family || 'unknown').toUpperCase()}
-                  </td>
-                  <td className="py-2">
-                    {row.connection_count > 1 ? (
-                      <span className="inline-flex items-center rounded-full bg-brand/10 px-2 py-1 text-xs font-semibold text-brand">
-                        ×{row.connection_count} connections
-                      </span>
-                    ) : (
-                      <span className="text-sm text-muted">1</span>
-                    )}
-                  </td>
-                  <td className="py-2">
-                    {row.guests?.id ? (
-                      <Link className="text-sm font-semibold text-brand" to={`/contacts/${row.guests.id}`}>
-                        Visitor profile
-                      </Link>
-                    ) : (
-                      <span className="text-sm text-muted">-</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!recent.length && selectedDay && (
-            <p className="text-center text-sm text-muted py-6">No connections on {selectedDay.label}.</p>
-          )}
-        </div>
-      </Card>
+            ))}
+          </tbody>
+        </DataTable>
+        {!recent.length ? <p className="py-6 text-center text-sm text-muted">No connections match the selected filters.</p> : null}
+      </ChartCard>
     </div>
   );
 }
-

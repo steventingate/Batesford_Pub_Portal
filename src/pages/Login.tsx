@@ -52,10 +52,11 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6">
-      <Card className="max-w-lg w-full">
-        <h1 className="font-display text-3xl text-brand mb-2">Batesford Admin</h1>
-        <p className="text-muted mb-6">Sign in to manage guest Wi-Fi contacts and campaigns.</p>
+    <div className="login-shell">
+      <Card className="login-panel p-8">
+        <div className="muted-kicker">Guest Wi-Fi Admin</div>
+        <h1 className="mt-3 font-display text-3xl text-white">Batesford Hotel</h1>
+        <p className="mb-6 mt-3 text-muted">Sign in to manage guest Wi-Fi contacts, campaigns, reporting, and venue settings.</p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input label="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
           <Input label="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />

@@ -32,11 +32,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`card px-4 py-3 text-sm font-semibold ${
+            className={`card px-4 py-3 text-sm font-semibold max-w-sm ${
               toast.tone === 'success'
-                ? 'text-brand'
+                ? 'text-emerald-100 border-emerald-300/20'
                 : toast.tone === 'error'
-                ? 'text-red-600'
+                ? 'text-red-200 border-red-300/20'
                 : 'text-muted'
             }`}
           >

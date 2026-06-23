@@ -11,6 +11,10 @@ import CampaignDetail from './pages/CampaignDetail';
 import Settings from './pages/Settings';
 import Debug from './pages/Debug';
 import Traces from './pages/Traces';
+import Automations from './pages/Automations';
+import Analytics from './pages/Analytics';
+import Engagement from './pages/Engagement';
+import Segments from './pages/Segments';
 
 export default function App() {
   return (
@@ -25,7 +29,11 @@ export default function App() {
           <Route path="campaigns" element={<Campaigns />} />
           <Route path="campaigns/new" element={<CampaignNew />} />
           <Route path="campaigns/:id" element={<CampaignDetail />} />
+          <Route path="automations" element={<Automations />} />
+          <Route path="analytics" element={<Analytics />} />
           <Route path="traces" element={<Traces />} />
+          <Route path="engagement" element={<Engagement />} />
+          <Route path="segments" element={<Segments />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Route>
