@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: portal-server/Dockerfile
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
     container_name: wifi-portal
     restart: unless-stopped
     ports:
@@ -11,6 +14,8 @@ services:
       NODE_ENV: production
       PORT: 3000
       SUPABASE_URL: ${SUPABASE_URL}
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+      VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       WIFI_CONNECT_FUNCTION_URL: ${WIFI_CONNECT_FUNCTION_URL}
       UNIFI_AUTH_BACKEND: ${UNIFI_AUTH_BACKEND:-auto}

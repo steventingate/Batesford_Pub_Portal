@@ -1,13 +1,24 @@
 import crypto from "node:crypto";
+import { existsSync } from "node:fs";
 import http from "node:http";
 import https from "node:https";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 
 const app = express();
 app.disable("x-powered-by");
+app.set("trust proxy", true);
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DIST_DIR = path.resolve(__dirname, "..", "dist");
+const DIST_INDEX_PATH = path.join(DIST_DIR, "index.html");
+const DIST_ASSETS_DIR = path.join(DIST_DIR, "assets");
+const HAS_ADMIN_BUILD = existsSync(DIST_INDEX_PATH);
 
 const PORT = Number(process.env.PORT || 3000);
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim();
@@ -67,6 +78,28 @@ const SESSION_WINDOW_MINUTES = Math.max(
   Number.parseInt(process.env.PORTAL_SESSION_WINDOW_MINUTES || "20", 10) || 20,
 );
 const SITE_MAP = parseSiteMap(process.env.PORTAL_SITE_MAP);
+
+if (HAS_ADMIN_BUILD) {
+  app.use(
+    "/assets",
+    express.static(DIST_ASSETS_DIR, {
+      fallthrough: true,
+      immutable: true,
+      maxAge: "1y"
+    })
+  );
+
+  const sendAdminIndex = (_req, res) => {
+    res.sendFile(DIST_INDEX_PATH);
+  };
+
+  app.get("/admin", sendAdminIndex);
+  app.get(/^\/admin\/.*$/, sendAdminIndex);
+} else {
+  console.warn("[admin_build_missing] Admin SPA build not found. /admin routes will not be available.", {
+    dist_dir: DIST_DIR
+  });
+}
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");

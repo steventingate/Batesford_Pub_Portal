@@ -18,8 +18,12 @@ Admin web app for managing guest Wi-Fi submissions, tags, notes, and marketing c
 3. Run the app
    npm run dev
 
-## Docker captive portal
-The production captive portal path should now run as a dedicated server app instead of the Netlify portal page.
+## Docker captive portal and self-hosted admin
+The production deployment can now run both:
+- the captive portal routes, and
+- the `/admin` React app
+
+from the same `portal-server` container.
 
 ### Files
 - `portal-server/server.mjs`: Express captive portal server
@@ -44,6 +48,8 @@ Use Portainer `Create stack` with:
 
 Set these stack environment variables:
 - `SUPABASE_URL`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `UNIFI_AUTH_BACKEND` (`auto` recommended; direct auth is used when the UniFi URL, username, and password are present)
 - `UNIFI_BASE_URL` (example: `https://unifi.gearedit.com.au:8443`)
@@ -65,8 +71,13 @@ Example `PORTAL_SITE_MAP`:
 
 Set `PROXY_NETWORK=proxy` when Nginx Proxy Manager is already attached to your shared Docker `proxy` network.
 
+Important:
+- `SUPABASE_URL` and `VITE_SUPABASE_URL` should normally be the same value.
+- `VITE_SUPABASE_ANON_KEY` is required at build time so the admin SPA can be bundled into the container.
+- After changing any `VITE_*` value in Portainer, redeploy with a rebuild, not just restart.
+
 ### Reverse proxy
-Put Nginx or Cloudflare Tunnel in front of the container and point `batesfordguestwifi.gearedit.com.au` to the `wifi-portal` container on port `3000`.
+Put Nginx Proxy Manager or Cloudflare Tunnel in front of the container and point `batesfordguestwifi.gearedit.com.au` to the `wifi-portal` container on port `3000`.
 
 Example config:
 - `portal-server/nginx.portal.conf.example`
@@ -82,9 +93,39 @@ Recommended Nginx Proxy Manager setup:
   - HTTPS enabled
   - Force SSL enabled
 
+Recommended Nginx Proxy Manager proxy host values:
+- Domain Names: `batesfordguestwifi.gearedit.com.au`
+- Scheme: `http`
+- Forward Hostname / IP: `wifi-portal`
+- Forward Port: `3000`
+- Cache Assets: off
+- Block Common Exploits: on
+- Websockets Support: on
+
+With the current server build, no custom rewrite rules are required for `/admin`. The Express app now serves:
+- `/admin`
+- `/admin/*`
+- `/assets/*`
+
+directly from the same container.
+
+### Cloudflare Tunnel and certificates
+If Cloudflare Tunnel fronts the site, point the public hostname to Nginx Proxy Manager, not directly to `wifi-portal`.
+
+Recommended flow:
+- Public hostname: `batesfordguestwifi.gearedit.com.au`
+- Cloudflare Tunnel origin target: `http://<npm-host-or-container>:80`
+- Nginx Proxy Manager upstream target: `http://wifi-portal:3000`
+
+If you still want a certificate inside Nginx Proxy Manager:
+- use a Cloudflare DNS challenge certificate in NPM, or
+- use a Cloudflare Origin Certificate in NPM
+
+The tunnel itself does not remove the need for correct app routing, but it does mean `/admin` can stay on the same hostname as the guest portal.
+
 The portal no longer needs `release.batesfordguestwifi.gearedit.com.au`. After UniFi authorization, the server performs one internal `/release` hop and then sends a `303` redirect to the original OS captive probe URL from UniFi's `url` parameter.
 
-Do not use the Netlify `/connect.html` or `/guest/*` static path as the production captive portal. Netlify should remain for admin/marketing only.
+Do not use the Netlify `/connect.html` or `/guest/*` static path as the production captive portal. Netlify is optional once the self-hosted `/admin` build is enabled in `portal-server`.
 
 Successful submissions should not stop on the `/progress` spinner page. After verified UniFi auth, `portal-server` redirects straight to `/guest/s/<site>/release`, which redirects to the original OS probe URL. If UniFi did not provide a safe probe URL, the portal infers one from the captive browser user-agent for iOS/macOS, Android, or Windows before falling back to the manual connected page.
 
@@ -192,3 +233,5 @@ Use these in campaign HTML:
 - Supabase auth redirect URLs should include:
   - https://admin.batesfordpub.netlify.app
   - https://admin.batesfordpub.netlify.app/login
+  - https://batesfordguestwifi.gearedit.com.au/admin
+  - https://batesfordguestwifi.gearedit.com.au/admin/login
