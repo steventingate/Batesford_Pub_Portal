@@ -1,18 +1,24 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { hasSupabaseEnv, missingSupabaseEnvMessage, supabaseAnonKey, supabaseUrl } from './env';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const createMissingEnvProxy = () =>
+  new Proxy(
+    {},
+    {
+      get() {
+        throw new Error(missingSupabaseEnvMessage || 'Missing Supabase environment variables.');
+      }
+    }
+  ) as SupabaseClient;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables.');
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    storage: window.localStorage,
-    storageKey: 'batesford_admin_auth'
-  }
-});
+export const supabase = hasSupabaseEnv
+  ? createClient(supabaseUrl!, supabaseAnonKey!, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storage: window.localStorage,
+        storageKey: 'batesford_admin_auth'
+      }
+    })
+  : createMissingEnvProxy();

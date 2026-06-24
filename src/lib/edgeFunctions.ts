@@ -1,12 +1,13 @@
 import { supabase } from './supabaseClient';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+import { missingSupabaseEnvMessage, supabaseAnonKey, supabaseUrl } from './env';
 
 export const invokeEdgeFunction = async <T>(
   name: string,
   payload: Record<string, unknown>
 ) => {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error(missingSupabaseEnvMessage || 'Missing Supabase environment variables.');
+  }
   let session = (await supabase.auth.getSession()).data.session;
   const nowSeconds = Math.floor(Date.now() / 1000);
   const expiresAt = session?.expires_at ?? 0;
