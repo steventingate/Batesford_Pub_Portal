@@ -51,8 +51,12 @@ Set these stack environment variables:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `UNIFI_AUTH_BACKEND` (`auto` recommended; direct auth is used when the UniFi URL, username, and password are present)
+- `UNIFI_AUTH_BACKEND` (`auto` recommended; direct auth is used when either legacy credentials or a UniFi v1 API key are present)
+- `UNIFI_AUTH_MODE` (`auto` recommended; prefers `v1` when `UNIFI_V1_API_KEY` is set, otherwise falls back to `legacy`)
 - `UNIFI_BASE_URL` (example: `https://unifi.gearedit.com.au:8443`)
+- `UNIFI_V1_API_KEY` (preferred; UniFi Network External Hotspot API key)
+- `UNIFI_V1_SITE_ID` (optional but recommended; avoids site lookup ambiguity)
+- `UNIFI_V1_BASE_PATH` (default: `/proxy/network/integration/v1`)
 - `UNIFI_USERNAME`
 - `UNIFI_PASSWORD`
 - `UNIFI_SITE_NAME` (`xlgkkyrq` for the Batesford/Hotel hosted-controller site; omit for route-driven site selection)
@@ -156,13 +160,23 @@ Do not pre-auth allow Supabase from the client. The portal server calls Supabase
 In direct auth mode, Supabase is not in the critical UniFi authorization path. The portal server:
 - writes the portal session/guest details to Supabase,
 - logs trace events to Supabase best-effort,
-- logs into the UniFi controller directly,
-- authorizes the client using `/api/s/<site>/cmd/stamgr`,
+- authorizes the client using UniFi External Hotspot API v1 when `UNIFI_V1_API_KEY` is configured,
+- otherwise logs into the UniFi controller directly and uses `/api/s/<site>/cmd/stamgr`,
 - verifies authorization, then releases the OS captive probe.
 
 For self-hosted controllers with default UniFi certificates, set `UNIFI_ALLOW_INVALID_TLS=true` on the portal server. This intentionally allows the portal server to talk to `https://<controller>:8443` even when the certificate is self-signed or hostname-mismatched. Do not expose this setting to client-side code.
 
-If the container starts with `auth_backend=edge`, Portainer is missing one of the direct UniFi variables. Add `UNIFI_BASE_URL`, `UNIFI_USERNAME`, and `UNIFI_PASSWORD` to the stack environment and redeploy.
+If the container starts with `auth_backend=edge`, Portainer is missing one of the direct UniFi variable sets. Add either:
+- `UNIFI_BASE_URL` + `UNIFI_V1_API_KEY` for v1, or
+- `UNIFI_BASE_URL` + `UNIFI_USERNAME` + `UNIFI_PASSWORD` for legacy
+
+For UniFi External Hotspot API v1, the recommended minimum set is:
+- `UNIFI_BASE_URL`
+- `UNIFI_AUTH_MODE=auto` or `UNIFI_AUTH_MODE=v1`
+- `UNIFI_V1_API_KEY`
+- `UNIFI_V1_SITE_ID` recommended
+
+Keep `UNIFI_USERNAME` and `UNIFI_PASSWORD` only as rollback for `UNIFI_AUTH_MODE=legacy`.
 
 If logs show `direct_unifi_authorize_response ... authorized=true` in under a few seconds, but iOS keeps loading the portal for 30-60 seconds, the portal has already authorized the client. At that point the delay is UniFi/AP captive release propagation or post-auth probe handling. The portal will keep retrying the original or inferred OS probe URL automatically; default retries are `PORTAL_MAX_AUTO_RELEASE_ATTEMPTS=20` every `PORTAL_RELEASE_RETRY_DELAY_MS=3000`.
 

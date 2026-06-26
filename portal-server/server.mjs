@@ -32,10 +32,23 @@ const UNIFI_USERNAME = (process.env.UNIFI_USERNAME || "").trim();
 const UNIFI_PASSWORD = (process.env.UNIFI_PASSWORD || "").trim();
 const UNIFI_SITE_NAME = (process.env.UNIFI_SITE_NAME || "").trim();
 const UNIFI_ALLOW_INVALID_TLS = process.env.UNIFI_ALLOW_INVALID_TLS === "true";
-const UNIFI_DIRECT_CONFIGURED = Boolean(UNIFI_BASE_URL && UNIFI_USERNAME && UNIFI_PASSWORD);
+const UNIFI_AUTH_MODE_RAW = (process.env.UNIFI_AUTH_MODE || "auto").trim().toLowerCase();
+const UNIFI_V1_API_KEY = (process.env.UNIFI_V1_API_KEY || "").trim();
+const UNIFI_V1_SITE_ID = (process.env.UNIFI_V1_SITE_ID || "").trim();
+const UNIFI_V1_BASE_PATH = (process.env.UNIFI_V1_BASE_PATH || "/proxy/network/integration/v1")
+  .trim()
+  .replace(/\/$/, "");
+const UNIFI_AUTH_MODE = UNIFI_AUTH_MODE_RAW === "auto"
+  ? (UNIFI_V1_API_KEY ? "v1" : "legacy")
+  : UNIFI_AUTH_MODE_RAW;
+const UNIFI_DIRECT_LEGACY_CONFIGURED = Boolean(UNIFI_BASE_URL && UNIFI_USERNAME && UNIFI_PASSWORD);
+const UNIFI_DIRECT_V1_CONFIGURED = Boolean(UNIFI_BASE_URL && UNIFI_V1_API_KEY);
+const UNIFI_DIRECT_CONFIGURED = UNIFI_AUTH_MODE === "v1"
+  ? UNIFI_DIRECT_V1_CONFIGURED
+  : UNIFI_DIRECT_LEGACY_CONFIGURED;
 const UNIFI_AUTH_BACKEND_RAW = (process.env.UNIFI_AUTH_BACKEND || "auto").trim().toLowerCase();
 const UNIFI_AUTH_BACKEND = UNIFI_AUTH_BACKEND_RAW === "auto"
-  ? (UNIFI_DIRECT_CONFIGURED ? "direct" : "edge")
+  ? ((UNIFI_DIRECT_V1_CONFIGURED || UNIFI_DIRECT_LEGACY_CONFIGURED) ? "direct" : "edge")
   : UNIFI_AUTH_BACKEND_RAW;
 const UNIFI_TIMEOUT_MS = Math.max(
   1000,
@@ -110,7 +123,19 @@ if (UNIFI_AUTH_BACKEND === "edge" && !WIFI_CONNECT_FUNCTION_URL) {
 }
 
 if (UNIFI_AUTH_BACKEND === "direct" && !UNIFI_DIRECT_CONFIGURED) {
-  throw new Error("Missing direct UniFi configuration: UNIFI_BASE_URL, UNIFI_USERNAME, and UNIFI_PASSWORD are required.");
+  throw new Error(
+    UNIFI_AUTH_MODE === "v1"
+      ? "Missing direct UniFi v1 configuration: UNIFI_BASE_URL and UNIFI_V1_API_KEY are required."
+      : "Missing direct UniFi legacy configuration: UNIFI_BASE_URL, UNIFI_USERNAME, and UNIFI_PASSWORD are required."
+  );
+}
+
+if (UNIFI_AUTH_BACKEND === "direct" && !["legacy", "v1"].includes(UNIFI_AUTH_MODE)) {
+  throw new Error(`Unsupported UNIFI_AUTH_MODE: ${UNIFI_AUTH_MODE}. Use auto, legacy, or v1.`);
+}
+
+if (UNIFI_AUTH_BACKEND === "direct" && UNIFI_AUTH_MODE === "v1" && !UNIFI_V1_API_KEY) {
+  throw new Error("Missing UNIFI_V1_API_KEY for UNIFI_AUTH_MODE=v1.");
 }
 
 if (
@@ -1009,6 +1034,12 @@ function readJson(text) {
   }
 }
 
+function getResponseRows(parsed) {
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed?.data)) return parsed.data;
+  return [];
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1348,18 +1379,247 @@ async function directUnifiStatus({
   };
 }
 
+async function unifiV1Request(path, {
+  method = "GET",
+  headers = {},
+  body = null,
+  timeoutMs = UNIFI_TIMEOUT_MS,
+} = {}) {
+  return unifiRequest(path, {
+    method,
+    timeoutMs,
+    headers: {
+      "Accept": "application/json",
+      "X-API-Key": UNIFI_V1_API_KEY,
+      ...headers,
+    },
+    body,
+  });
+}
+
+async function resolveUnifiV1SiteId(routeSite) {
+  if (UNIFI_V1_SITE_ID) {
+    return {
+      siteId: UNIFI_V1_SITE_ID,
+      resolvedBy: "env",
+      siteName: routeSite || UNIFI_SITE_NAME || null,
+    };
+  }
+
+  const response = await unifiV1Request(`${UNIFI_V1_BASE_PATH}/sites`, {
+    method: "GET",
+  });
+  const parsed = readJson(response.body);
+  const rows = getResponseRows(parsed);
+  const targetNames = [...new Set([routeSite, UNIFI_SITE_NAME].map((value) => String(value || "").trim()).filter(Boolean))];
+  const siteRow = rows.find((row) => targetNames.some((name) => {
+    const rowId = String(row?.id || "").trim();
+    const rowName = String(row?.name || "").trim().toLowerCase();
+    return rowId === name || rowName === name.toLowerCase();
+  })) || rows[0];
+
+  if (!response.ok || !siteRow?.id) {
+    throw new Error(`UniFi v1 site lookup failed status=${response.status} body=${response.body}`);
+  }
+
+  return {
+    siteId: String(siteRow.id),
+    resolvedBy: targetNames.length ? "lookup" : "first-site",
+    siteName: String(siteRow.name || routeSite || UNIFI_SITE_NAME || ""),
+  };
+}
+
+async function findUnifiV1ClientByMac(siteId, clientMac) {
+  const normalizedMac = normalizeMac(clientMac);
+  const filter = `macAddress.eq('${normalizedMac.toUpperCase()}')`;
+  const response = await unifiV1Request(
+    `${UNIFI_V1_BASE_PATH}/sites/${encodeURIComponent(siteId)}/clients?filter=${encodeURIComponent(filter)}`,
+    { method: "GET" }
+  );
+  const parsed = readJson(response.body);
+  const rows = getResponseRows(parsed);
+  const client = rows.find((row) => normalizeMac(String(row?.macAddress || row?.mac || "")) === normalizedMac) || rows[0] || null;
+
+  if (!response.ok) {
+    throw new Error(`UniFi v1 client lookup failed status=${response.status} body=${response.body}`);
+  }
+
+  return {
+    client,
+    count: rows.length,
+  };
+}
+
+function deriveAuthorizedFromV1Client(client) {
+  const authorized = client?.access?.authorized;
+  if (authorized === true) return true;
+  const expiresAt = client?.access?.authorization?.expiresAt;
+  if (typeof expiresAt === "string" && expiresAt) {
+    const expiresMs = Date.parse(expiresAt);
+    if (Number.isFinite(expiresMs)) return expiresMs > Date.now();
+  }
+  return false;
+}
+
+async function directUnifiAuthorizeV1({ site, clientMac, minutes }) {
+  const startedAt = Date.now();
+  const siteLookupStarted = Date.now();
+  const siteInfo = await resolveUnifiV1SiteId(site);
+  const siteLookupMs = Date.now() - siteLookupStarted;
+  const lookupStarted = Date.now();
+  const clientLookup = await findUnifiV1ClientByMac(siteInfo.siteId, clientMac);
+  const lookupMs = Date.now() - lookupStarted;
+  const client = clientLookup.client;
+
+  if (!client?.id) {
+    throw new Error(`UniFi v1 client lookup returned no client for MAC ${normalizeMac(clientMac) || clientMac}.`);
+  }
+
+  const payload = JSON.stringify({
+    action: "AUTHORIZE_GUEST_ACCESS",
+    timeLimitMinutes: minutes,
+  });
+  const authorizeStarted = Date.now();
+  const authorizeResult = await unifiV1Request(
+    `${UNIFI_V1_BASE_PATH}/sites/${encodeURIComponent(siteInfo.siteId)}/clients/${encodeURIComponent(String(client.id))}/actions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+      },
+      body: payload,
+    }
+  );
+  const authorizeMs = Date.now() - authorizeStarted;
+
+  if (!authorizeResult.ok) {
+    throw new Error(`UniFi v1 authorize failed status=${authorizeResult.status} body=${authorizeResult.body}`);
+  }
+
+  let verifyAuthorized = false;
+  let verifyAttempts = 0;
+  let verificationClient = null;
+  let statusMs = 0;
+  for (let index = 0; index < UNIFI_VERIFY_ATTEMPTS; index += 1) {
+    if (index > 0 && UNIFI_VERIFY_DELAY_MS) await delay(UNIFI_VERIFY_DELAY_MS);
+    verifyAttempts = index + 1;
+    const statusStarted = Date.now();
+    const status = await directUnifiStatusV1({
+      site,
+      clientMac,
+      siteId: siteInfo.siteId,
+      clientId: String(client.id),
+    });
+    statusMs += Date.now() - statusStarted;
+    verificationClient = status.client;
+    if (status.authorized) {
+      verifyAuthorized = true;
+      break;
+    }
+  }
+
+  return {
+    success: true,
+    authorized: verifyAuthorized,
+    authorized_unifi: verifyAuthorized,
+    authorized_fallback: false,
+    status_source: verifyAuthorized ? "unifi_v1" : "none",
+    status_endpoint_used: `${UNIFI_V1_BASE_PATH}/sites/${siteInfo.siteId}/clients/${client.id}`,
+    redirect_contract: buildRedirectContract(null, verifyAuthorized, verifyAttempts, DEFAULT_WEBSITE_URL),
+    timing: {
+      site_lookup_ms: siteLookupMs,
+      client_lookup_ms: lookupMs,
+      authorize_ms: authorizeMs,
+      status_ms: statusMs,
+      total_ms: Date.now() - startedAt,
+      cache_hit: false,
+    },
+    debug: {
+      unifi_authorize: {
+        mode: "direct_v1",
+        endpoint: `${UNIFI_V1_BASE_PATH}/sites/${siteInfo.siteId}/clients/${client.id}/actions`,
+        status: authorizeResult.status,
+        site: siteInfo.siteName || site,
+        resolved_site: siteInfo.siteId,
+        configured_site: UNIFI_SITE_NAME || null,
+        route_site: site,
+        resolved_by: siteInfo.resolvedBy,
+        client_id: String(client.id),
+        client_lookup_count: clientLookup.count,
+        allow_invalid_tls: UNIFI_ALLOW_INVALID_TLS,
+        requested_time_limit_minutes: minutes,
+        expires_at: verificationClient?.access?.authorization?.expiresAt || null,
+      },
+    },
+  };
+}
+
+async function directUnifiStatusV1({
+  site,
+  clientMac,
+  siteId = "",
+  clientId = "",
+}) {
+  const siteInfo = siteId
+    ? { siteId, resolvedBy: "provided", siteName: site || UNIFI_SITE_NAME || null }
+    : await resolveUnifiV1SiteId(site);
+
+  let resolvedClientId = clientId;
+  let client = null;
+  let endpointUsed = "";
+
+  if (!resolvedClientId) {
+    const lookup = await findUnifiV1ClientByMac(siteInfo.siteId, clientMac);
+    client = lookup.client;
+    resolvedClientId = String(client?.id || "");
+    endpointUsed = `${UNIFI_V1_BASE_PATH}/sites/${siteInfo.siteId}/clients?filter=macAddress.eq(...)`;
+  }
+
+  if (!resolvedClientId) {
+    return {
+      authorized: false,
+      endpointUsed,
+      status: 404,
+      client: null,
+    };
+  }
+
+  const response = await unifiV1Request(
+    `${UNIFI_V1_BASE_PATH}/sites/${encodeURIComponent(siteInfo.siteId)}/clients/${encodeURIComponent(resolvedClientId)}`,
+    { method: "GET", timeoutMs: UNIFI_STATUS_TIMEOUT_MS }
+  );
+  endpointUsed = `${UNIFI_V1_BASE_PATH}/sites/${siteInfo.siteId}/clients/${resolvedClientId}`;
+  const parsed = readJson(response.body);
+  const payloadClient = parsed?.data && !Array.isArray(parsed.data) ? parsed.data : parsed;
+  client = payloadClient && typeof payloadClient === "object" ? payloadClient : client;
+
+  return {
+    authorized: response.ok && deriveAuthorizedFromV1Client(client),
+    endpointUsed,
+    status: response.status,
+    client,
+  };
+}
+
 async function authorizeWifi(payload) {
   if (UNIFI_AUTH_BACKEND !== "direct") {
     return callWifiConnect(payload);
   }
 
   const startedAt = Date.now();
-  const body = await directUnifiAuthorize({
-    site: payload.unifi_site,
-    clientMac: payload.client_mac,
-    apMac: payload.ap_mac,
-    minutes: UNIFI_AUTH_MINUTES,
-  });
+  const body = UNIFI_AUTH_MODE === "v1"
+    ? await directUnifiAuthorizeV1({
+        site: payload.unifi_site,
+        clientMac: payload.client_mac,
+        minutes: UNIFI_AUTH_MINUTES,
+      })
+    : await directUnifiAuthorize({
+        site: payload.unifi_site,
+        clientMac: payload.client_mac,
+        apMac: payload.ap_mac,
+        minutes: UNIFI_AUTH_MINUTES,
+      });
   const redirectContract = buildRedirectContract(
     payload.redirect_url,
     body.authorized === true,
@@ -1374,6 +1634,7 @@ async function authorizeWifi(payload) {
     resolved_unifi_site: body.debug?.unifi_authorize?.resolved_site || normalizeUnifiSite(payload.unifi_site),
     client_mac: payload.client_mac,
     authorized: body.authorized,
+    auth_mode: UNIFI_AUTH_MODE,
     allow_invalid_tls: UNIFI_ALLOW_INVALID_TLS,
   });
   return { ok: true, status: 200, body };
@@ -1384,10 +1645,15 @@ async function checkWifiStatus(payload) {
     return callWifiConnect(payload);
   }
   const startedAt = Date.now();
-  const status = await directUnifiStatus({
-    site: payload.unifi_site,
-    clientMac: payload.client_mac,
-  });
+  const status = UNIFI_AUTH_MODE === "v1"
+    ? await directUnifiStatusV1({
+        site: payload.unifi_site,
+        clientMac: payload.client_mac,
+      })
+    : await directUnifiStatus({
+        site: payload.unifi_site,
+        clientMac: payload.client_mac,
+      });
   log("direct_unifi_status_response", {
     status: 200,
     elapsed_ms: Date.now() - startedAt,
@@ -1395,6 +1661,7 @@ async function checkWifiStatus(payload) {
     route_site: payload.unifi_site,
     client_mac: payload.client_mac,
     authorized: status.authorized,
+    auth_mode: UNIFI_AUTH_MODE,
   });
   return {
     ok: true,
@@ -2114,6 +2381,7 @@ app.listen(PORT, () => {
     port: PORT,
     session_window_minutes: SESSION_WINDOW_MINUTES,
     auth_backend: UNIFI_AUTH_BACKEND,
+    auth_mode: UNIFI_AUTH_MODE,
     unifi_base_url: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_BASE_URL : null,
     unifi_site_name: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_SITE_NAME || "(route-site)" : null,
     unifi_allow_invalid_tls: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_ALLOW_INVALID_TLS : null,

@@ -47,7 +47,10 @@ Prefer UniFi External Hotspot API v1 when the controller supports it:
 UNIFI_AUTH_MODE=v1
 UNIFI_V1_API_KEY=<controller api key>
 UNIFI_V1_SITE_ID=xlgkkyrq
+UNIFI_BASE_URL=https://<controller>:8443
 ```
+
+`UNIFI_AUTH_MODE=auto` will now prefer v1 whenever `UNIFI_V1_API_KEY` is present.
 
 Keep legacy username/password auth configured only as rollback. Legacy auth must keep passing `ap_mac`.
 

@@ -7,11 +7,11 @@ password: eEgt3qAs0rTG1a
 notes:
 - this is the docker host running portainer and hosting npm and the wifi captive portal
 
-host: unifi-controller
+host: 192.168.0.57
 port: 22
-username: root
+username: administrator
 auth: password
-password: 9v7Q4R6vvrvHU0!F57ig@hf
+password: tevad001
 
 notes:
 - this is the unifi controller
