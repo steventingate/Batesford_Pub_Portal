@@ -167,6 +167,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 const scheduledSessionRefreshes = new Map();
+const pendingSessionAuthorizations = new Map();
 
 function log(stage, data = {}) {
   console.log(JSON.stringify({
@@ -370,6 +371,126 @@ function buildConnectPayloadFromSession(session, siteConfig) {
     venue_slug: session.site_slug,
     website_url: session.website_url || siteConfig.websiteUrl,
   };
+}
+
+function isDirectV1Mode() {
+  return UNIFI_AUTH_BACKEND === "direct" && UNIFI_AUTH_MODE === "v1";
+}
+
+function isRetriableV1AuthorizationError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return message.includes("UniFi v1 client lookup returned no client for MAC");
+}
+
+async function finalizeAuthorizedSession(session, siteConfig, connectResult) {
+  const redirectContract = connectResult.body?.redirect_contract || {};
+  const websiteUrl = safeUrl(
+    redirectContract.website_url,
+    session.website_url || siteConfig.websiteUrl,
+  );
+  const releaseFields = buildReleaseFields({
+    ...session,
+    website_url: websiteUrl,
+  }, siteConfig);
+  const completedSession = await updateSession(session.session_key, {
+    status: "completed",
+    trace_id: connectResult.body?.trace_id || session.trace_id,
+    authorized_at: new Date().toISOString(),
+    release_attempted_at: null,
+    release_attempt_count: 0,
+    release_result: null,
+    ...releaseFields,
+    last_error: null,
+  });
+  recordTraceEvent(completedSession, "unifi_authorized", {
+    metadata: {
+      release_mode: completedSession.release_mode,
+      has_probe_url: Boolean(getReleaseProbe(completedSession).url),
+      release_probe_source: getReleaseProbe(completedSession).source,
+      wifi_trace_id: connectResult.body?.trace_id || session.trace_id,
+      auth_backend: UNIFI_AUTH_BACKEND,
+      auth_mode: UNIFI_AUTH_MODE,
+      resolved_unifi_site: connectResult.body?.debug?.unifi_authorize?.resolved_site || null,
+    },
+  });
+  schedulePostAuthRefresh(completedSession, siteConfig);
+  return completedSession;
+}
+
+function ensureBackgroundV1Authorization(session, siteConfig, reason) {
+  if (!isDirectV1Mode()) return;
+  if (!session?.session_key) return;
+  if (pendingSessionAuthorizations.has(session.session_key)) return;
+
+  const task = (async () => {
+    try {
+      const latest = await getSession(session.session_key);
+      if (!latest || latest.status !== "submitting") return;
+
+      log("background_v1_authorize_started", {
+        site: latest.site_slug,
+        session_key: latest.session_key,
+        client_mac: latest.client_mac,
+        reason,
+      });
+
+      const connectResult = await authorizeWifi(buildConnectPayloadFromSession(latest, siteConfig));
+
+      log("background_v1_authorize_finished", {
+        site: latest.site_slug,
+        session_key: latest.session_key,
+        client_mac: latest.client_mac,
+        reason,
+        status: connectResult.status,
+        success: connectResult.ok && connectResult.body?.success === true,
+      });
+
+      if (!connectResult.ok || connectResult.body?.success !== true) {
+        const message = connectResult.body?.error ||
+          connectResult.body?.unifi_error ||
+          "Could not connect to Wi-Fi right now. Please try again.";
+        await updateSession(latest.session_key, {
+          status: "failed",
+          last_error: message,
+        });
+        return;
+      }
+
+      await finalizeAuthorizedSession(latest, siteConfig, connectResult);
+    } catch (error) {
+      if (isRetriableV1AuthorizationError(error)) {
+        log("background_v1_authorize_retry_pending", {
+          site: session.site_slug,
+          session_key: session.session_key,
+          client_mac: session.client_mac,
+          reason,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      log("background_v1_authorize_error", {
+        site: session.site_slug,
+        session_key: session.session_key,
+        client_mac: session.client_mac,
+        reason,
+        error: message,
+      });
+      try {
+        await updateSession(session.session_key, {
+          status: "failed",
+          last_error: message,
+        });
+      } catch {
+        // Ignore follow-up session update failures.
+      }
+    } finally {
+      pendingSessionAuthorizations.delete(session.session_key);
+    }
+  })();
+
+  pendingSessionAuthorizations.set(session.session_key, task);
 }
 
 function shouldRefreshSessionAuthorization(session) {
@@ -2235,23 +2356,13 @@ app.post("/guest/s/:site/connect", async (req, res) => {
       },
     });
 
-    const connectPayload = {
-      action: "connect",
-      unifi_site: site,
-      client_mac: session.client_mac,
-      ap_mac: session.ap_mac,
-      unifi_t: session.unifi_t,
-      redirect_url: session.redirect_url,
-      ssid: session.ssid,
-      name: formValues.name,
-      email: formValues.email,
-      mobile: formValues.mobile || undefined,
-      postcode: formValues.postcode || undefined,
-      marketing_opt_in: true,
-      trace_id: session.trace_id,
-      venue_slug: site,
-      website_url: session.website_url || siteConfig.websiteUrl,
-    };
+    if (isDirectV1Mode()) {
+      ensureBackgroundV1Authorization(session, siteConfig, "submit");
+      res.redirect(303, buildProgressUrl(site, session.session_key));
+      return;
+    }
+
+    const connectPayload = buildConnectPayloadFromSession(session, siteConfig);
 
     log("unifi_authorize_request_started", {
       site,
@@ -2287,36 +2398,7 @@ app.post("/guest/s/:site/connect", async (req, res) => {
       return;
     }
 
-    const redirectContract = connectResult.body?.redirect_contract || {};
-    const websiteUrl = safeUrl(
-      redirectContract.website_url,
-      session.website_url || siteConfig.websiteUrl,
-    );
-    const releaseFields = buildReleaseFields({
-      ...session,
-      website_url: websiteUrl,
-    }, siteConfig);
-    const completedSession = await updateSession(sessionKey, {
-      status: "completed",
-      trace_id: connectResult.body?.trace_id || session.trace_id,
-      authorized_at: new Date().toISOString(),
-      release_attempted_at: null,
-      release_attempt_count: 0,
-      release_result: null,
-      ...releaseFields,
-      last_error: null,
-    });
-    recordTraceEvent(completedSession, "unifi_authorized", {
-      metadata: {
-        release_mode: completedSession.release_mode,
-        has_probe_url: Boolean(getReleaseProbe(completedSession).url),
-        release_probe_source: getReleaseProbe(completedSession).source,
-        wifi_trace_id: connectResult.body?.trace_id || session.trace_id,
-        auth_backend: UNIFI_AUTH_BACKEND,
-        resolved_unifi_site: connectResult.body?.debug?.unifi_authorize?.resolved_site || null,
-      },
-    });
-    schedulePostAuthRefresh(completedSession, siteConfig);
+    const completedSession = await finalizeAuthorizedSession(session, siteConfig, connectResult);
 
     const postAuthTarget = completedSession.release_target ||
       buildProgressUrl(site, completedSession.session_key);
@@ -2457,6 +2539,17 @@ app.get("/guest/s/:site/session", async (req, res) => {
         message: session.last_error || "Could not connect to Wi-Fi right now.",
         continue_target: session.continue_target,
         website_url: session.website_url,
+      });
+      return;
+    }
+
+    if (session.status === "submitting" && isDirectV1Mode()) {
+      ensureBackgroundV1Authorization(session, getSiteConfig(site), "session_poll");
+      res.json({
+        success: true,
+        phase: "pending",
+        session_key: session.session_key,
+        message: "Still connecting",
       });
       return;
     }
