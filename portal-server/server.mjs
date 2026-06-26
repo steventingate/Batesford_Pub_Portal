@@ -72,8 +72,8 @@ const UNIFI_VERIFY_DELAY_MS = Math.max(
 );
 const UNIFI_POST_AUTH_REFRESH_ENABLED = process.env.UNIFI_POST_AUTH_REFRESH_ENABLED !== "false";
 const UNIFI_POST_AUTH_REFRESH_DELAY_MS = Math.max(
-  30000,
-  Number.parseInt(process.env.UNIFI_POST_AUTH_REFRESH_DELAY_MS || "120000", 10) || 120000,
+  15000,
+  Number.parseInt(process.env.UNIFI_POST_AUTH_REFRESH_DELAY_MS || "60000", 10) || 60000,
 );
 const UNIFI_STATUS_LIST_FALLBACK = process.env.UNIFI_STATUS_LIST_FALLBACK === "true";
 const DEFAULT_WEBSITE_URL = (process.env.PORTAL_DEFAULT_WEBSITE_URL ||
