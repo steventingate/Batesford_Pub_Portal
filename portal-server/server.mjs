@@ -70,6 +70,11 @@ const UNIFI_VERIFY_DELAY_MS = Math.max(
   0,
   Number.parseInt(process.env.UNIFI_VERIFY_DELAY_MS || "500", 10) || 500,
 );
+const UNIFI_POST_AUTH_REFRESH_ENABLED = process.env.UNIFI_POST_AUTH_REFRESH_ENABLED !== "false";
+const UNIFI_POST_AUTH_REFRESH_DELAY_MS = Math.max(
+  30000,
+  Number.parseInt(process.env.UNIFI_POST_AUTH_REFRESH_DELAY_MS || "120000", 10) || 120000,
+);
 const UNIFI_STATUS_LIST_FALLBACK = process.env.UNIFI_STATUS_LIST_FALLBACK === "true";
 const DEFAULT_WEBSITE_URL = (process.env.PORTAL_DEFAULT_WEBSITE_URL ||
   "https://www.thebatesfordhotel.com.au/").trim();
@@ -153,6 +158,7 @@ if (
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
+const scheduledSessionRefreshes = new Map();
 
 function log(stage, data = {}) {
   console.log(JSON.stringify({
@@ -411,6 +417,57 @@ async function refreshSessionAuthorization(session, siteConfig, reason) {
   });
 
   return updated;
+}
+
+function schedulePostAuthRefresh(session, siteConfig) {
+  if (!UNIFI_POST_AUTH_REFRESH_ENABLED) return;
+  if (UNIFI_AUTH_BACKEND !== "direct" || UNIFI_AUTH_MODE !== "legacy") return;
+  if (!session?.session_key) return;
+
+  const existingTimer = scheduledSessionRefreshes.get(session.session_key);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  const timer = setTimeout(() => {
+    scheduledSessionRefreshes.delete(session.session_key);
+    void (async () => {
+      try {
+        const latest = await getSession(session.session_key);
+        if (!latest || latest.status !== "completed") return;
+
+        const refreshed = await refreshSessionAuthorization(latest, siteConfig, "post_auth_background_refresh");
+        recordTraceEvent(refreshed, "post_auth_background_refresh", {
+          metadata: {
+            auth_backend: UNIFI_AUTH_BACKEND,
+            auth_mode: UNIFI_AUTH_MODE,
+            delay_ms: UNIFI_POST_AUTH_REFRESH_DELAY_MS,
+          },
+        });
+      } catch (error) {
+        log("post_auth_background_refresh_error", {
+          site: session.site_slug,
+          session_key: session.session_key,
+          client_mac: session.client_mac,
+          delay_ms: UNIFI_POST_AUTH_REFRESH_DELAY_MS,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+  }, UNIFI_POST_AUTH_REFRESH_DELAY_MS);
+
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
+
+  scheduledSessionRefreshes.set(session.session_key, timer);
+  log("post_auth_background_refresh_scheduled", {
+    site: session.site_slug,
+    session_key: session.session_key,
+    client_mac: session.client_mac,
+    delay_ms: UNIFI_POST_AUTH_REFRESH_DELAY_MS,
+    auth_mode: UNIFI_AUTH_MODE,
+  });
 }
 
 function buildBaseSession(site, query, userAgent) {
@@ -2229,6 +2286,7 @@ app.post("/guest/s/:site/connect", async (req, res) => {
         resolved_unifi_site: connectResult.body?.debug?.unifi_authorize?.resolved_site || null,
       },
     });
+    schedulePostAuthRefresh(completedSession, siteConfig);
 
     const postAuthTarget = completedSession.release_target ||
       buildProgressUrl(site, completedSession.session_key);
@@ -2489,6 +2547,8 @@ app.listen(PORT, () => {
     unifi_base_url: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_BASE_URL : null,
     unifi_site_name: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_SITE_NAME || "(route-site)" : null,
     unifi_allow_invalid_tls: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_ALLOW_INVALID_TLS : null,
+    unifi_post_auth_refresh_enabled: UNIFI_POST_AUTH_REFRESH_ENABLED,
+    unifi_post_auth_refresh_delay_ms: UNIFI_POST_AUTH_REFRESH_DELAY_MS,
     max_auto_release_attempts: MAX_AUTO_RELEASE_ATTEMPTS,
     release_retry_delay_ms: RELEASE_RETRY_DELAY_MS,
     wifi_connect_function_url: WIFI_CONNECT_FUNCTION_URL,
