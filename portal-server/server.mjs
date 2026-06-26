@@ -265,13 +265,14 @@ function toTitleCase(value) {
 function getSiteConfig(site) {
   const configured = SITE_MAP[site] || {};
   const websiteUrl = safeUrl(configured.websiteUrl, DEFAULT_WEBSITE_URL);
+  const continueUrl = safeUrl(configured.continueUrl, websiteUrl);
   return {
     site,
     label: configured.label || toTitleCase(site) || DEFAULT_BRAND_NAME,
     heroTitle: configured.heroTitle || "Guest Wi-Fi Connect",
     brandName: configured.brandName || DEFAULT_BRAND_NAME,
     websiteUrl,
-    continueUrl: websiteUrl,
+    continueUrl,
     successMessage: configured.successMessage ||
       "Connecting you to guest Wi-Fi. This can take a few seconds on some phones.",
     termsLabel: configured.termsLabel ||
@@ -335,6 +336,81 @@ function buildReleaseFields(session, siteConfig) {
       ? (probe.source === "inferred" ? "inferred_probe_redirect" : "original_probe_redirect")
       : "manual_connected_page",
   };
+}
+
+function buildConnectPayloadFromSession(session, siteConfig) {
+  return {
+    action: "connect",
+    unifi_site: session.site_slug,
+    client_mac: session.client_mac,
+    ap_mac: session.ap_mac,
+    unifi_t: session.unifi_t,
+    redirect_url: session.redirect_url,
+    ssid: session.ssid,
+    name: session.guest_name || "Guest",
+    email: session.guest_email || "",
+    mobile: session.guest_phone || undefined,
+    postcode: session.guest_postcode || undefined,
+    marketing_opt_in: true,
+    trace_id: session.trace_id,
+    venue_slug: session.site_slug,
+    website_url: session.website_url || siteConfig.websiteUrl,
+  };
+}
+
+function shouldRefreshSessionAuthorization(session) {
+  if (UNIFI_AUTH_BACKEND !== "direct") return false;
+  const authorizedAtMs = session?.authorized_at ? Date.parse(session.authorized_at) : NaN;
+  if (!Number.isFinite(authorizedAtMs)) return true;
+  return Date.now() - authorizedAtMs >= 15000;
+}
+
+async function refreshSessionAuthorization(session, siteConfig, reason) {
+  if (!shouldRefreshSessionAuthorization(session)) {
+    return session;
+  }
+
+  log("session_authorization_refresh_started", {
+    site: session.site_slug,
+    session_key: session.session_key,
+    client_mac: session.client_mac,
+    reason,
+    auth_mode: UNIFI_AUTH_MODE,
+  });
+
+  const result = await authorizeWifi(buildConnectPayloadFromSession(session, siteConfig));
+  if (!result.ok || result.body?.success !== true || result.body?.authorized !== true) {
+    const errorMessage = result.body?.error ||
+      result.body?.unifi_error ||
+      "Wi-Fi reauthorization failed.";
+    throw new Error(errorMessage);
+  }
+
+  const updated = await updateSession(session.session_key, {
+    status: "completed",
+    authorized_at: new Date().toISOString(),
+    ...buildReleaseFields(session, siteConfig),
+    last_error: null,
+  });
+
+  log("session_authorization_refresh_finished", {
+    site: updated.site_slug,
+    session_key: updated.session_key,
+    client_mac: updated.client_mac,
+    reason,
+    auth_mode: UNIFI_AUTH_MODE,
+    resolved_unifi_site: result.body?.debug?.unifi_authorize?.resolved_site || null,
+  });
+  recordTraceEvent(updated, "unifi_reauthorized", {
+    metadata: {
+      reason,
+      auth_backend: UNIFI_AUTH_BACKEND,
+      auth_mode: UNIFI_AUTH_MODE,
+      resolved_unifi_site: result.body?.debug?.unifi_authorize?.resolved_site || null,
+    },
+  });
+
+  return updated;
 }
 
 function buildBaseSession(site, query, userAgent) {
@@ -1707,13 +1783,26 @@ async function handleReleaseRequest(req, res, routeSite = "", options = {}) {
   }
 
   try {
-    const session = await getSession(sessionKey);
+    let session = await getSession(sessionKey);
     if (!session || (site && session.site_slug !== site)) {
       res.status(404).send(renderMissingParamsPage("Wi-Fi release session not found."));
       return;
     }
 
     const effectiveSiteConfig = getSiteConfig(session.site_slug || site);
+    if (session.status === "completed" && (forceRetry || Number(session.release_attempt_count || 0) > 0)) {
+      try {
+        session = await refreshSessionAuthorization(session, effectiveSiteConfig, `release_retry:${source}`);
+      } catch (error) {
+        log("session_authorization_refresh_error", {
+          site: session.site_slug,
+          session_key: session.session_key,
+          client_mac: session.client_mac,
+          reason: `release_retry:${source}`,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     const websiteUrl = safeUrl(session.website_url || req.query.website, effectiveSiteConfig.websiteUrl);
     const probe = getReleaseProbe(session);
     const probeUrl = probe.url;
@@ -1934,7 +2023,7 @@ app.get("/guest/s/:site/", async (req, res) => {
   try {
     const existing = await findRecentRecoverableSession(site, clientMac);
     if (existing) {
-      const refreshedSession = {
+      let refreshedSession = {
         ...existing,
         ap_mac: normalizeMac(req.query.ap || req.query.ap_mac) || existing.ap_mac,
         unifi_t: typeof req.query.t === "string" ? req.query.t : existing.unifi_t,
@@ -1942,13 +2031,28 @@ app.get("/guest/s/:site/", async (req, res) => {
         user_agent: req.headers["user-agent"] || existing.user_agent,
         website_url: siteConfig.websiteUrl,
       };
-      const updated = await updateSession(existing.session_key, {
+      let updated = await updateSession(existing.session_key, {
         ap_mac: normalizeMac(req.query.ap || req.query.ap_mac) || existing.ap_mac,
         unifi_t: typeof req.query.t === "string" ? req.query.t : existing.unifi_t,
         redirect_url: typeof req.query.url === "string" ? req.query.url : existing.redirect_url,
         user_agent: req.headers["user-agent"] || existing.user_agent,
         ...buildReleaseFields(refreshedSession, siteConfig),
       });
+      refreshedSession = { ...refreshedSession, ...updated };
+      if (updated.status === "completed") {
+        try {
+          updated = await refreshSessionAuthorization(updated, siteConfig, "portal_reopen");
+          refreshedSession = { ...refreshedSession, ...updated };
+        } catch (error) {
+          log("session_authorization_refresh_error", {
+            site,
+            session_key: existing.session_key,
+            client_mac: existing.client_mac,
+            reason: "portal_reopen",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
       if (updated.status === "completed" && Number(updated.release_attempt_count || 0) < 1) {
         recordTraceEvent(updated, "release_recovered", {
           metadata: {
