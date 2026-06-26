@@ -180,6 +180,8 @@ Keep `UNIFI_USERNAME` and `UNIFI_PASSWORD` only as rollback for `UNIFI_AUTH_MODE
 
 On some self-hosted controllers, the legacy `authorize-guest` flow shows an initial long guest grant and then an API-driven revoke roughly 1-2 minutes later before the device settles. The portal server works around that by scheduling one silent post-auth refresh in legacy mode. Default timing is `UNIFI_POST_AUTH_REFRESH_DELAY_MS=60000`; tune it earlier if your controller tears guests down faster.
 
+On UniFi v1, some controllers do not expose a just-associated Wi-Fi client in the `clients` collection immediately. The portal server therefore retries v1 client lookup before failing. Defaults are `UNIFI_V1_CLIENT_LOOKUP_ATTEMPTS=8` and `UNIFI_V1_CLIENT_LOOKUP_DELAY_MS=750`.
+
 If logs show `direct_unifi_authorize_response ... authorized=true` in under a few seconds, but iOS keeps loading the portal for 30-60 seconds, the portal has already authorized the client. At that point the delay is UniFi/AP captive release propagation or post-auth probe handling. The portal will keep retrying the original or inferred OS probe URL automatically; default retries are `PORTAL_MAX_AUTO_RELEASE_ATTEMPTS=20` every `PORTAL_RELEASE_RETRY_DELAY_MS=3000`.
 
 For a single session summary, open `/debug/session/<session_key>`. It returns auth timing, selected probe URL, probe source, release attempts, and release result.

@@ -70,6 +70,14 @@ const UNIFI_VERIFY_DELAY_MS = Math.max(
   0,
   Number.parseInt(process.env.UNIFI_VERIFY_DELAY_MS || "500", 10) || 500,
 );
+const UNIFI_V1_CLIENT_LOOKUP_ATTEMPTS = Math.max(
+  1,
+  Number.parseInt(process.env.UNIFI_V1_CLIENT_LOOKUP_ATTEMPTS || "8", 10) || 8,
+);
+const UNIFI_V1_CLIENT_LOOKUP_DELAY_MS = Math.max(
+  0,
+  Number.parseInt(process.env.UNIFI_V1_CLIENT_LOOKUP_DELAY_MS || "750", 10) || 750,
+);
 const UNIFI_POST_AUTH_REFRESH_ENABLED = process.env.UNIFI_POST_AUTH_REFRESH_ENABLED !== "false";
 const UNIFI_POST_AUTH_REFRESH_DELAY_MS = Math.max(
   15000,
@@ -1583,6 +1591,27 @@ async function findUnifiV1ClientByMac(siteId, clientMac) {
   };
 }
 
+async function findUnifiV1ClientByMacWithRetry(siteId, clientMac) {
+  let lastLookup = { client: null, count: 0 };
+  for (let attempt = 1; attempt <= UNIFI_V1_CLIENT_LOOKUP_ATTEMPTS; attempt += 1) {
+    if (attempt > 1 && UNIFI_V1_CLIENT_LOOKUP_DELAY_MS) {
+      await delay(UNIFI_V1_CLIENT_LOOKUP_DELAY_MS);
+    }
+    lastLookup = await findUnifiV1ClientByMac(siteId, clientMac);
+    if (lastLookup.client?.id) {
+      return {
+        ...lastLookup,
+        attempts: attempt,
+      };
+    }
+  }
+
+  return {
+    ...lastLookup,
+    attempts: UNIFI_V1_CLIENT_LOOKUP_ATTEMPTS,
+  };
+}
+
 function deriveAuthorizedFromV1Client(client) {
   const authorized = client?.access?.authorized;
   if (authorized === true) return true;
@@ -1600,7 +1629,7 @@ async function directUnifiAuthorizeV1({ site, clientMac, minutes }) {
   const siteInfo = await resolveUnifiV1SiteId(site);
   const siteLookupMs = Date.now() - siteLookupStarted;
   const lookupStarted = Date.now();
-  const clientLookup = await findUnifiV1ClientByMac(siteInfo.siteId, clientMac);
+  const clientLookup = await findUnifiV1ClientByMacWithRetry(siteInfo.siteId, clientMac);
   const lookupMs = Date.now() - lookupStarted;
   const client = clientLookup.client;
 
@@ -1680,6 +1709,7 @@ async function directUnifiAuthorizeV1({ site, clientMac, minutes }) {
         resolved_by: siteInfo.resolvedBy,
         client_id: String(client.id),
         client_lookup_count: clientLookup.count,
+        client_lookup_attempts: clientLookup.attempts,
         allow_invalid_tls: UNIFI_ALLOW_INVALID_TLS,
         requested_time_limit_minutes: minutes,
         expires_at: verificationClient?.access?.authorization?.expiresAt || null,
@@ -2547,6 +2577,8 @@ app.listen(PORT, () => {
     unifi_base_url: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_BASE_URL : null,
     unifi_site_name: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_SITE_NAME || "(route-site)" : null,
     unifi_allow_invalid_tls: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_ALLOW_INVALID_TLS : null,
+    unifi_v1_client_lookup_attempts: UNIFI_V1_CLIENT_LOOKUP_ATTEMPTS,
+    unifi_v1_client_lookup_delay_ms: UNIFI_V1_CLIENT_LOOKUP_DELAY_MS,
     unifi_post_auth_refresh_enabled: UNIFI_POST_AUTH_REFRESH_ENABLED,
     unifi_post_auth_refresh_delay_ms: UNIFI_POST_AUTH_REFRESH_DELAY_MS,
     max_auto_release_attempts: MAX_AUTO_RELEASE_ATTEMPTS,
