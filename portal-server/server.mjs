@@ -1693,22 +1693,48 @@ async function resolveUnifiV1SiteId(routeSite) {
 
 async function findUnifiV1ClientByMac(siteId, clientMac) {
   const normalizedMac = normalizeMac(clientMac);
-  const filter = `macAddress.eq('${normalizedMac.toUpperCase()}')`;
-  const response = await unifiV1Request(
-    `${UNIFI_V1_BASE_PATH}/sites/${encodeURIComponent(siteId)}/clients?filter=${encodeURIComponent(filter)}`,
-    { method: "GET" }
-  );
-  const parsed = readJson(response.body);
-  const rows = getResponseRows(parsed);
-  const client = rows.find((row) => normalizeMac(String(row?.macAddress || row?.mac || "")) === normalizedMac) || rows[0] || null;
+  const clientPathBase = `${UNIFI_V1_BASE_PATH}/sites/${encodeURIComponent(siteId)}/clients`;
+  const filters = [
+    `macAddress.eq('${normalizedMac}')`,
+    `macAddress.eq('${normalizedMac.toUpperCase()}')`,
+  ];
 
-  if (!response.ok) {
-    throw new Error(`UniFi v1 client lookup failed status=${response.status} body=${response.body}`);
+  let filteredRows = [];
+  let lastResponse = null;
+  for (const filter of filters) {
+    const response = await unifiV1Request(
+      `${clientPathBase}?filter=${encodeURIComponent(filter)}`,
+      { method: "GET" }
+    );
+    lastResponse = response;
+    if (!response.ok) {
+      throw new Error(`UniFi v1 client lookup failed status=${response.status} body=${response.body}`);
+    }
+    const parsed = readJson(response.body);
+    const rows = getResponseRows(parsed);
+    const matched = rows.filter((row) => normalizeMac(String(row?.macAddress || row?.mac || row?.name || "")) === normalizedMac);
+    if (matched.length > 0) {
+      return {
+        client: matched[0],
+        count: matched.length,
+      };
+    }
+    filteredRows = rows;
   }
 
+  const fallbackResponse = await unifiV1Request(clientPathBase, { method: "GET" });
+  if (!fallbackResponse.ok) {
+    throw new Error(`UniFi v1 client lookup failed status=${fallbackResponse.status} body=${fallbackResponse.body}`);
+  }
+  const fallbackParsed = readJson(fallbackResponse.body);
+  const fallbackRows = getResponseRows(fallbackParsed);
+  const fallbackClient = fallbackRows.find((row) =>
+    normalizeMac(String(row?.macAddress || row?.mac || row?.name || "")) === normalizedMac
+  ) || null;
+
   return {
-    client,
-    count: rows.length,
+    client: fallbackClient,
+    count: fallbackRows.length || filteredRows.length || (lastResponse ? 1 : 0),
   };
 }
 
