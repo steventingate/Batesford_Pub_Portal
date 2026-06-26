@@ -169,6 +169,44 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 const scheduledSessionRefreshes = new Map();
 const pendingSessionAuthorizations = new Map();
 
+function getBearerToken(req) {
+  const raw = String(req.headers.authorization || "").trim();
+  if (!raw.toLowerCase().startsWith("bearer ")) return "";
+  return raw.slice(7).trim();
+}
+
+async function requireAdminRequest(req, res) {
+  const token = getBearerToken(req);
+  if (!token) {
+    res.status(401).json({ error: "Missing bearer token." });
+    return null;
+  }
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser(token);
+
+  if (userError || !user) {
+    res.status(401).json({ error: "Invalid admin session." });
+    return null;
+  }
+
+  const { data: adminProfile, error: adminError } = await supabase
+    .from("admin_profiles")
+    .select("user_id, role, revoked_at")
+    .eq("user_id", user.id)
+    .is("revoked_at", null)
+    .maybeSingle();
+
+  if (adminError || !adminProfile?.user_id) {
+    res.status(403).json({ error: "Admin access required." });
+    return null;
+  }
+
+  return { user, adminProfile };
+}
+
 function log(stage, data = {}) {
   console.log(JSON.stringify({
     ts: new Date().toISOString(),
@@ -1912,6 +1950,226 @@ async function directUnifiStatusV1({
   };
 }
 
+function toIsoIfValid(value) {
+  if (typeof value === "string" && value) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  }
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    const ms = value > 1_000_000_000_000 ? value : value * 1000;
+    return new Date(ms).toISOString();
+  }
+  return null;
+}
+
+function pickClientString(client, keys) {
+  for (const key of keys) {
+    const value = client?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function pickClientNumber(client, keys) {
+  for (const key of keys) {
+    const value = client?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+function deriveClientDurationSeconds(client) {
+  const directValue = pickClientNumber(client, [
+    "uptimeSeconds",
+    "uptime",
+    "connectedDurationSeconds",
+    "assocTime",
+    "durationSeconds",
+  ]);
+  if (directValue && directValue > 0) return Math.round(directValue);
+
+  const connectedAt = deriveClientConnectedAt(client);
+  if (!connectedAt) return null;
+
+  const connectedMs = Date.parse(connectedAt);
+  if (!Number.isFinite(connectedMs)) return null;
+  return Math.max(0, Math.round((Date.now() - connectedMs) / 1000));
+}
+
+function deriveClientConnectedAt(client) {
+  const stringValue = pickClientString(client, [
+    "connectedAt",
+    "connected_at",
+    "firstSeen",
+    "first_seen",
+    "associatedAt",
+    "associated_at",
+    "lastSeen",
+    "last_seen",
+  ]);
+  if (stringValue) return toIsoIfValid(stringValue);
+
+  const numericValue = pickClientNumber(client, [
+    "connectedAt",
+    "firstSeen",
+    "associatedAt",
+    "lastSeen",
+  ]);
+  return toIsoIfValid(numericValue);
+}
+
+function buildLiveClientBase(client, fallbackSite) {
+  const mac = normalizeMac(
+    pickClientString(client, ["macAddress", "mac", "clientMac"]) || ""
+  );
+  return {
+    client_id: pickClientString(client, ["id", "_id"]) || mac,
+    client_mac: mac,
+    name: pickClientString(client, ["name", "hostname", "displayName"]) || "Guest device",
+    hostname: pickClientString(client, ["hostname", "displayName"]),
+    ip_address: pickClientString(client, ["ipAddress", "ip", "ipv4"]),
+    device_type: pickClientString(client, ["deviceType", "ouiName", "fingerprint"]) || "unknown",
+    connected_at: deriveClientConnectedAt(client),
+    duration_seconds: deriveClientDurationSeconds(client),
+    access_point: pickClientString(client, [
+      "accessPointName",
+      "apName",
+      "ap_name",
+      "accessPoint",
+      "ap",
+      "uplinkDeviceName",
+    ]),
+    site_slug: fallbackSite || null,
+  };
+}
+
+async function listDirectUnifiLiveClientsV1(site) {
+  const siteInfo = await resolveUnifiV1SiteId(site);
+  const response = await unifiV1Request(
+    `${UNIFI_V1_BASE_PATH}/sites/${encodeURIComponent(siteInfo.siteId)}/clients`,
+    { method: "GET", timeoutMs: UNIFI_STATUS_TIMEOUT_MS }
+  );
+
+  if (!response.ok) {
+    throw new Error(`UniFi v1 client list failed status=${response.status} body=${response.body}`);
+  }
+
+  return getResponseRows(readJson(response.body))
+    .filter((client) => deriveAuthorizedFromV1Client(client))
+    .map((client) => buildLiveClientBase(client, siteInfo.siteName || site));
+}
+
+async function listDirectUnifiLiveClientsLegacy(site) {
+  const login = await directUnifiLogin();
+  const clients = [];
+
+  for (const candidate of getUnifiSiteCandidates(site)) {
+    const response = await unifiRequest(`/api/s/${encodeURIComponent(candidate)}/stat/guest`, {
+      method: "GET",
+      timeoutMs: UNIFI_STATUS_TIMEOUT_MS,
+      headers: {
+        "Accept": "application/json",
+        "Cookie": login.cookie,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`UniFi legacy guest list failed status=${response.status} body=${response.body}`);
+    }
+
+    const rows = getResponseRows(readJson(response.body))
+      .filter((client) => deriveAuthorizedFromRow(client))
+      .map((client) => buildLiveClientBase(client, candidate));
+    clients.push(...rows);
+  }
+
+  return clients;
+}
+
+async function listLiveConnectedClients(site) {
+  if (UNIFI_AUTH_BACKEND !== "direct") {
+    throw new Error("Live client lookup is only available when UniFi direct mode is configured.");
+  }
+
+  const rows = UNIFI_AUTH_MODE === "v1"
+    ? await listDirectUnifiLiveClientsV1(site)
+    : await listDirectUnifiLiveClientsLegacy(site);
+
+  const deduped = new Map();
+  rows.forEach((row) => {
+    if (!row.client_mac || deduped.has(row.client_mac)) return;
+    deduped.set(row.client_mac, row);
+  });
+  return Array.from(deduped.values());
+}
+
+async function enrichLiveClients(rows) {
+  const macs = [...new Set(rows.map((row) => row.client_mac).filter(Boolean))];
+  if (!macs.length) return rows;
+
+  const { data: sessions, error: sessionsError } = await supabase
+    .from("portal_sessions")
+    .select("client_mac, guest_name, guest_email, guest_phone, guest_postcode, site_slug, ap_mac, authorized_at, submitted_at, completed_at, updated_at, status")
+    .in("client_mac", macs)
+    .order("updated_at", { ascending: false });
+
+  if (sessionsError) {
+    throw new Error(`Unable to enrich live clients from Supabase: ${sessionsError.message}`);
+  }
+
+  const latestSessionByMac = new Map();
+  for (const session of sessions || []) {
+    const clientMac = normalizeMac(session.client_mac);
+    if (!clientMac || latestSessionByMac.has(clientMac)) continue;
+    latestSessionByMac.set(clientMac, session);
+  }
+
+  const postcodes = [...new Set(
+    Array.from(latestSessionByMac.values())
+      .map((session) => String(session.guest_postcode || "").trim())
+      .filter(Boolean)
+  )];
+
+  const postcodeLookup = new Map();
+  if (postcodes.length) {
+    const { data: centroidRows } = await supabase
+      .from("postcode_centroids")
+      .select("postcode, suburb, state")
+      .in("postcode", postcodes);
+
+    for (const row of centroidRows || []) {
+      postcodeLookup.set(String(row.postcode), {
+        suburb: row.suburb || null,
+        state: row.state || null,
+      });
+    }
+  }
+
+  return rows.map((row) => {
+    const session = latestSessionByMac.get(row.client_mac);
+    const postcode = String(session?.guest_postcode || "").trim();
+    const location = postcode ? postcodeLookup.get(postcode) || null : null;
+
+    return {
+      ...row,
+      guest_name: session?.guest_name || null,
+      guest_email: session?.guest_email || null,
+      guest_phone: session?.guest_phone || null,
+      guest_postcode: session?.guest_postcode || null,
+      postcode_suburb: location?.suburb || null,
+      postcode_state: location?.state || null,
+      submitted_at: session?.submitted_at || null,
+      authorized_at: session?.authorized_at || null,
+      completed_at: session?.completed_at || null,
+      session_status: session?.status || null,
+    };
+  });
+}
+
 async function authorizeWifi(payload) {
   if (UNIFI_AUTH_BACKEND !== "direct") {
     return callWifiConnect(payload);
@@ -1986,6 +2244,29 @@ async function checkWifiStatus(payload) {
     },
   };
 }
+
+app.get("/api/admin/live-clients", async (req, res) => {
+  const admin = await requireAdminRequest(req, res);
+  if (!admin) return;
+
+  try {
+    const site = normalizeSite(req.query.site) || UNIFI_SITE_NAME || "xlgkkyrq";
+    const rows = await listLiveConnectedClients(site);
+    const enriched = await enrichLiveClients(rows);
+    res.json({
+      site,
+      fetched_at: new Date().toISOString(),
+      clients: enriched.sort((a, b) => (b.duration_seconds || 0) - (a.duration_seconds || 0)),
+    });
+  } catch (error) {
+    log("admin_live_clients_failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    res.status(502).json({
+      error: error instanceof Error ? error.message : "Unable to load live clients.",
+    });
+  }
+});
 
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true, service: "wifi-portal", ts: new Date().toISOString() });
