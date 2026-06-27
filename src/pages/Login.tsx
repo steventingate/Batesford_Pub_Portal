@@ -6,6 +6,7 @@ import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -15,6 +16,7 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { status, user, isAdmin, adminChecked } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const from = (location.state as { from?: Location })?.from?.pathname || '/';
   const reason = new URLSearchParams(location.search).get('reason');
 
@@ -54,7 +56,12 @@ export default function Login() {
   return (
     <div className="login-shell">
       <Card className="login-panel p-8">
-        <div className="muted-kicker">Guest Wi-Fi Admin</div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="muted-kicker">Guest Wi-Fi Admin</div>
+          <Button variant="outline" type="button" onClick={toggleTheme}>
+            {theme === 'light' ? 'Dark mode' : 'Light mode'}
+          </Button>
+        </div>
         <h1 className="mt-3 font-display text-3xl text-white">Batesford Hotel</h1>
         <p className="mb-6 mt-3 text-muted">Sign in to manage guest Wi-Fi contacts, campaigns, reporting, and venue settings.</p>
         <form onSubmit={handleSubmit} className="space-y-4">

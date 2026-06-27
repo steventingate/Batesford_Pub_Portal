@@ -8,9 +8,11 @@ import { buildVenueInsightsSummary, getInsightsRange, loadVenueInsightsBundle, t
 import { Select } from '../components/ui/Select';
 import { Input } from '../components/ui/Input';
 import { useToast } from '../components/ToastProvider';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function Analytics() {
   const { pushToast } = useToast();
+  const { theme } = useTheme();
   const [preset, setPreset] = useState<DatePreset>('last7');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -20,6 +22,7 @@ export default function Analytics() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const mapLayerRef = useRef<L.LayerGroup | null>(null);
+  const baseLayerRef = useRef<L.TileLayer | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,14 +58,25 @@ export default function Analytics() {
         zoomControl: false,
         scrollWheelZoom: false
       });
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap &copy; CARTO'
-      }).addTo(mapRef.current);
     }
 
     const mapInstance = mapRef.current;
     const postcodeMapPoints = summary?.topPostcodes ?? [];
-    mapContainerRef.current.classList.add('map-dark');
+    const tileUrl = theme === 'dark'
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+
+    if (baseLayerRef.current) {
+      mapInstance.removeLayer(baseLayerRef.current);
+    }
+
+    baseLayerRef.current = L.tileLayer(tileUrl, {
+      attribution: '&copy; OpenStreetMap &copy; CARTO'
+    });
+    baseLayerRef.current.addTo(mapInstance);
+
+    mapContainerRef.current.classList.remove('map-dark', 'map-light');
+    mapContainerRef.current.classList.add(theme === 'dark' ? 'map-dark' : 'map-light');
 
     if (mapLayerRef.current) {
       mapInstance.removeLayer(mapLayerRef.current);
@@ -90,7 +104,7 @@ export default function Analytics() {
       });
 
       marker.on('click', () => setSelectedPostcode((current) => (current === point.postcode ? null : point.postcode)));
-      marker.bindTooltip(`${point.postcode} · ${point.guests} visit${point.guests === 1 ? '' : 's'}`, { direction: 'top', offset: [0, -8] });
+      marker.bindTooltip(`${point.postcode} - ${point.guests} visit${point.guests === 1 ? '' : 's'}`, { direction: 'top', offset: [0, -8] });
       group.addLayer(marker);
     });
 
@@ -101,12 +115,13 @@ export default function Analytics() {
     if (bounds && bounds.isValid()) {
       mapInstance.fitBounds(bounds.pad(0.28));
     }
-  }, [selectedPostcode, summary?.topPostcodes]);
+  }, [selectedPostcode, summary?.topPostcodes, theme]);
 
   useEffect(() => {
     return () => {
       mapRef.current?.remove();
       mapRef.current = null;
+      baseLayerRef.current = null;
     };
   }, []);
 
@@ -216,7 +231,7 @@ export default function Analytics() {
           />
         </ChartCard>
 
-        <ChartCard title="Guests by postcode map" subtitle="Postcodes submitted in the guest portal, plotted on the same dark map style used on the main dashboard.">
+        <ChartCard title="Guests by postcode map" subtitle={`Postcodes submitted in the guest portal, plotted on the ${theme === 'dark' ? 'dark' : 'light'} map style.`}>
           <div className="overflow-hidden rounded-[22px] border border-white/8">
             <div ref={mapContainerRef} className="h-[360px] w-full" />
           </div>

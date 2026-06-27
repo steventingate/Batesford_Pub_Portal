@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { AuthProvider } from './contexts/AuthContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './components/ToastProvider';
 import { hasSupabaseEnv, missingSupabaseEnv } from './lib/env';
 import './index.css';
@@ -34,16 +35,18 @@ const root = ReactDOM.createRoot(document.getElementById('root')!);
 
 root.render(
   <React.StrictMode>
-    {hasSupabaseEnv ? (
-      <BrowserRouter basename="/admin">
-        <AuthProvider>
-          <ToastProvider>
-            <App />
-          </ToastProvider>
-        </AuthProvider>
-      </BrowserRouter>
-    ) : (
-      <MissingEnvScreen />
-    )}
+    <ThemeProvider>
+      {hasSupabaseEnv ? (
+        <BrowserRouter basename="/admin">
+          <AuthProvider>
+            <ToastProvider>
+              <App />
+            </ToastProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      ) : (
+        <MissingEnvScreen />
+      )}
+    </ThemeProvider>
   </React.StrictMode>
 );

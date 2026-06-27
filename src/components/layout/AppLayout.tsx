@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { Button } from '../ui/Button';
 
 type NavItem = {
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
 
 export function AppLayout() {
   const { profile, signOut } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
 
@@ -71,10 +73,23 @@ export function AppLayout() {
         <div className="rounded-[28px] border border-emerald-300/10 bg-emerald-400/[0.08] p-4 shadow-glow">
           <div className="muted-kicker">Manager Shortcut</div>
           <h3 className="mt-2 font-display text-lg text-white">Weekly report and export</h3>
-          <p className="mt-2 text-sm text-muted">Jump straight into the summary view, save a snapshot, or export the current guest list to CSV.</p>
+          <p className="mt-2 text-sm text-muted">Open the clean summary screen, check who visited, and export the list to CSV for management reporting.</p>
           <NavLink to="/reports" onClick={closeNav}>
             <Button className="mt-4 w-full">Open Reports</Button>
           </NavLink>
+        </div>
+
+        <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-4">
+          <div className="muted-kicker">Theme</div>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-white">{theme === 'light' ? 'Light mode' : 'Dark mode'}</div>
+              <div className="mt-1 text-xs text-muted">Switch the admin palette for easier reading.</div>
+            </div>
+            <Button variant="outline" onClick={toggleTheme}>
+              {theme === 'light' ? 'Dark' : 'Light'}
+            </Button>
+          </div>
         </div>
 
         <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-4">
@@ -92,16 +107,26 @@ export function AppLayout() {
                 <div className="muted-kicker">Batesford Hotel</div>
                 <div className="mt-1 font-display text-lg text-white">{activeLabel}</div>
               </div>
-              <button
-                type="button"
-                className="btn btn-outline btn-icon"
-                aria-label="Open navigation"
-                onClick={() => setMobileOpen(true)}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                  <path d="M4 7h16M4 12h16M4 17h16" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn btn-outline px-3"
+                  aria-label="Toggle theme"
+                  onClick={toggleTheme}
+                >
+                  {theme === 'light' ? 'Dark' : 'Light'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-icon"
+                  aria-label="Open navigation"
+                  onClick={() => setMobileOpen(true)}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                    <path d="M4 7h16M4 12h16M4 17h16" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
