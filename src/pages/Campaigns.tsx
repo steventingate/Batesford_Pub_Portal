@@ -25,10 +25,13 @@ type Recipient = {
   guest_id: string;
   email: string | null;
   full_name: string | null;
+  mobile?: string | null;
   visit_count: number | null;
   last_seen_at: string | null;
   visits_by_weekday?: Record<string, number> | null;
   segment?: string | null;
+  marketing_consent?: boolean | null;
+  unsubscribe_status?: boolean | null;
 };
 
 type GuestOption = {
@@ -46,6 +49,14 @@ type AudienceFilters = {
   hasEmail: boolean;
   weekday: string;
   region: string;
+};
+
+type AudienceSummary = {
+  total: number;
+  eligible: number;
+  missingConsent: number;
+  unsubscribed: number;
+  missingEmail: number;
 };
 
 type CampaignRunRow = {
@@ -253,10 +264,17 @@ export default function Campaigns() {
     region: 'any'
   });
   const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [audienceSummary, setAudienceSummary] = useState<AudienceSummary>({
+    total: 0,
+    eligible: 0,
+    missingConsent: 0,
+    unsubscribed: 0,
+    missingEmail: 0
+  });
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [sendMode, setSendMode] = useState<'now' | 'schedule'>('now');
   const [scheduleAt, setScheduleAt] = useState('');
-  const [sendResult, setSendResult] = useState<{ status: 'sent' | 'scheduled'; count: number } | null>(null);
+  const [sendResult, setSendResult] = useState<{ status: 'queued' | 'scheduled'; count: number } | null>(null);
   const [sendingWizardTest, setSendingWizardTest] = useState(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const editorBaselineRef = useRef<EditorState>(defaultEditorState);
@@ -377,15 +395,12 @@ export default function Campaigns() {
     const minVisits = filters.regularsOnly ? 5 : filters.returningOnly ? 2 : 0;
 
     let query = supabase
-      .from('guest_segments')
-      .select('guest_id, email, full_name, visit_count, last_seen_at, visits_by_weekday, segment')
+      .from('guest_summary_view')
+      .select('guest_id, email, full_name, mobile, visit_count, last_seen_at, visits_by_weekday, segment, marketing_consent, unsubscribe_status')
       .gte('last_seen_at', cutoff.toISOString())
       .order('last_seen_at', { ascending: false })
       .limit(5000);
 
-    if (filters.hasEmail) {
-      query = query.not('email', 'is', null).neq('email', '');
-    }
     if (minVisits > 0) {
       query = query.gte('visit_count', minVisits);
     }
@@ -397,6 +412,7 @@ export default function Campaigns() {
     if (error) {
       pushToast('Unable to load audience. Check permissions.', 'error');
       setRecipients([]);
+      setAudienceSummary({ total: 0, eligible: 0, missingConsent: 0, unsubscribed: 0, missingEmail: 0 });
       setLoadingRecipients(false);
       return;
     }
@@ -408,7 +424,27 @@ export default function Campaigns() {
         return count && Number(count) > 0;
       });
     }
-    setRecipients(filtered);
+
+    const summary = filtered.reduce<AudienceSummary>((acc, recipient) => {
+      acc.total += 1;
+      const hasEmail = Boolean(recipient.email);
+      const consented = recipient.marketing_consent === true;
+      const unsubscribed = recipient.unsubscribe_status === true;
+
+      if (!hasEmail) acc.missingEmail += 1;
+      if (!consented) acc.missingConsent += 1;
+      if (unsubscribed) acc.unsubscribed += 1;
+      if (hasEmail && consented && !unsubscribed) acc.eligible += 1;
+      return acc;
+    }, { total: 0, eligible: 0, missingConsent: 0, unsubscribed: 0, missingEmail: 0 });
+
+    const eligibleRecipients = filtered.filter((recipient) => {
+      if (filters.hasEmail && !recipient.email) return false;
+      return Boolean(recipient.email) && recipient.marketing_consent === true && recipient.unsubscribe_status !== true;
+    });
+
+    setAudienceSummary(summary);
+    setRecipients(eligibleRecipients);
     setLoadingRecipients(false);
   }, [filters, pushToast]);
 
@@ -1037,10 +1073,9 @@ export default function Campaigns() {
       return;
     }
 
-    const now = new Date().toISOString();
     const scheduledFor = sendMode === 'schedule' ? new Date(scheduleAt).toISOString() : null;
-    const statusValue = sendMode === 'schedule' ? 'scheduled' : 'sent';
-    const sentAt = sendMode === 'schedule' ? null : now;
+    const statusValue = sendMode === 'schedule' ? 'scheduled' : 'queued';
+    const sentAt = null;
 
     const { data: runData, error: runError } = await supabase
       .from('campaign_runs')
@@ -1079,7 +1114,7 @@ export default function Campaigns() {
       }
     }
 
-    setSendResult({ status: statusValue === 'sent' ? 'sent' : 'scheduled', count: recipients.length });
+    setSendResult({ status: statusValue === 'scheduled' ? 'scheduled' : 'queued', count: recipients.length });
     setWizardStep(4);
   };
 
@@ -1442,13 +1477,34 @@ export default function Campaigns() {
                 </div>
                 <div className="space-y-3">
                   <div className="rounded-xl border border-slate-200 p-4 bg-white">
-                    <p className="text-sm text-muted">Recipient count</p>
+                    <p className="text-sm text-muted">Eligible recipients</p>
                     <p className="text-2xl font-semibold text-brand">
                       {loadingRecipients ? 'Loading...' : recipients.length}
                     </p>
                     {!loadingRecipients && !recipients.length && (
                       <p className="text-sm text-red-600 mt-2">No recipients match this audience.</p>
                     )}
+                  </div>
+                  <div className="rounded-xl border border-slate-200 p-4 bg-white space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted">Matched guests</span>
+                      <span className="font-semibold text-brand">{loadingRecipients ? '...' : audienceSummary.total}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted">Missing consent</span>
+                      <span>{loadingRecipients ? '...' : audienceSummary.missingConsent}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted">Unsubscribed</span>
+                      <span>{loadingRecipients ? '...' : audienceSummary.unsubscribed}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted">Missing email</span>
+                      <span>{loadingRecipients ? '...' : audienceSummary.missingEmail}</span>
+                    </div>
+                    <p className="pt-2 text-xs text-muted">
+                      Only consented guests with an email address and no unsubscribe flag are queued.
+                    </p>
                   </div>
                   <details className="rounded-xl border border-slate-200 p-4 bg-white">
                     <summary className="cursor-pointer text-sm font-semibold text-brand">Preview recipients</summary>
@@ -1501,9 +1557,12 @@ export default function Campaigns() {
             <Card>
               {!sendResult ? (
                 <div className="space-y-4">
+                  <div className="rounded-xl border border-amber-200/60 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    This step prepares a compliant recipient run only. Live bulk sending is not enabled by default in this admin.
+                  </div>
                   <div className="flex gap-3">
                     <Button variant={sendMode === 'now' ? 'primary' : 'outline'} onClick={() => setSendMode('now')}>
-                      Send now
+                      Queue now
                     </Button>
                     <Button variant={sendMode === 'schedule' ? 'primary' : 'outline'} onClick={() => setSendMode('schedule')}>
                       Schedule
@@ -1530,10 +1589,10 @@ export default function Campaigns() {
               ) : (
                 <div className="space-y-4">
                   <h3 className="text-2xl font-display text-brand">
-                    {sendResult.status === 'sent' ? 'Campaign sent' : 'Campaign scheduled'}
+                    {sendResult.status === 'queued' ? 'Campaign queued' : 'Campaign scheduled'}
                   </h3>
                   <p className="text-sm text-muted">
-                    {sendResult.count} recipients queued.
+                    {sendResult.count} compliant recipients prepared.
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={() => {
