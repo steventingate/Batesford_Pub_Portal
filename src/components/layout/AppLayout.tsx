@@ -19,13 +19,16 @@ function Icon({ path }: { path: string }) {
 
 const navItems: NavItem[] = [
   { path: '/', label: 'Dashboard', icon: <Icon path="M4 13h7V4H4zm9 7h7v-9h-7zm0-11h7V4h-7zM4 20h7v-5H4z" /> },
-  { path: '/contacts', label: 'Contacts', icon: <Icon path="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2m18 0v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75M12 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" /> },
+  { path: '/guests', label: 'Guests', icon: <Icon path="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2m18 0v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75M12 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" /> },
+  { path: '/segments', label: 'Segments', icon: <Icon path="M3 7h8v8H3zm10 0h8v5h-8zm0 7h8v3h-8zM3 17h8v4H3z" /> },
   { path: '/campaigns', label: 'Campaigns', icon: <Icon path="m4 7 8-4 8 4-8 4-8-4Zm0 5 8 4 8-4M4 17l8 4 8-4" /> },
+  { path: '/vouchers', label: 'Vouchers', icon: <Icon path="M4 12h16M6 7h12v10H6zM9 7v10m6-10v10" /> },
+  { path: '/events', label: 'Events', icon: <Icon path="M8 2v4m8-4v4M4 10h16M6 6h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" /> },
+  { path: '/insights', label: 'Insights', icon: <Icon path="M4 19h16M7 16V9m5 7V5m5 11v-6" /> },
   { path: '/automations', label: 'Automations', icon: <Icon path="M12 2v5m0 10v5M4.93 4.93l3.54 3.54m7.06 7.06 3.54 3.54M2 12h5m10 0h5M4.93 19.07l3.54-3.54m7.06-7.06 3.54-3.54" /> },
-  { path: '/analytics', label: 'Analytics', icon: <Icon path="M4 19h16M7 16V9m5 7V5m5 11v-6" /> },
+  { path: '/reports', label: 'Reports', icon: <Icon path="M6 3h9l5 5v13H6zM14 3v6h6M9 13h6M9 17h6" /> },
   { path: '/traces', label: 'Traces', icon: <Icon path="M4 6h16M4 12h10M4 18h7" /> },
   { path: '/engagement', label: 'Engagement', icon: <Icon path="M6 12a6 6 0 0 1 12 0c0 6-6 9-6 9s-6-3-6-9Z" /> },
-  { path: '/segments', label: 'Segments', icon: <Icon path="M3 7h8v8H3zm10 0h8v5h-8zm0 7h8v3h-8zM3 17h8v4H3z" /> },
   { path: '/settings', label: 'Settings', icon: <Icon path="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm8 4 .9 1.6-1.8 3.1-1.8-.3a7.9 7.9 0 0 1-1.4.8l-.5 1.8h-3.6l-.5-1.8a7.9 7.9 0 0 1-1.4-.8l-1.8.3L3.1 13.6 4 12l-.9-1.6 1.8-3.1 1.8.3a7.9 7.9 0 0 1 1.4-.8l.5-1.8h3.6l.5 1.8a7.9 7.9 0 0 1 1.4.8l1.8-.3 1.8 3.1Z" /> }
 ];
 
@@ -46,9 +49,9 @@ export function AppLayout() {
       {mobileOpen ? <button className="sidebar-backdrop" aria-label="Close navigation" onClick={closeNav} /> : null}
       <aside className={`sidebar${mobileOpen ? ' is-open' : ''}`}>
         <div className="rounded-[28px] border border-white/10 bg-white/[0.03] px-4 py-4 shadow-glow">
-          <div className="muted-kicker mb-2">Guest Wi-Fi Admin</div>
+          <div className="muted-kicker mb-2">Venue Intelligence</div>
           <h1>Batesford Hotel</h1>
-          <p className="mt-2 text-sm text-muted">Premium visibility into guest connections, campaigns, and venue growth.</p>
+          <p className="mt-2 text-sm text-muted">Guest Wi-Fi, repeat visitation, postcode catchment, and export-ready reporting for the venue team.</p>
         </div>
 
         <nav className="flex-1">
@@ -66,11 +69,11 @@ export function AppLayout() {
         </nav>
 
         <div className="rounded-[28px] border border-emerald-300/10 bg-emerald-400/[0.08] p-4 shadow-glow">
-          <div className="muted-kicker">Campaigns</div>
-          <h3 className="mt-2 font-display text-lg text-white">Send your first campaign</h3>
-          <p className="mt-2 text-sm text-muted">Reach locals, returning guests, or high-value regulars with one segment-driven send.</p>
-          <NavLink to="/campaigns" onClick={closeNav}>
-            <Button className="mt-4 w-full">Open Campaign Builder</Button>
+          <div className="muted-kicker">Manager Shortcut</div>
+          <h3 className="mt-2 font-display text-lg text-white">Weekly report and export</h3>
+          <p className="mt-2 text-sm text-muted">Jump straight into the summary view, save a snapshot, or export the current guest list to CSV.</p>
+          <NavLink to="/reports" onClick={closeNav}>
+            <Button className="mt-4 w-full">Open Reports</Button>
           </NavLink>
         </div>
 

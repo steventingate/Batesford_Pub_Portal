@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -82,7 +83,7 @@ export default function Contacts() {
       setProfiles((data as GuestProfile[]) ?? []);
     };
 
-    load();
+    void load();
   }, []);
 
   useEffect(() => {
@@ -94,7 +95,7 @@ export default function Contacts() {
       }
       setTemplates((data as TemplateOption[]) ?? []);
     };
-    loadTemplates();
+    void loadTemplates();
   }, [pushToast]);
 
   useEffect(() => {
@@ -114,7 +115,7 @@ export default function Contacts() {
       setRecentConnections((data as ConnectionRow[]) ?? []);
     };
 
-    loadRecent();
+    void loadRecent();
   }, [selectedGuest?.guest_id]);
 
   useEffect(() => {
@@ -230,16 +231,16 @@ export default function Contacts() {
     <div className="admin-page">
       <div className="page-header">
         <div>
-          <div className="muted-kicker">Audience CRM</div>
-          <h2 className="font-display text-4xl text-white">Contacts</h2>
-          <p className="max-w-2xl text-muted">Search, segment, and action your guest Wi-Fi audience without losing usability on smaller screens.</p>
+          <div className="muted-kicker">Guest CRM</div>
+          <h2 className="font-display text-4xl text-white">Guests</h2>
+          <p className="max-w-2xl text-muted">Search the guest database, spot repeat visitors, and jump into a full profile when you need more than the register view.</p>
         </div>
         <Button variant="outline" onClick={handleExport}>Export CSV</Button>
       </div>
 
       <div className="admin-grid md:grid-cols-3">
         <Card>
-          <div className="muted-kicker">Visible Contacts</div>
+          <div className="muted-kicker">Visible Guests</div>
           <p className="mt-3 font-display text-4xl text-white">{totals.total}</p>
           <p className="mt-2 text-sm text-muted">Guests in the active result set.</p>
         </Card>
@@ -264,7 +265,7 @@ export default function Contacts() {
           <option value="all">All time</option>
         </Select>
         <Select label="Has email" value={hasEmail} onChange={(event) => setHasEmail(event.target.value)}>
-          <option value="all">All contacts</option>
+          <option value="all">All guests</option>
           <option value="yes">Has email</option>
           <option value="no">Missing email</option>
         </Select>
@@ -308,27 +309,32 @@ export default function Contacts() {
                   <td>{guest.last_seen_at ? formatDateTime(guest.last_seen_at) : '-'}</td>
                   <td>{formatDeviceLabel(guest.last_device_type, guest.last_os_family)}</td>
                   <td>
-                    {guest.email ? (
-                      <Button
-                        variant="outline"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSendGuest(guest);
-                          setSelectedTemplateId('');
-                          setSendModalOpen(true);
-                        }}
-                      >
-                        Send campaign
-                      </Button>
-                    ) : (
-                      <span className="text-sm text-muted">No email</span>
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <Link to={`/guests/${guest.guest_id}`} className="btn btn-outline" onClick={(event) => event.stopPropagation()}>
+                        Profile
+                      </Link>
+                      {guest.email ? (
+                        <Button
+                          variant="outline"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSendGuest(guest);
+                            setSelectedTemplateId('');
+                            setSendModalOpen(true);
+                          }}
+                        >
+                          Send campaign
+                        </Button>
+                      ) : (
+                        <span className="text-sm text-muted">No email</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </DataTable>
-          {!filtered.length ? <p className="py-8 text-center text-sm text-muted">No contacts match this filter.</p> : null}
+          {!filtered.length ? <p className="py-8 text-center text-sm text-muted">No guests match this filter.</p> : null}
         </Card>
       </div>
 
@@ -345,21 +351,26 @@ export default function Contacts() {
             lastSeen={guest.last_seen_at ? formatDateTime(guest.last_seen_at) : '-'}
             onClick={() => setSelectedGuest(guest)}
             action={guest.email ? (
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => {
-                  setSendGuest(guest);
-                  setSelectedTemplateId('');
-                  setSendModalOpen(true);
-                }}
-              >
-                Send campaign
-              </Button>
+              <div className="grid gap-2">
+                <Link to={`/guests/${guest.guest_id}`} className="btn btn-outline w-full">
+                  Open profile
+                </Link>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setSendGuest(guest);
+                    setSelectedTemplateId('');
+                    setSendModalOpen(true);
+                  }}
+                >
+                  Send campaign
+                </Button>
+              </div>
             ) : undefined}
           />
         ))}
-        {!filtered.length ? <p className="py-4 text-center text-sm text-muted">No contacts match this filter.</p> : null}
+        {!filtered.length ? <p className="py-4 text-center text-sm text-muted">No guests match this filter.</p> : null}
       </div>
 
       {sendModalOpen && sendGuest ? (
@@ -406,7 +417,12 @@ export default function Contacts() {
                     : 'Postcode not provided'}
                 </p>
               </div>
-              <Button variant="outline" onClick={() => setSelectedGuest(null)}>Close</Button>
+              <div className="flex flex-wrap gap-2">
+                <Link to={`/guests/${selectedGuest.guest_id}`} className="btn btn-outline">
+                  Full profile
+                </Link>
+                <Button variant="outline" onClick={() => setSelectedGuest(null)}>Close</Button>
+              </div>
             </div>
 
             <div className="mt-6 grid gap-4 md:grid-cols-4">

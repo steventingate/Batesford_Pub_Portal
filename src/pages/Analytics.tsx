@@ -2,54 +2,50 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Card } from '../components/ui/Card';
-import { HorizontalBars, Info } from '../components/admin/AdminComponents';
-import { supabase } from '../lib/supabaseClient';
-
-type GuestProfile = {
-  email: string | null;
-  postcode: string | null;
-  segment: string | null;
-  visit_count: number | null;
-  visits_by_weekday: Record<string, number> | null;
-};
-
-type PostcodeCount = {
-  postcode: string;
-  guests: number;
-};
-
-type PostcodeMapPoint = {
-  postcode: string;
-  lat: number;
-  lon: number;
-  guests: number;
-};
+import { ChartCard, HorizontalBars, Info } from '../components/admin/AdminComponents';
+import { HeatStrip, StackedBarChart, TimelineChart } from '../components/admin/AdminCharts';
+import { buildVenueInsightsSummary, getInsightsRange, loadVenueInsightsBundle, type DatePreset, type VenueInsightsSummary } from '../lib/venueInsights';
+import { Select } from '../components/ui/Select';
+import { Input } from '../components/ui/Input';
+import { useToast } from '../components/ToastProvider';
 
 export default function Analytics() {
-  const [profiles, setProfiles] = useState<GuestProfile[]>([]);
-  const [postcodes, setPostcodes] = useState<PostcodeCount[]>([]);
-  const [postcodeMapPoints, setPostcodeMapPoints] = useState<PostcodeMapPoint[]>([]);
+  const { pushToast } = useToast();
+  const [preset, setPreset] = useState<DatePreset>('last7');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [summary, setSummary] = useState<VenueInsightsSummary | null>(null);
   const [selectedPostcode, setSelectedPostcode] = useState<string | null>(null);
-  const [totalConnections, setTotalConnections] = useState(0);
+  const [loading, setLoading] = useState(true);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const mapLayerRef = useRef<L.LayerGroup | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     const load = async () => {
-      const [{ data: profileData }, { data: postcodeData }, { data: mapData }, { count: connectionCount }] = await Promise.all([
-        supabase.from('guest_segments').select('email, postcode, segment, visit_count, visits_by_weekday'),
-        supabase.from('guest_postcode_counts').select('postcode, guests').order('guests', { ascending: false }).limit(6),
-        supabase.from('guest_postcode_centroid_counts').select('postcode, lat, lon, guests').order('guests', { ascending: false }),
-        supabase.from('wifi_connections').select('id', { count: 'exact', head: true })
-      ]);
-      setProfiles((profileData as GuestProfile[]) ?? []);
-      setPostcodes((postcodeData as PostcodeCount[]) ?? []);
-      setPostcodeMapPoints((mapData as PostcodeMapPoint[]) ?? []);
-      setTotalConnections(connectionCount ?? 0);
+      setLoading(true);
+      try {
+        const range = getInsightsRange(preset, customStart, customEnd);
+        const bundle = await loadVenueInsightsBundle(range);
+        if (!cancelled) {
+          setSummary(buildVenueInsightsSummary(bundle, range));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          pushToast(`Unable to load insights: ${(error as Error).message}`, 'error');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
-    load();
-  }, []);
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [customEnd, customStart, preset, pushToast]);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -65,6 +61,7 @@ export default function Analytics() {
     }
 
     const mapInstance = mapRef.current;
+    const postcodeMapPoints = summary?.topPostcodes ?? [];
     mapContainerRef.current.classList.add('map-dark');
 
     if (mapLayerRef.current) {
@@ -79,6 +76,8 @@ export default function Analytics() {
     const group = L.layerGroup();
 
     postcodeMapPoints.forEach((point) => {
+      if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return;
+
       const active = selectedPostcode === point.postcode;
       const size = Math.max(18, Math.min(52, 16 + Math.sqrt(point.guests) * 7));
       const marker = L.marker([point.lat, point.lon], {
@@ -91,7 +90,7 @@ export default function Analytics() {
       });
 
       marker.on('click', () => setSelectedPostcode((current) => (current === point.postcode ? null : point.postcode)));
-      marker.bindTooltip(`${point.postcode} · ${point.guests} guest${point.guests === 1 ? '' : 's'}`, { direction: 'top', offset: [0, -8] });
+      marker.bindTooltip(`${point.postcode} · ${point.guests} visit${point.guests === 1 ? '' : 's'}`, { direction: 'top', offset: [0, -8] });
       group.addLayer(marker);
     });
 
@@ -102,7 +101,7 @@ export default function Analytics() {
     if (bounds && bounds.isValid()) {
       mapInstance.fitBounds(bounds.pad(0.28));
     }
-  }, [postcodeMapPoints, selectedPostcode]);
+  }, [selectedPostcode, summary?.topPostcodes]);
 
   useEffect(() => {
     return () => {
@@ -111,90 +110,137 @@ export default function Analytics() {
     };
   }, []);
 
-  const metrics = useMemo(() => {
-    const uniqueGuests = profiles.length;
-    const withEmail = profiles.filter((profile) => Boolean(profile.email)).length;
-    const returning = profiles.filter((profile) => Number(profile.visit_count ?? 0) >= 2).length;
-    const localGuests = profiles.filter((profile) => profile.segment === 'local').length;
-    const emailCaptureRate = uniqueGuests ? Math.round((withEmail / uniqueGuests) * 100) : 0;
-    const repeatRate = uniqueGuests ? Math.round((returning / uniqueGuests) * 100) : 0;
-    const localRate = uniqueGuests ? Math.round((localGuests / uniqueGuests) * 100) : 0;
-    const weekdayTotals = profiles.reduce<Record<string, number>>((acc, profile) => {
-      Object.entries(profile.visits_by_weekday ?? {}).forEach(([day, count]) => {
-        acc[day] = (acc[day] ?? 0) + Number(count ?? 0);
-      });
-      return acc;
-    }, {});
-    const peakDayIndex = Object.entries(weekdayTotals).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '-';
-    const topPostcode = postcodes[0]?.postcode ?? '-';
-
-    return {
-      guestGrowth: uniqueGuests,
-      emailCaptureRate,
-      repeatRate,
-      topPostcode,
-      peakDayIndex,
-      localRate,
-      nonLocalRate: Math.max(100 - localRate, 0),
-      totalConnections
-    };
-  }, [postcodes, profiles, totalConnections]);
-
   const visiblePostcodes = useMemo(
-    () => (selectedPostcode ? postcodes.filter((row) => row.postcode === selectedPostcode) : postcodes),
-    [postcodes, selectedPostcode]
+    () =>
+      selectedPostcode
+        ? (summary?.topPostcodes ?? []).filter((row) => row.postcode === selectedPostcode)
+        : (summary?.topPostcodes ?? []),
+    [selectedPostcode, summary?.topPostcodes]
   );
 
   return (
     <div className="admin-page">
       <div className="page-header">
         <div>
-          <div className="muted-kicker">Reporting</div>
-          <h2 className="font-display text-4xl text-white">Analytics</h2>
-          <p className="max-w-2xl text-muted">Venue-level reporting across guest growth, capture quality, repeat visitation, and postcode catchment.</p>
+          <div className="muted-kicker">Venue Intelligence</div>
+          <h2 className="font-display text-4xl text-white">Insights</h2>
+          <p className="max-w-2xl text-muted">One page for guest growth, repeat behaviour, consent quality, and postcode catchment with a manager-friendly date range switcher.</p>
         </div>
       </div>
 
-      <div className="admin-grid md:grid-cols-2 xl:grid-cols-3">
-        <Card><Info label="Guest Growth" value={`${metrics.guestGrowth} guest profiles`} /></Card>
-        <Card><Info label="Email Capture Rate" value={`${metrics.emailCaptureRate}%`} /></Card>
-        <Card><Info label="Repeat Visitor Rate" value={`${metrics.repeatRate}%`} /></Card>
-        <Card><Info label="Top Postcode Catchment" value={metrics.topPostcode} /></Card>
-        <Card><Info label="Peak Visit Day" value={metrics.peakDayIndex} /></Card>
-        <Card><Info label="Local vs Non-local" value={`${metrics.localRate}% / ${metrics.nonLocalRate}%`} /></Card>
+      <Card className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <Select label="Date range" value={preset} onChange={(event) => setPreset(event.target.value as DatePreset)}>
+          <option value="today">Today</option>
+          <option value="last7">Last 7 days</option>
+          <option value="last30">Last 30 days</option>
+          <option value="month">This month</option>
+          <option value="custom">Custom range</option>
+        </Select>
+        <Input
+          label="Custom start"
+          type="date"
+          value={customStart}
+          onChange={(event) => setCustomStart(event.target.value)}
+          disabled={preset !== 'custom'}
+        />
+        <Input
+          label="Custom end"
+          type="date"
+          value={customEnd}
+          onChange={(event) => setCustomEnd(event.target.value)}
+          disabled={preset !== 'custom'}
+        />
+        <Card tone="muted" className="p-4">
+          <Info label="Window" value={summary?.range.label ?? 'Loading'} />
+        </Card>
+        <Card tone="muted" className="p-4">
+          <Info label="Status" value={loading ? 'Refreshing' : 'Live'} />
+        </Card>
+      </Card>
+
+      <div className="admin-grid md:grid-cols-2 xl:grid-cols-4">
+        <Card><Info label="Unique guests" value={loading || !summary ? '...' : String(summary.uniqueGuests)} /></Card>
+        <Card><Info label="New guests" value={loading || !summary ? '...' : String(summary.newGuests)} /></Card>
+        <Card><Info label="Returning guests" value={loading || !summary ? '...' : String(summary.returningGuests)} /></Card>
+        <Card><Info label="Total visits" value={loading || !summary ? '...' : String(summary.totalVisits)} /></Card>
+        <Card><Info label="Guests with email" value={loading || !summary ? '...' : String(summary.guestsWithEmail)} /></Card>
+        <Card><Info label="Guests with mobile" value={loading || !summary ? '...' : String(summary.guestsWithMobile)} /></Card>
+        <Card><Info label="Consent rate" value={loading || !summary ? '...' : `${summary.consentRate}%`} /></Card>
+        <Card><Info label="Peak window" value={loading || !summary ? '...' : `${summary.peakDayOfWeek} / ${summary.peakHourOfDay}`} /></Card>
+      </div>
+
+      <div className="admin-grid xl:grid-cols-[1.1fr_0.9fr]">
+        <ChartCard title="Visits over time" subtitle="Wi-Fi visits for the selected window.">
+          <TimelineChart points={summary?.visitSeries ?? []} />
+        </ChartCard>
+        <ChartCard title="Consent funnel" subtitle="Captured, opted in, and unsubscribed guests in this active set.">
+          <HorizontalBars
+            items={(summary?.consentFunnel ?? []).map((row) => ({
+              label: row.label,
+              value: row.value
+            }))}
+          />
+        </ChartCard>
+      </div>
+
+      <div className="admin-grid xl:grid-cols-[1fr_1fr]">
+        <ChartCard title="New vs returning over time" subtitle="Unique guests per day, split between first-timers and repeat visitors.">
+          <StackedBarChart
+            points={summary?.newReturningSeries ?? []}
+            legends={['New', 'Returning']}
+            colors={[
+              'linear-gradient(180deg, rgba(110,240,193,0.95), rgba(38,186,127,0.95))',
+              'linear-gradient(180deg, rgba(59,130,246,0.95), rgba(29,78,216,0.95))'
+            ]}
+          />
+        </ChartCard>
+        <ChartCard title="Peak visit times" subtitle="Hour-level pulse for when the venue gets busiest.">
+          <HeatStrip items={summary?.hourSeries ?? []} />
+        </ChartCard>
       </div>
 
       <div className="admin-grid xl:grid-cols-[0.95fr_1.05fr]">
-        <Card>
-          <div className="mb-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-semibold text-white">Top postcode catchment</h3>
-                <p className="mt-1 text-sm text-muted">Current postcode performance from stored guest portal records.</p>
-              </div>
-              {selectedPostcode ? (
-                <button type="button" className="text-xs font-semibold text-emerald-100" onClick={() => setSelectedPostcode(null)}>
-                  Clear postcode
-                </button>
-              ) : null}
-            </div>
-          </div>
+        <ChartCard
+          title="Top postcode catchment"
+          subtitle="Click a postcode to isolate it on the map."
+          action={selectedPostcode ? (
+            <button type="button" className="text-xs font-semibold text-emerald-100" onClick={() => setSelectedPostcode(null)}>
+              Clear postcode
+            </button>
+          ) : undefined}
+        >
           <HorizontalBars
             items={visiblePostcodes.map((row) => ({ label: row.postcode, value: row.guests }))}
             activeLabel={selectedPostcode}
             onSelect={(label) => setSelectedPostcode((current) => (current === label ? null : label))}
           />
-        </Card>
+        </ChartCard>
 
-        <Card>
-          <div className="mb-5">
-            <h3 className="text-lg font-semibold text-white">Guests by postcode map</h3>
-            <p className="mt-1 text-sm text-muted">Map view of the postcode catchment built from stored guest postcodes.</p>
-          </div>
+        <ChartCard title="Guests by postcode map" subtitle="Postcodes submitted in the guest portal, plotted on the same dark map style used on the main dashboard.">
           <div className="overflow-hidden rounded-[22px] border border-white/8">
             <div ref={mapContainerRef} className="h-[360px] w-full" />
           </div>
-        </Card>
+        </ChartCard>
+      </div>
+
+      <div className="admin-grid xl:grid-cols-[0.9fr_1.1fr]">
+        <ChartCard title="Status breakdown" subtitle="Authorized sessions versus failures and other outcomes.">
+          <HorizontalBars
+            items={(summary?.statusBreakdown ?? []).map((row) => ({
+              label: row.label,
+              value: row.value
+            }))}
+          />
+        </ChartCard>
+        <ChartCard title="Generated readout" subtitle="Plain-English takeaways for the venue team.">
+          <div className="space-y-3">
+            {(summary?.insights ?? ['Loading insights...']).map((line) => (
+              <div key={line} className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-white">
+                {line}
+              </div>
+            ))}
+          </div>
+        </ChartCard>
       </div>
     </div>
   );

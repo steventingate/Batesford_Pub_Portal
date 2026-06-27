@@ -15,6 +15,9 @@ import Automations from './pages/Automations';
 import Analytics from './pages/Analytics';
 import Engagement from './pages/Engagement';
 import Segments from './pages/Segments';
+import Reports from './pages/Reports';
+import Vouchers from './pages/Vouchers';
+import Events from './pages/Events';
 
 export default function App() {
   return (
@@ -24,13 +27,19 @@ export default function App() {
       <Route path="/" element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route index element={<Dashboard />} />
+          <Route path="guests" element={<Contacts />} />
+          <Route path="guests/:id" element={<ContactDetail />} />
           <Route path="contacts" element={<Contacts />} />
           <Route path="contacts/:id" element={<ContactDetail />} />
           <Route path="campaigns" element={<Campaigns />} />
           <Route path="campaigns/new" element={<CampaignNew />} />
           <Route path="campaigns/:id" element={<CampaignDetail />} />
+          <Route path="vouchers" element={<Vouchers />} />
+          <Route path="events" element={<Events />} />
           <Route path="automations" element={<Automations />} />
-          <Route path="analytics" element={<Analytics />} />
+          <Route path="insights" element={<Analytics />} />
+          <Route path="analytics" element={<Navigate to="/insights" replace />} />
+          <Route path="reports" element={<Reports />} />
           <Route path="traces" element={<Traces />} />
           <Route path="engagement" element={<Engagement />} />
           <Route path="segments" element={<Segments />} />
