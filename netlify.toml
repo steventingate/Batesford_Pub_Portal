@@ -66,6 +66,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/admin/*"
+  to = "https://batesfordguestwifi.gearedit.com.au/api/admin/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/guest/*"
   to = "https://batesfordguestwifi.gearedit.com.au/guest/:splat"
   status = 302

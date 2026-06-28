@@ -711,6 +711,7 @@ a {
 .dashboard-header-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
+  min-width: 0;
 }
 
 .dashboard-select-pill {
@@ -1351,6 +1352,8 @@ a {
 
 .dashboard-page {
   color: var(--dashboard-text);
+  min-width: 0;
+  overflow-x: clip;
 }
 
 .dashboard-page::before {
@@ -1437,7 +1440,8 @@ a {
 .dashboard-select-pill.compare-pill {
   font-size: 14px;
   font-weight: 600;
-  white-space: nowrap;
+  white-space: normal;
+  min-width: 0;
 }
 
 .metric-card {
@@ -1591,6 +1595,10 @@ a {
 }
 
 @media (max-width: 960px) {
+  .dashboard-topbar {
+    display: none;
+  }
+
   .desktop-only {
     display: none;
   }
@@ -1605,6 +1613,11 @@ a {
 
   .dashboard-header {
     flex-direction: column;
+  }
+
+  .dashboard-header > * {
+    width: 100%;
+    min-width: 0;
   }
 
   .dashboard-header h1 {
@@ -1646,6 +1659,7 @@ a {
 @media (max-width: 720px) {
   .content-area {
     padding: 18px 14px 28px;
+    overflow-x: clip;
   }
 
   .dashboard-card,
@@ -1658,24 +1672,24 @@ a {
     padding: 18px;
   }
 
-  .dashboard-topbar {
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-
   .dashboard-right-actions,
   .dashboard-header-actions {
     width: 100%;
-    justify-content: space-between;
+    justify-content: stretch;
   }
 
   .dashboard-select-pill,
-  .dashboard-theme-toggle {
+  .dashboard-theme-toggle,
+  .dashboard-header-actions > .btn {
     width: 100%;
   }
 
   .dashboard-theme-toggle {
     justify-content: center;
+  }
+
+  .dashboard-header-actions {
+    gap: 10px;
   }
 
   .admin-table thead {
@@ -1834,5 +1848,14 @@ a {
 
   .live-count {
     font-size: 48px;
+  }
+
+  .dashboard-page,
+  .dashboard-grid,
+  .dashboard-metrics,
+  .dashboard-card,
+  .metric-card {
+    min-width: 0;
+    max-width: 100%;
   }
 }
