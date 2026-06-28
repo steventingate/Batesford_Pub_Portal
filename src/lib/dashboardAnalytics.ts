@@ -1,4 +1,5 @@
 import { eachDayOfInterval, endOfDay, format, isSameDay, startOfDay, subDays } from 'date-fns';
+import { resolveLiveGuests } from './guestActivity';
 import { supabase } from './supabaseClient';
 
 export type DashboardRangePreset = 'last7' | 'last30';
@@ -9,6 +10,7 @@ type GuestSummaryRow = {
   full_name: string | null;
   mobile: string | null;
   postcode: string | null;
+  segment?: string | null;
   visit_count: number | null;
   first_seen_at: string | null;
   last_seen_at: string | null;
@@ -225,7 +227,7 @@ const buildRange = (preset: DashboardRangePreset, now = new Date()) => {
 async function queryProfiles() {
   const { data, error } = await supabase
     .from('guest_summary_view')
-    .select('guest_id, email, full_name, mobile, postcode, visit_count, first_seen_at, last_seen_at, marketing_consent, unsubscribe_status')
+    .select('guest_id, email, full_name, mobile, postcode, segment, visit_count, first_seen_at, last_seen_at, marketing_consent, unsubscribe_status')
     .order('last_seen_at', { ascending: false });
   if (error) throw error;
   return (data as GuestSummaryRow[]) ?? [];
@@ -751,7 +753,7 @@ export async function fetchLiveClients(accessToken: string): Promise<{
     areaCounts.set(label, (areaCounts.get(label) ?? 0) + 1);
   });
 
-  const guests = clients.slice(0, 8).map((client: LiveClientApiRow, index: number) => ({
+  const rawGuests = clients.slice(0, 8).map((client: LiveClientApiRow, index: number) => ({
     key: String(client.client_id || client.client_mac || index),
     name: String(client.guest_name || '').trim() || String(client.client_mac || '').trim() || 'Guest device',
     contact: String(client.guest_email || '').trim() || String(client.guest_phone || '').trim() || String(client.client_mac || '').trim() || 'No contact',
@@ -763,6 +765,52 @@ export async function fetchLiveClients(accessToken: string): Promise<{
     mac: client.client_mac || null,
     connectedAt: getLiveClientMoment(client)
   }));
+
+  const emails = [...new Set(rawGuests.map((guest: LiveClientSnapshot) => guest.email).filter(Boolean) as string[])];
+  const phones = [...new Set(rawGuests.map((guest: LiveClientSnapshot) => guest.phone).filter(Boolean) as string[])];
+
+  const [emailProfilesRes, phoneProfilesRes] = await Promise.all([
+    emails.length
+      ? supabase
+          .from('guest_summary_view')
+          .select('guest_id, email, full_name, mobile, postcode, segment, visit_count, last_seen_at')
+          .in('email', emails)
+      : Promise.resolve({ data: [], error: null }),
+    phones.length
+      ? supabase
+          .from('guest_summary_view')
+          .select('guest_id, email, full_name, mobile, postcode, segment, visit_count, last_seen_at')
+          .in('mobile', phones)
+      : Promise.resolve({ data: [], error: null })
+  ]);
+
+  const matchedProfiles = [...((emailProfilesRes.data as GuestSummaryRow[]) ?? []), ...((phoneProfilesRes.data as GuestSummaryRow[]) ?? [])]
+    .filter((profile, index, array) => array.findIndex((candidate) => candidate.guest_id === profile.guest_id) === index);
+
+  const resolvedGuests = resolveLiveGuests(
+    matchedProfiles,
+    rawGuests.map((guest: LiveClientSnapshot) => ({
+      key: guest.key,
+      name: guest.name,
+      email: guest.email,
+      phone: guest.phone,
+      area: guest.area,
+      connectedAt: guest.connectedAt
+    }))
+  );
+
+  const guests = rawGuests.map((guest: LiveClientSnapshot) => {
+    const resolved = resolvedGuests.find((candidate) => candidate.key === guest.key);
+    if (!resolved) return guest;
+
+    return {
+      ...guest,
+      name: resolved.name,
+      contact: resolved.email || resolved.mobile || guest.contact,
+      email: resolved.email,
+      phone: resolved.mobile
+    };
+  });
 
   return {
     count: clients.length,
