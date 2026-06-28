@@ -301,7 +301,7 @@ export default function Dashboard() {
         <div className="dashboard-grid">
           <VisitsChart data={analytics.visitsOverTime} />
           <GuestsByStatus total={analytics.guestStatus.total} slices={analytics.guestStatus.slices} />
-          <LiveNowPanel liveNow={analytics.liveNow} />
+          <LiveNowPanel liveNow={analytics.liveNow} onViewAll={() => navigate('/guests?live=1')} />
           <PeakTimesHeatmap peakTimes={analytics.peakTimes} />
           <NewVsReturningChart data={analytics.newVsReturning} />
           <ConsentRateWidget consent={analytics.consent} />

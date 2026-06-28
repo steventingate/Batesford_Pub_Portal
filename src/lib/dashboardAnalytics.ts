@@ -113,7 +113,7 @@ export type DashboardAnalyticsResult = {
     count: number;
     trend: number[];
     areas: { label: string; value: number }[];
-    guests: { key: string; name: string; contact: string; area: string; status: string; timeLabel: string }[];
+    guests: { key: string; name: string; contact: string; area: string; status: string; timeLabel: string; email?: string | null; phone?: string | null; mac?: string | null; connectedAt?: string }[];
     usesFallbackAreas: boolean;
   };
   peakTimes: {
@@ -154,6 +154,9 @@ export type LiveClientSnapshot = {
   area: string;
   status: string;
   timeLabel: string;
+  email?: string | null;
+  phone?: string | null;
+  mac?: string | null;
   connectedAt?: string;
 };
 
@@ -688,6 +691,7 @@ type LiveClientApiRow = {
   guest_email?: string | null;
   guest_phone?: string | null;
   access_point?: string | null;
+  duration_seconds?: number | null;
   connected_at?: string | null;
   submitted_at?: string | null;
   authorized_at?: string | null;
@@ -699,8 +703,26 @@ type LiveClientsApiResponse = {
   synced_access_points?: number;
 };
 
-const getLiveClientMoment = (row: LiveClientApiRow) =>
-  row.connected_at || row.authorized_at || row.submitted_at || row.completed_at || new Date().toISOString();
+const toLiveIsoIfValid = (value: string | null | undefined) => {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+};
+
+const getLiveClientMoment = (row: LiveClientApiRow) => {
+  const connectedAt = toLiveIsoIfValid(row.connected_at);
+  const fallbackMoment = toLiveIsoIfValid(row.authorized_at) || toLiveIsoIfValid(row.submitted_at) || toLiveIsoIfValid(row.completed_at);
+  const durationSeconds = Number(row.duration_seconds ?? 0);
+  const durationDerived = durationSeconds > 0
+    ? new Date(Date.now() - durationSeconds * 1000).toISOString()
+    : null;
+
+  if (connectedAt && durationDerived) {
+    return Date.parse(durationDerived) < Date.parse(connectedAt) ? durationDerived : connectedAt;
+  }
+
+  return connectedAt || durationDerived || fallbackMoment || new Date().toISOString();
+};
 
 export async function fetchLiveClients(accessToken: string): Promise<{
   count: number;
@@ -736,6 +758,9 @@ export async function fetchLiveClients(accessToken: string): Promise<{
     area: String(client.access_point || '').trim() || 'Venue Floor',
     status: 'Connected',
     timeLabel: formatRelativeMinutes(getLiveClientMoment(client)),
+    email: client.guest_email || null,
+    phone: client.guest_phone || null,
+    mac: client.client_mac || null,
     connectedAt: getLiveClientMoment(client)
   }));
 

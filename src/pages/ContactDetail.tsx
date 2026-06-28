@@ -7,6 +7,9 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useToast } from '../components/ToastProvider';
+import { useAuth } from '../contexts/AuthContext';
+import { type LiveClientSnapshot, fetchLiveClients } from '../lib/dashboardAnalytics';
+import { mergeGuestActivity } from '../lib/guestActivity';
 
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const formatDeviceLabel = (device: string | null, os: string | null) => {
@@ -52,6 +55,9 @@ type GuestProfile = {
   unsubscribe_timestamp: string | null;
   unsubscribe_source: string | null;
   tags: string[] | null;
+  is_live_now?: boolean;
+  live_area?: string | null;
+  live_connected_at?: string | null;
 };
 
 type ConnectionRow = {
@@ -76,8 +82,19 @@ type GuestNoteRow = {
   created_at: string;
 };
 
+type PortalSessionActivityRow = {
+  guest_email: string | null;
+  guest_phone: string | null;
+  submitted_at: string | null;
+  authorized_at: string | null;
+  completed_at: string | null;
+  updated_at: string | null;
+  client_mac?: string | null;
+};
+
 export default function ContactDetail() {
   const { pushToast } = useToast();
+  const { session, status } = useAuth();
   const { id } = useParams();
   const [guest, setGuest] = useState<GuestProfile | null>(null);
   const [recentConnections, setRecentConnections] = useState<ConnectionRow[]>([]);
@@ -102,7 +119,6 @@ export default function ContactDetail() {
     }
 
     const guestData = (data as GuestProfile) ?? null;
-    setGuest(guestData);
 
     const sessionFilters = [guestData?.email ? `guest_email.eq.${guestData.email}` : null, guestData?.mobile ? `guest_phone.eq.${guestData.mobile}` : null]
       .filter(Boolean)
@@ -124,7 +140,7 @@ export default function ContactDetail() {
       guestData && sessionFilters
         ? supabase
             .from('portal_sessions')
-            .select('client_mac')
+            .select('client_mac, guest_email, guest_phone, submitted_at, authorized_at, completed_at, updated_at')
             .or(sessionFilters)
             .limit(30)
         : Promise.resolve({ data: [], error: null }),
@@ -136,6 +152,25 @@ export default function ContactDetail() {
         .limit(12)
     ]);
 
+    let liveGuests: LiveClientSnapshot[] = [];
+    if (status === 'authed' && session?.access_token) {
+      try {
+        const live = await fetchLiveClients(session.access_token);
+        liveGuests = live.guests;
+      } catch (liveError) {
+        console.error('[contact-detail] live clients fetch failed', liveError);
+      }
+    }
+
+    const mergedGuest = guestData
+      ? mergeGuestActivity(
+          [guestData],
+          (sessionData as PortalSessionActivityRow[]) ?? [],
+          liveGuests
+        )[0] ?? guestData
+      : null;
+
+    setGuest(mergedGuest);
     setRecentConnections((recent as ConnectionRow[]) ?? []);
     const normalizedCampaigns = ((recipientData ?? []) as Array<{
       id: string;
@@ -164,7 +199,7 @@ export default function ContactDetail() {
 
   useEffect(() => {
     void loadGuest();
-  }, [id]);
+  }, [id, session?.access_token, status]);
 
   const addTag = async (event: FormEvent) => {
     event.preventDefault();
@@ -279,6 +314,12 @@ export default function ContactDetail() {
           </p>
         </Card>
       </div>
+
+      {guest.is_live_now ? (
+        <div className="rounded-3xl border border-emerald-300/20 bg-emerald-300/[0.07] px-4 py-3 text-sm text-emerald-100">
+          Connected right now{guest.live_area ? ` via ${guest.live_area}` : ''}.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <Card>

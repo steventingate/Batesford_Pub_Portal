@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { useToast } from '../components/ToastProvider';
 import { ContactCard, DataTable, FilterPanel, Info } from '../components/admin/AdminComponents';
+import { useAuth } from '../contexts/AuthContext';
+import { type LiveClientSnapshot, fetchLiveClients } from '../lib/dashboardAnalytics';
 import { invokeEdgeFunction } from '../lib/edgeFunctions';
 import { formatDateTime, toCsv } from '../lib/format';
+import { mergeGuestActivity, sortProfilesByActivity } from '../lib/guestActivity';
 import { supabase } from '../lib/supabaseClient';
 
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -41,6 +44,9 @@ type GuestProfile = {
   last_device_type: string | null;
   last_os_family: string | null;
   last_user_agent: string | null;
+  is_live_now?: boolean;
+  live_area?: string | null;
+  live_connected_at?: string | null;
 };
 
 type ConnectionRow = {
@@ -51,6 +57,15 @@ type ConnectionRow = {
   user_agent: string | null;
 };
 
+type PortalSessionActivityRow = {
+  guest_email: string | null;
+  guest_phone: string | null;
+  submitted_at: string | null;
+  authorized_at: string | null;
+  completed_at: string | null;
+  updated_at: string | null;
+};
+
 type TemplateOption = {
   id: string;
   name: string;
@@ -59,6 +74,8 @@ type TemplateOption = {
 
 export default function Contacts() {
   const { pushToast } = useToast();
+  const { session, status } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [profiles, setProfiles] = useState<GuestProfile[]>([]);
   const [search, setSearch] = useState('');
   const [dateRange, setDateRange] = useState('30');
@@ -75,16 +92,47 @@ export default function Contacts() {
 
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase
-        .from('guest_segments')
-        .select('guest_id, email, full_name, mobile, postcode, segment, visit_count, first_seen_at, last_seen_at, visits_by_weekday, visits_by_hour, last_device_type, last_os_family, last_user_agent')
-        .order('last_seen_at', { ascending: false });
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
-      setProfiles((data as GuestProfile[]) ?? []);
+      const [profilesRes, sessionsRes] = await Promise.all([
+        supabase
+          .from('guest_summary_view')
+          .select('guest_id, email, full_name, mobile, postcode, segment, visit_count, first_seen_at, last_seen_at, visits_by_weekday, visits_by_hour, last_device_type, last_os_family, last_user_agent')
+          .order('last_seen_at', { ascending: false }),
+        supabase
+          .from('portal_sessions')
+          .select('guest_email, guest_phone, submitted_at, authorized_at, completed_at, updated_at')
+          .gte('updated_at', ninetyDaysAgo.toISOString())
+          .order('updated_at', { ascending: false })
+      ]);
+
+      if (profilesRes.error) {
+        pushToast('Unable to load guests.', 'error');
+        return;
+      }
+
+      let liveGuests: LiveClientSnapshot[] = [];
+      if (status === 'authed' && session?.access_token) {
+        try {
+          const live = await fetchLiveClients(session.access_token);
+          liveGuests = live.guests;
+        } catch (error) {
+          console.error('[contacts] live clients fetch failed', error);
+        }
+      }
+
+      const mergedProfiles = mergeGuestActivity(
+        (profilesRes.data as GuestProfile[]) ?? [],
+        (sessionsRes.data as PortalSessionActivityRow[]) ?? [],
+        liveGuests
+      );
+
+      setProfiles(sortProfilesByActivity(mergedProfiles));
     };
 
     void load();
-  }, []);
+  }, [pushToast, session?.access_token, status]);
 
   useEffect(() => {
     const loadTemplates = async () => {
@@ -122,12 +170,21 @@ export default function Contacts() {
     setShowPostcodeMap(false);
   }, [selectedGuest?.guest_id]);
 
+  useEffect(() => {
+    if (!selectedGuest?.guest_id) return;
+    const nextGuest = profiles.find((profile) => profile.guest_id === selectedGuest.guest_id);
+    if (nextGuest && nextGuest !== selectedGuest) {
+      setSelectedGuest(nextGuest);
+    }
+  }, [profiles, selectedGuest]);
+
   const filtered = useMemo(() => {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - Number(dateRange));
     const searchLower = search.toLowerCase();
+    const liveOnly = searchParams.get('live') === '1';
 
-    return profiles.filter((guest) => {
+    return sortProfilesByActivity(profiles.filter((guest) => {
       const matchesSearch =
         !searchLower ||
         [guest.full_name, guest.email, guest.mobile, guest.postcode]
@@ -144,9 +201,10 @@ export default function Contacts() {
       if (hasEmail === 'yes' && !guest.email) return false;
       if (hasEmail === 'no' && guest.email) return false;
       if (returningOnly && Number(guest.visit_count ?? 0) < 2) return false;
+      if (liveOnly && !guest.is_live_now) return false;
       return true;
-    });
-  }, [profiles, search, dateRange, hasEmail, returningOnly]);
+    }));
+  }, [profiles, search, dateRange, hasEmail, returningOnly, searchParams]);
 
   const totals = useMemo(() => ({
     total: filtered.length,
@@ -233,9 +291,18 @@ export default function Contacts() {
         <div>
           <div className="muted-kicker">Guest CRM</div>
           <h2 className="font-display text-4xl text-white">Guests</h2>
-          <p className="max-w-2xl text-muted">Search the guest database, spot repeat visitors, and jump into a full profile when you need more than the register view.</p>
+          <p className="max-w-2xl text-muted">
+            {searchParams.get('live') === '1'
+              ? 'Showing guests connected right now, with live last-seen timestamps overlaid on the CRM register.'
+              : 'Search the guest database, spot repeat visitors, and jump into a full profile when you need more than the register view.'}
+          </p>
         </div>
-        <Button variant="outline" onClick={handleExport}>Export CSV</Button>
+        <div className="flex flex-wrap gap-3">
+          {searchParams.get('live') === '1' ? (
+            <Button variant="ghost" onClick={() => setSearchParams({})}>Clear live filter</Button>
+          ) : null}
+          <Button variant="outline" onClick={handleExport}>Export CSV</Button>
+        </div>
       </div>
 
       <div className="admin-grid md:grid-cols-3">
@@ -306,7 +373,12 @@ export default function Contacts() {
                   <td>{guest.postcode || '-'}</td>
                   <td><span className="status-pill">{(guest.segment || 'unknown').replace(/^./, (char) => char.toUpperCase())}</span></td>
                   <td>{Number(guest.visit_count ?? 0)}</td>
-                  <td>{guest.last_seen_at ? formatDateTime(guest.last_seen_at) : '-'}</td>
+                  <td>
+                    <div className="flex flex-col gap-1">
+                      <span>{guest.last_seen_at ? formatDateTime(guest.last_seen_at) : '-'}</span>
+                      {guest.is_live_now ? <span className="text-[11px] font-semibold text-emerald-200">Live now{guest.live_area ? ` · ${guest.live_area}` : ''}</span> : null}
+                    </div>
+                  </td>
                   <td>{formatDeviceLabel(guest.last_device_type, guest.last_os_family)}</td>
                   <td>
                     <div className="flex flex-wrap gap-2">
@@ -348,7 +420,9 @@ export default function Contacts() {
             postcode={guest.postcode}
             segment={(guest.segment || 'unknown').replace(/^./, (char) => char.toUpperCase())}
             visits={Number(guest.visit_count ?? 0)}
-            lastSeen={guest.last_seen_at ? formatDateTime(guest.last_seen_at) : '-'}
+            lastSeen={guest.is_live_now
+              ? `${guest.last_seen_at ? formatDateTime(guest.last_seen_at) : '-'} · Live now${guest.live_area ? ` (${guest.live_area})` : ''}`
+              : guest.last_seen_at ? formatDateTime(guest.last_seen_at) : '-'}
             onClick={() => setSelectedGuest(guest)}
             action={guest.email ? (
               <div className="grid gap-2">
@@ -431,6 +505,11 @@ export default function Contacts() {
               <Card><Info label="Last Seen" value={selectedGuest.last_seen_at ? formatDateTime(selectedGuest.last_seen_at) : '-'} /></Card>
               <Card><Info label="Last Device" value={formatDeviceLabel(selectedGuest.last_device_type, selectedGuest.last_os_family)} /></Card>
             </div>
+            {selectedGuest.is_live_now ? (
+              <div className="mt-4 rounded-3xl border border-emerald-300/20 bg-emerald-300/[0.07] px-4 py-3 text-sm text-emerald-100">
+                Connected right now{selectedGuest.live_area ? ` via ${selectedGuest.live_area}` : ''}.
+              </div>
+            ) : null}
 
             <div className="mt-6 grid gap-6 lg:grid-cols-2">
               <Card>

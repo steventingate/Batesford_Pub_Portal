@@ -248,10 +248,20 @@ export function GuestsByStatus({ total, slices }: { total: number; slices: Statu
   );
 }
 
-export function LiveNowPanel({ liveNow }: { liveNow: DashboardAnalyticsResult['liveNow'] }) {
+export function LiveNowPanel({
+  liveNow,
+  onViewAll
+}: {
+  liveNow: DashboardAnalyticsResult['liveNow'];
+  onViewAll?: () => void;
+}) {
   const maxArea = Math.max(...liveNow.areas.map((item) => item.value), 1);
   return (
-    <DashboardCard className="span-3" title={<><h3>Live Now</h3></>} action={<button type="button" className="dashboard-link-button">View All</button>}>
+    <DashboardCard
+      className="span-3"
+      title={<><h3>Live Now</h3></>}
+      action={<button type="button" className="dashboard-link-button" onClick={onViewAll}>View All</button>}
+    >
       <div className="live-panel-top">
         <div>
           <div className="live-count">{liveNow.count}</div>
