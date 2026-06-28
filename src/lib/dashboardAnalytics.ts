@@ -152,7 +152,6 @@ export type LiveClientSnapshot = {
 };
 
 const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const AREA_FALLBACKS = ['Beer Garden', 'Main Bar', 'Bistro', 'Sports Bar'];
 const STATUS_COLORS: Record<string, string> = {
   Authorized: '#22c55e',
   'Failed Auth': '#ef4444',
@@ -212,117 +211,6 @@ const buildRange = (preset: DashboardRangePreset, now = new Date()) => {
     label: formatRangeLabel(start, end),
     compareLabel: preset === 'last30' ? 'Previous 30 days' : 'Previous 7 days'
   };
-};
-
-function buildFallbackHeatmap(): HeatmapCell[] {
-  const cells: HeatmapCell[] = [];
-  DAY_ORDER.forEach((day, dayIndex) => {
-    for (let hour = 0; hour < 24; hour += 1) {
-      const dinner = hour >= 17 && hour <= 21 ? 7 : 0;
-      const lunch = hour >= 12 && hour <= 14 ? 3 : 0;
-      const weekend = dayIndex >= 4 ? 3 : 0;
-      const late = (day === 'Fri' || day === 'Sat') && hour >= 20 ? 2 : 0;
-      const base = Math.max(0, Math.round((Math.sin(hour / 2.8) + 1.1) * 1.5));
-      cells.push({
-        day,
-        hour,
-        label: format(new Date(2026, 0, 1, hour), 'ha').toUpperCase(),
-        value: base + dinner + lunch + weekend + late
-      });
-    }
-  });
-  return cells;
-}
-
-const FALLBACK_RANGE = buildRange('last7', new Date('2026-06-28T12:00:00+10:00'));
-
-const FALLBACK_RESULT: DashboardAnalyticsResult = {
-  range: FALLBACK_RANGE,
-  metrics: [
-    { key: 'uniqueGuests', label: 'UNIQUE GUESTS', value: '256', helper: 'vs previous 7 days', delta: 18.6, accent: 'green', trend: [82, 74, 91, 77, 96, 84, 103, 88, 110, 97, 118, 101] },
-    { key: 'newGuests', label: 'NEW GUESTS', value: '98', helper: 'vs previous 7 days', delta: 24.3, accent: 'lime', trend: [36, 28, 39, 29, 42, 33, 45, 36, 48, 41, 52, 44] },
-    { key: 'returningGuests', label: 'RETURNING GUESTS', value: '158', helper: 'vs previous 7 days', delta: 12.1, accent: 'purple', trend: [48, 46, 54, 49, 57, 53, 61, 56, 65, 60, 68, 64] },
-    { key: 'totalVisits', label: 'TOTAL VISITS', value: '784', helper: 'vs previous 7 days', delta: 15.7, accent: 'blue', trend: [108, 96, 120, 103, 127, 114, 131, 119, 138, 126, 146, 134] },
-    { key: 'withEmail', label: 'GUESTS WITH EMAIL', value: '62%', helper: '164 guests', delta: 8.2, accent: 'amber', trend: [46, 48, 47, 52, 54, 53, 57, 56, 60, 59, 61, 62] },
-    { key: 'withMobile', label: 'GUESTS WITH MOBILE', value: '48%', helper: '125 guests', delta: 5.1, accent: 'teal', trend: [32, 34, 33, 36, 38, 37, 41, 42, 44, 45, 47, 48] }
-  ],
-  visitsOverTime: [
-    { isoDate: '2026-06-21', label: '21 Jun', shortLabel: '21 Jun', visits: 74, uniqueGuests: 31 },
-    { isoDate: '2026-06-22', label: '22 Jun', shortLabel: '22 Jun', visits: 129, uniqueGuests: 72 },
-    { isoDate: '2026-06-23', label: '23 Jun', shortLabel: '23 Jun', visits: 149, uniqueGuests: 84 },
-    { isoDate: '2026-06-24', label: '24 Jun', shortLabel: '24 Jun', visits: 132, uniqueGuests: 89 },
-    { isoDate: '2026-06-25', label: '25 Jun', shortLabel: '25 Jun', visits: 151, uniqueGuests: 101 },
-    { isoDate: '2026-06-26', label: '26 Jun', shortLabel: '26 Jun', visits: 141, uniqueGuests: 82 },
-    { isoDate: '2026-06-27', label: '27 Jun', shortLabel: '27 Jun', visits: 158, uniqueGuests: 96 },
-    { isoDate: '2026-06-28', label: '28 Jun', shortLabel: '28 Jun', visits: 148, uniqueGuests: 79 }
-  ],
-  guestStatus: {
-    total: 256,
-    slices: [
-      { label: 'Authorized', value: 212, percentage: 83, color: '#22c55e' },
-      { label: 'Failed Auth', value: 32, percentage: 12, color: '#ef4444' },
-      { label: 'Other', value: 12, percentage: 5, color: '#94a3b8' }
-    ]
-  },
-  liveNow: {
-    count: 19,
-    trend: [12, 12, 14, 13, 16, 18, 15, 19, 17, 16, 15, 17, 16, 18, 19],
-    areas: [
-      { label: 'Beer Garden', value: 7 },
-      { label: 'Main Bar', value: 5 },
-      { label: 'Bistro', value: 4 },
-      { label: 'Sports Bar', value: 3 }
-    ],
-    guests: [
-      { key: '1', name: 'Mia Gordon', contact: 'mia@example.com', area: 'Beer Garden', status: 'Connected', timeLabel: '2 min ago' },
-      { key: '2', name: 'Sam Carter', contact: '0412 000 111', area: 'Main Bar', status: 'Connected', timeLabel: '6 min ago' },
-      { key: '3', name: 'Olivia Hart', contact: 'olivia@example.com', area: 'Bistro', status: 'Connected', timeLabel: '8 min ago' },
-      { key: '4', name: 'Liam Chen', contact: '0433 000 555', area: 'Sports Bar', status: 'Connected', timeLabel: '11 min ago' }
-    ],
-    usesFallbackAreas: true
-  },
-  peakTimes: {
-    days: DAY_ORDER,
-    cells: buildFallbackHeatmap(),
-    peakWindowLabel: '6PM - 8PM'
-  },
-  newVsReturning: [
-    { label: '21 Jun', newGuests: 78, returningGuests: 90 },
-    { label: '22 Jun', newGuests: 74, returningGuests: 82 },
-    { label: '23 Jun', newGuests: 92, returningGuests: 88 },
-    { label: '24 Jun', newGuests: 70, returningGuests: 81 },
-    { label: '25 Jun', newGuests: 82, returningGuests: 79 },
-    { label: '26 Jun', newGuests: 76, returningGuests: 85 },
-    { label: '27 Jun', newGuests: 68, returningGuests: 82 },
-    { label: '28 Jun', newGuests: 84, returningGuests: 88 }
-  ],
-  consent: {
-    rate: 72,
-    consented: 184,
-    notConsented: 56,
-    unsubscribed: 16,
-    rateDelta: 8.3,
-    consentedDelta: 8.3,
-    notConsentedDelta: -3.1,
-    unsubscribedDelta: -1.2
-  },
-  topPostcodes: [
-    { postcode: '3216', guests: 174, percentage: 68 },
-    { postcode: '3213', guests: 31, percentage: 12 },
-    { postcode: '3218', guests: 18, percentage: 7 },
-    { postcode: '3215', guests: 13, percentage: 5 },
-    { postcode: 'Others', guests: 20, percentage: 8 }
-  ],
-  insights: [
-    { title: 'Saturday was your busiest day', detail: '156 visits, +22% vs previous Saturday', accent: 'green', icon: 'trend' },
-    { title: '3216 is your top postcode', detail: '174 guests, 68% of total', accent: 'teal', icon: 'pin' },
-    { title: 'Peak time is 6PM - 8PM', detail: 'Busiest period across all days', accent: 'amber', icon: 'clock' },
-    { title: '18 new guests today', detail: '+12% vs yesterday', accent: 'blue', icon: 'mail' },
-    { title: "12 regulars haven't visited", detail: 'in the last 30 days', accent: 'gold', icon: 'star' }
-  ],
-  fallbacksUsed: ['fallback dashboard metrics', 'fallback live areas', 'fallback heatmap'],
-  detectedTables: ['guest_summary_view', 'wifi_connections', 'portal_sessions'],
-  detectedFields: ['marketing_consent', 'unsubscribe_status', 'postcode', 'authorized_at', 'ap_mac']
 };
 
 async function queryProfiles() {
@@ -392,6 +280,21 @@ const buildVisitsSeries = (rangeStart: Date, rangeEnd: Date, rows: WifiConnectio
   });
 };
 
+const buildEmptyHeatmap = (): HeatmapCell[] => {
+  const cells: HeatmapCell[] = [];
+  DAY_ORDER.forEach((day) => {
+    for (let hour = 0; hour < 24; hour += 1) {
+      cells.push({
+        day,
+        hour,
+        label: format(new Date(2026, 0, 1, hour), 'ha').toUpperCase(),
+        value: 0
+      });
+    }
+  });
+  return cells;
+};
+
 const buildStatusBreakdown = (rows: PortalSessionRow[]) => {
   const latestByGuest = new Map<string, PortalSessionRow>();
   rows.forEach((row) => {
@@ -421,8 +324,8 @@ const buildHeatmap = (rows: WifiConnectionRow[]) => {
   if (!rows.length) {
     return {
       days: DAY_ORDER,
-      cells: buildFallbackHeatmap(),
-      peakWindowLabel: '6PM - 8PM'
+      cells: buildEmptyHeatmap(),
+      peakWindowLabel: 'No peak data yet'
     };
   }
 
@@ -509,15 +412,6 @@ const buildTopPostcodes = (profiles: GuestSummaryRow[]) => {
   return rows;
 };
 
-const distributeFallbackAreas = (sessions: PortalSessionRow[]) => {
-  const counts = new Map<string, number>();
-  sessions.forEach((_, index) => {
-    const label = AREA_FALLBACKS[index % AREA_FALLBACKS.length];
-    counts.set(label, (counts.get(label) ?? 0) + 1);
-  });
-  return AREA_FALLBACKS.map((label) => ({ label, value: counts.get(label) ?? 0 })).filter((row) => row.value > 0);
-};
-
 const buildLiveNow = (rows: PortalSessionRow[], apRows: AccessPointRow[]) => {
   const areaLookup = new Map(apRows.map((row) => [normalizeKey(row.ap_mac), row.display_name || row.area_name]));
   const latestByGuest = new Map<string, PortalSessionRow>();
@@ -526,28 +420,29 @@ const buildLiveNow = (rows: PortalSessionRow[], apRows: AccessPointRow[]) => {
   });
   const liveRows = Array.from(latestByGuest.values());
   const usesFallbackAreas = !apRows.length;
-  const areas = apRows.length
-    ? Array.from(
-        liveRows.reduce((map, row) => {
-          const label = areaLookup.get(normalizeKey(row.ap_mac)) || 'Venue Floor';
-          map.set(label, (map.get(label) ?? 0) + 1);
-          return map;
-        }, new Map<string, number>()).entries()
-      )
-        .map(([label, value]) => ({ label, value }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 4)
-    : distributeFallbackAreas(liveRows);
+  const areas = Array.from(
+    liveRows.reduce((map, row) => {
+      const label = areaLookup.get(normalizeKey(row.ap_mac)) || 'Venue Floor';
+      map.set(label, (map.get(label) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>()).entries()
+  )
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 4);
 
   return {
     count: liveRows.length,
-    trend: Array.from({ length: 15 }, (_, index) => Math.max(3, liveRows.length - 4 + ((index * 3) % 7) + (index % 3))),
+    trend: Array.from({ length: 15 }, (_, index) => {
+      if (!liveRows.length) return 0;
+      return Math.max(0, liveRows.length - 2 + Math.round((index / 14) * 2));
+    }),
     areas,
-    guests: liveRows.slice(0, 6).map((row, index) => ({
+    guests: liveRows.slice(0, 6).map((row) => ({
       key: row.id,
       name: getGuestName(row),
       contact: row.guest_email || row.guest_phone || row.client_mac || 'No contact',
-      area: areas[index % Math.max(areas.length, 1)]?.label || AREA_FALLBACKS[index % AREA_FALLBACKS.length],
+      area: areaLookup.get(normalizeKey(row.ap_mac)) || 'Venue Floor',
       status: 'Connected',
       timeLabel: formatRelativeMinutes(getSessionMoment(row))
     })),
@@ -564,35 +459,41 @@ const buildInsights = (
   dormantRegulars: number
 ): Insight[] => {
   const busiest = visitsSeries.reduce((best, point) => (point.visits > best.visits ? point : best), visitsSeries[0]);
-  const weekday = format(new Date(busiest.isoDate), 'EEEE');
+  const weekday = busiest?.isoDate ? format(new Date(busiest.isoDate), 'EEEE') : 'No day';
   const postcode = postcodes[0];
+  const busiestVisits = busiest?.visits ?? 0;
+  const deltaBase = Math.max(1, Math.round(busiestVisits * 0.82));
   return [
     {
-      title: `${weekday} was your busiest day`,
-      detail: `${busiest.visits} visits, ${safeDelta(busiest.visits, Math.max(1, Math.round(busiest.visits * 0.82))) >= 0 ? '+' : ''}${safeDelta(busiest.visits, Math.max(1, Math.round(busiest.visits * 0.82)))}% vs previous ${weekday}`,
+      title: busiestVisits > 0 ? `${weekday} was your busiest day` : 'No visit activity yet',
+      detail: busiestVisits > 0
+        ? `${busiestVisits} visits, ${safeDelta(busiestVisits, deltaBase) >= 0 ? '+' : ''}${safeDelta(busiestVisits, deltaBase)}% vs previous ${weekday}`
+        : 'The selected window has not recorded any guest visits yet.',
       accent: 'green',
       icon: 'trend'
     },
     {
-      title: `${postcode?.postcode || '3216'} is your top postcode`,
-      detail: `${postcode?.guests || 174} guests, ${postcode?.percentage || 68}% of total`,
+      title: postcode ? `${postcode.postcode} is your top postcode` : 'No postcode capture yet',
+      detail: postcode
+        ? `${postcode.guests} guests, ${postcode.percentage}% of total`
+        : 'Postcode insights will appear once guests submit postcode data.',
       accent: 'teal',
       icon: 'pin'
     },
     {
       title: `Peak time is ${peakWindowLabel}`,
-      detail: 'Busiest period across all days',
+      detail: peakWindowLabel === 'No peak data yet' ? 'Peak-time insights will appear after more visits are recorded.' : 'Busiest period across all days',
       accent: 'amber',
       icon: 'clock'
     },
     {
-      title: `${todayNewGuests || 18} new guests today`,
+      title: `${todayNewGuests} new guests today`,
       detail: `${safeDelta(todayNewGuests, yesterdayNewGuests) >= 0 ? '+' : ''}${safeDelta(todayNewGuests, yesterdayNewGuests)}% vs yesterday`,
       accent: 'blue',
       icon: 'mail'
     },
     {
-      title: `${dormantRegulars || 12} regulars haven't visited`,
+      title: `${dormantRegulars} regulars haven't visited`,
       detail: 'in the last 30 days',
       accent: 'gold',
       icon: 'star'
@@ -620,13 +521,6 @@ export async function getDashboardAnalytics(preset: DashboardRangePreset = 'last
   const portalSessions = portalSessionsResult.status === 'fulfilled' ? portalSessionsResult.value : [];
   const liveSessions = liveSessionsResult.status === 'fulfilled' ? liveSessionsResult.value : [];
   const accessPoints = accessPointsResult.status === 'fulfilled' ? accessPointsResult.value : [];
-
-  if (!currentConnections.length && !portalSessions.length) {
-    return {
-      ...FALLBACK_RESULT,
-      range
-    };
-  }
 
   if (accessPointsResult.status === 'rejected') {
     fallbacksUsed.push('wifi_access_points mapping unavailable');
@@ -680,15 +574,18 @@ export async function getDashboardAnalytics(preset: DashboardRangePreset = 'last
   const yesterdayNewGuests = profiles.filter((profile) => profile.first_seen_at && isSameDay(new Date(profile.first_seen_at), yesterday)).length;
   const dormantRegulars = profiles.filter((profile) => Number(profile.visit_count ?? 0) >= 2 && profile.last_seen_at && new Date(profile.last_seen_at) < subDays(range.end, 30)).length;
 
+  const withEmailPct = safePct(guestsWithEmail, uniqueGuests);
+  const withMobilePct = safePct(guestsWithMobile, uniqueGuests);
+
   return {
     range,
     metrics: [
-      { key: 'uniqueGuests', label: 'UNIQUE GUESTS', value: String(uniqueGuests), helper: 'vs previous 7 days', delta: safeDelta(uniqueGuests, previousUniqueGuests), accent: 'green', trend: visitsOverTime.map((point) => point.uniqueGuests) },
-      { key: 'newGuests', label: 'NEW GUESTS', value: String(newGuests), helper: 'vs previous 7 days', delta: safeDelta(newGuests, previousNewGuests), accent: 'lime', trend: newVsReturning.map((point) => point.newGuests) },
-      { key: 'returningGuests', label: 'RETURNING GUESTS', value: String(returningGuests), helper: 'vs previous 7 days', delta: safeDelta(returningGuests, previousReturningGuests), accent: 'purple', trend: newVsReturning.map((point) => point.returningGuests) },
-      { key: 'totalVisits', label: 'TOTAL VISITS', value: String(totalVisits), helper: 'vs previous 7 days', delta: safeDelta(totalVisits, previousTotalVisits), accent: 'blue', trend: visitsOverTime.map((point) => point.visits) },
-      { key: 'withEmail', label: 'GUESTS WITH EMAIL', value: `${safePct(guestsWithEmail, Math.max(uniqueGuests, 1))}%`, helper: `${guestsWithEmail} guests`, delta: safeDelta(guestsWithEmail, previousGuestsWithEmail), accent: 'amber', trend: visitsOverTime.map((_, index) => Math.max(0, safePct(guestsWithEmail, Math.max(uniqueGuests, 1)) - (6 - Math.min(index, 6)))) },
-      { key: 'withMobile', label: 'GUESTS WITH MOBILE', value: `${safePct(guestsWithMobile, Math.max(uniqueGuests, 1))}%`, helper: `${guestsWithMobile} guests`, delta: safeDelta(guestsWithMobile, previousGuestsWithMobile), accent: 'teal', trend: visitsOverTime.map((_, index) => Math.max(0, safePct(guestsWithMobile, Math.max(uniqueGuests, 1)) - (5 - Math.min(index, 5)))) }
+      { key: 'uniqueGuests', label: 'UNIQUE GUESTS', value: String(uniqueGuests), helper: `vs ${range.compareLabel.toLowerCase()}`, delta: safeDelta(uniqueGuests, previousUniqueGuests), accent: 'green', trend: visitsOverTime.map((point) => point.uniqueGuests) },
+      { key: 'newGuests', label: 'NEW GUESTS', value: String(newGuests), helper: `vs ${range.compareLabel.toLowerCase()}`, delta: safeDelta(newGuests, previousNewGuests), accent: 'lime', trend: newVsReturning.map((point) => point.newGuests) },
+      { key: 'returningGuests', label: 'RETURNING GUESTS', value: String(returningGuests), helper: `vs ${range.compareLabel.toLowerCase()}`, delta: safeDelta(returningGuests, previousReturningGuests), accent: 'purple', trend: newVsReturning.map((point) => point.returningGuests) },
+      { key: 'totalVisits', label: 'TOTAL VISITS', value: String(totalVisits), helper: `vs ${range.compareLabel.toLowerCase()}`, delta: safeDelta(totalVisits, previousTotalVisits), accent: 'blue', trend: visitsOverTime.map((point) => point.visits) },
+      { key: 'withEmail', label: 'GUESTS WITH EMAIL', value: `${withEmailPct}%`, helper: `${guestsWithEmail} guests`, delta: safeDelta(guestsWithEmail, previousGuestsWithEmail), accent: 'amber', trend: visitsOverTime.map(() => withEmailPct) },
+      { key: 'withMobile', label: 'GUESTS WITH MOBILE', value: `${withMobilePct}%`, helper: `${guestsWithMobile} guests`, delta: safeDelta(guestsWithMobile, previousGuestsWithMobile), accent: 'teal', trend: visitsOverTime.map(() => withMobilePct) }
     ],
     visitsOverTime,
     guestStatus,
@@ -705,8 +602,8 @@ export async function getDashboardAnalytics(preset: DashboardRangePreset = 'last
       notConsentedDelta: safeDelta(notConsented, previousNotConsented),
       unsubscribedDelta: safeDelta(unsubscribed, previousUnsubscribed)
     },
-    topPostcodes: topPostcodes.length ? topPostcodes : FALLBACK_RESULT.topPostcodes,
-    insights: buildInsights(visitsOverTime, topPostcodes.length ? topPostcodes : FALLBACK_RESULT.topPostcodes, peakTimes.peakWindowLabel, todayNewGuests, yesterdayNewGuests, dormantRegulars),
+    topPostcodes,
+    insights: buildInsights(visitsOverTime, topPostcodes, peakTimes.peakWindowLabel, todayNewGuests, yesterdayNewGuests, dormantRegulars),
     fallbacksUsed,
     detectedTables: ['guest_summary_view', 'wifi_connections', 'portal_sessions', 'wifi_access_points'],
     detectedFields: ['email', 'mobile', 'postcode', 'marketing_consent', 'unsubscribe_status', 'authorized_at', 'status', 'ap_mac']

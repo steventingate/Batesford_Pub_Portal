@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '../components/ui/Button';
 import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import {
   ConsentRateWidget,
   DashboardSkeleton,
@@ -16,9 +17,19 @@ import {
 } from '../components/dashboard/DashboardWidgets';
 import { buildDashboardExportCsv, fetchLiveClients, getDashboardAnalytics, type DashboardAnalyticsResult, type DashboardRangePreset } from '../lib/dashboardAnalytics';
 
+function CalendarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4M8 3v4M3 11h18" />
+    </svg>
+  );
+}
+
 export default function Dashboard() {
   const { pushToast } = useToast();
-  const { session, status } = useAuth();
+  const { session, status, profile } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [preset, setPreset] = useState<DashboardRangePreset>('last7');
   const [analytics, setAnalytics] = useState<DashboardAnalyticsResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,11 +81,11 @@ export default function Dashboard() {
               ...current.liveNow,
               count: live.count,
               trend: current.liveNow.trend.map((value, index, arr) => {
-                if (index === arr.length - 1) return Math.max(live.count, 1);
-                if (index === arr.length - 2) return Math.max(1, Math.round((value + live.count) / 2));
+                if (index === arr.length - 1) return live.count;
+                if (index === arr.length - 2) return Math.max(0, Math.round((value + live.count) / 2));
                 return value;
               }),
-              areas: live.areas.length ? live.areas : current.liveNow.areas,
+              areas: live.areas,
               guests: live.guests,
               usesFallbackAreas: false
             },
@@ -92,7 +103,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [analytics?.range.label, preset, session?.access_token, status]);
+  }, [analytics?.range.label, session?.access_token, status]);
 
   const handleExport = () => {
     if (!analytics) return;
@@ -107,6 +118,10 @@ export default function Dashboard() {
     document.body.removeChild(link);
   };
 
+  const ownerName = profile?.full_name || 'James Mitchell';
+  const ownerRole = profile?.role || 'Owner';
+  const initials = ownerName.split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase();
+
   if (loading && !analytics) {
     return (
       <div className="dashboard-page">
@@ -118,12 +133,15 @@ export default function Dashboard() {
   return (
     <div className="dashboard-page">
       <div className="dashboard-topbar">
-        <button type="button" className="dashboard-menu-button" aria-label="Open menu">
+        <button type="button" className="dashboard-menu-button" aria-label="Navigation">
           <span />
           <span />
           <span />
         </button>
         <div className="dashboard-right-actions">
+          <button type="button" className="dashboard-theme-toggle" onClick={toggleTheme}>
+            {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+          </button>
           <div className="dashboard-top-status">
             <span className="dashboard-badge-dot">3</span>
             <button type="button" className="dashboard-icon-button" aria-label="Notifications">
@@ -131,10 +149,10 @@ export default function Dashboard() {
             </button>
           </div>
           <div className="dashboard-owner-pill">
-            <div className="dashboard-owner-avatar">JM</div>
+            <div className="dashboard-owner-avatar">{initials}</div>
             <div>
-              <strong>James Mitchell</strong>
-              <span>Owner</span>
+              <strong>{ownerName}</strong>
+              <span>{ownerRole}</span>
             </div>
           </div>
         </div>
@@ -144,21 +162,17 @@ export default function Dashboard() {
         <div>
           <h1>Dashboard</h1>
           <p>Real-time insights into your guests and venue performance</p>
+          {analytics ? <div className="dashboard-updated-at">Updated for {analytics.range.label}</div> : null}
         </div>
         <div className="dashboard-header-actions">
           <label className="dashboard-select-pill">
-            <span className="dashboard-select-icon">📅</span>
+            <span className="dashboard-select-icon"><CalendarIcon /></span>
             <select value={preset} onChange={(event) => setPreset(event.target.value as DashboardRangePreset)}>
-              <option value="last7">{analytics?.range.label || '21 Jun - 28 Jun 2026'}</option>
+              <option value="last7">{analytics?.range.label || 'Last 7 days'}</option>
               <option value="last30">Last 30 days</option>
             </select>
           </label>
-          <label className="dashboard-select-pill compare-pill">
-            <select value={preset} onChange={(event) => setPreset(event.target.value as DashboardRangePreset)}>
-              <option value="last7">Compare: Previous 7 days</option>
-              <option value="last30">Compare: Previous 30 days</option>
-            </select>
-          </label>
+          <div className="dashboard-select-pill compare-pill">Compare: {analytics?.range.compareLabel || 'Previous 7 days'}</div>
           <Button onClick={handleExport}>Export Report</Button>
         </div>
       </div>

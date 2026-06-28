@@ -38,6 +38,10 @@ function DashboardCard({
   );
 }
 
+function EmptyState({ message }: { message: string }) {
+  return <div className="dashboard-empty-state">{message}</div>;
+}
+
 function Icon({ kind }: { kind: 'users' | 'user-plus' | 'returning' | 'wifi' | 'mail' | 'phone' | 'activity' | 'clock' | 'pin' | 'star' | 'bell' }) {
   const common = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   switch (kind) {
@@ -112,8 +116,8 @@ export function MetricCards({ metrics }: { metrics: Metric[] }) {
               <div className="metric-icon" style={{ background: accent.bubble, color: accent.line }}>
                 <Icon kind={iconMap[metric.key] || 'users'} />
               </div>
-              <div className={clsx('metric-delta', metric.delta >= 0 ? 'is-up' : 'is-down')}>
-                {metric.delta >= 0 ? '↑' : '↓'} {Math.abs(metric.delta)}%
+              <div className={clsx('metric-delta', metric.delta > 0 ? 'is-up' : metric.delta < 0 ? 'is-down' : 'is-flat')}>
+                {metric.delta > 0 ? '+' : metric.delta < 0 ? '-' : ''}{Math.abs(metric.delta)}%
               </div>
             </div>
             <div className="metric-label">{metric.label}</div>
@@ -160,7 +164,7 @@ export function VisitsChart({ data }: { data: VisitPoint[] }) {
           <polyline fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={visitPoints.map((point) => `${point.x},${point.y}`).join(' ')} />
           <polyline fill="none" stroke="#94a3b8" strokeWidth="2" strokeDasharray="5 5" strokeLinecap="round" strokeLinejoin="round" points={uniquePoints.map((point) => `${point.x},${point.y}`).join(' ')} />
           {visitPoints.map((point, index) => (
-            <g key={point.label} onMouseEnter={() => setHoverIndex(index)}>
+            <g key={`${point.label}-${index}`} onMouseEnter={() => setHoverIndex(index)}>
               <circle cx={point.x} cy={point.y} r="4.5" fill="#22c55e" />
               <circle cx={uniquePoints[index].x} cy={uniquePoints[index].y} r="4" fill="#94a3b8" />
             </g>
@@ -170,7 +174,7 @@ export function VisitsChart({ data }: { data: VisitPoint[] }) {
               <line x1={visitPoints[activeIndex].x} y1="28" x2={visitPoints[activeIndex].x} y2="220" className="chart-focus-line" />
               <foreignObject x={Math.max(18, visitPoints[activeIndex].x - 54)} y="26" width="124" height="88">
                 <div className="chart-tooltip">
-                  <div className="chart-tooltip-date">{safe[activeIndex].label} 2026</div>
+                  <div className="chart-tooltip-date">{safe[activeIndex].label}</div>
                   <div className="chart-tooltip-row"><span className="green-dot" /> Visits <strong>{visitPoints[activeIndex].value}</strong></div>
                   <div className="chart-tooltip-row"><span className="blue-dot" /> Unique Guests <strong>{uniquePoints[activeIndex].value}</strong></div>
                 </div>
@@ -251,29 +255,37 @@ export function LiveNowPanel({ liveNow }: { liveNow: DashboardAnalyticsResult['l
         </div>
       </div>
       <div className="live-section-title">Top Active Areas</div>
-      <div className="live-area-list">
-        {liveNow.areas.map((area, index) => (
-          <div key={area.label} className="live-area-row">
-            <span>{area.label}</span>
-            <strong>{area.value}</strong>
-            <div className="live-area-bar">
-              <div style={{ width: `${(area.value / maxArea) * 100}%` }} className={clsx('live-area-fill', `tone-${index}`)} />
+      {liveNow.areas.length ? (
+        <div className="live-area-list">
+          {liveNow.areas.map((area, index) => (
+            <div key={area.label} className="live-area-row">
+              <span>{area.label}</span>
+              <strong>{area.value}</strong>
+              <div className="live-area-bar">
+                <div style={{ width: `${(area.value / maxArea) * 100}%` }} className={clsx('live-area-fill', `tone-${index}`)} />
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState message="No active access points right now." />
+      )}
       <div className="live-section-title">Connected Users</div>
-      <div className="live-guest-list">
-        {liveNow.guests.map((guest) => (
-          <div key={guest.key} className="live-guest-row">
-            <div>
-              <div className="live-guest-name">{guest.name}</div>
-              <div className="live-guest-meta">{guest.contact} • {guest.area}</div>
+      {liveNow.guests.length ? (
+        <div className="live-guest-list">
+          {liveNow.guests.map((guest) => (
+            <div key={guest.key} className="live-guest-row">
+              <div>
+                <div className="live-guest-name">{guest.name}</div>
+                <div className="live-guest-meta">{guest.contact} · {guest.area}</div>
+              </div>
+              <div className="live-guest-time">{guest.timeLabel}</div>
             </div>
-            <div className="live-guest-time">{guest.timeLabel}</div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState message="No connected guests are currently online." />
+      )}
     </DashboardCard>
   );
 }
@@ -353,9 +365,9 @@ export function ConsentRateWidget({ consent }: { consent: DashboardAnalyticsResu
           </div>
         </div>
         <div className="consent-detail-list">
-          <div><span>Consented</span><strong>{consent.consented}</strong><em className={consent.consentedDelta >= 0 ? 'up' : 'down'}>{consent.consentedDelta >= 0 ? '↑' : '↓'} {Math.abs(consent.consentedDelta)}%</em></div>
-          <div><span>Not Consented</span><strong>{consent.notConsented}</strong><em className={consent.notConsentedDelta >= 0 ? 'up' : 'down'}>{consent.notConsentedDelta >= 0 ? '↑' : '↓'} {Math.abs(consent.notConsentedDelta)}%</em></div>
-          <div><span>Unsubscribed</span><strong>{consent.unsubscribed}</strong><em className={consent.unsubscribedDelta >= 0 ? 'up' : 'down'}>{consent.unsubscribedDelta >= 0 ? '↑' : '↓'} {Math.abs(consent.unsubscribedDelta)}%</em></div>
+          <div><span>Consented</span><strong>{consent.consented}</strong><em className={consent.consentedDelta >= 0 ? 'up' : 'down'}>{consent.consentedDelta >= 0 ? '+' : '-'}{Math.abs(consent.consentedDelta)}%</em></div>
+          <div><span>Not Consented</span><strong>{consent.notConsented}</strong><em className={consent.notConsentedDelta >= 0 ? 'up' : 'down'}>{consent.notConsentedDelta >= 0 ? '+' : '-'}{Math.abs(consent.notConsentedDelta)}%</em></div>
+          <div><span>Unsubscribed</span><strong>{consent.unsubscribed}</strong><em className={consent.unsubscribedDelta >= 0 ? 'up' : 'down'}>{consent.unsubscribedDelta >= 0 ? '+' : '-'}{Math.abs(consent.unsubscribedDelta)}%</em></div>
         </div>
       </div>
     </DashboardCard>
@@ -366,18 +378,22 @@ export function TopPostcodesPanel({ rows }: { rows: DashboardAnalyticsResult['to
   const max = Math.max(...rows.map((row) => row.percentage), 1);
   return (
     <DashboardCard className="span-2" title={<><h3>Top Postcodes</h3></>} action={<button type="button" className="dashboard-link-button">View All</button>}>
-      <div className="postcode-list">
-        {rows.map((row) => (
-          <div key={row.postcode} className="postcode-row">
-            <div className="postcode-row-top">
-              <span>{row.postcode}</span>
-              <strong>{row.percentage}%</strong>
+      {rows.length ? (
+        <div className="postcode-list">
+          {rows.map((row) => (
+            <div key={row.postcode} className="postcode-row">
+              <div className="postcode-row-top">
+                <span>{row.postcode}</span>
+                <strong>{row.percentage}%</strong>
+              </div>
+              <div className="postcode-bar"><div style={{ width: `${(row.percentage / max) * 100}%` }} /></div>
+              <div className="postcode-row-meta">{row.guests} guests</div>
             </div>
-            <div className="postcode-bar"><div style={{ width: `${(row.percentage / max) * 100}%` }} /></div>
-            <div className="postcode-row-meta">{row.guests} guests</div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState message="No postcode data captured in this range." />
+      )}
     </DashboardCard>
   );
 }
