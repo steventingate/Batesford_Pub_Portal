@@ -53,7 +53,20 @@ export function AppLayout() {
         <div className="rounded-[28px] border border-white/10 bg-white/[0.03] px-4 py-4 shadow-glow">
           <div className="muted-kicker mb-2">Venue Intelligence</div>
           <h1>Batesford Hotel</h1>
-          <p className="mt-2 text-sm text-muted">Guest Wi-Fi, repeat visitation, postcode catchment, and export-ready reporting for the venue team.</p>
+          <p className="mt-2 text-sm text-muted">Guest Wi-Fi Admin</p>
+        </div>
+
+        <div className="rounded-[24px] border border-emerald-300/15 bg-[#0c1717]/70 px-4 py-4 shadow-glow">
+          <div className="muted-kicker mb-2">Venue</div>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-white">Batesford Hotel</div>
+              <div className="mt-1 text-xs text-muted">Guest Wi-Fi Admin</div>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </div>
         </div>
 
         <nav className="flex-1">
@@ -71,30 +84,29 @@ export function AppLayout() {
         </nav>
 
         <div className="rounded-[28px] border border-emerald-300/10 bg-emerald-400/[0.08] p-4 shadow-glow">
-          <div className="muted-kicker">Manager Shortcut</div>
-          <h3 className="mt-2 font-display text-lg text-white">Weekly report and export</h3>
-          <p className="mt-2 text-sm text-muted">Open the clean summary screen, check who visited, and export the list to CSV for management reporting.</p>
-          <NavLink to="/reports" onClick={closeNav}>
-            <Button className="mt-4 w-full">Open Reports</Button>
+          <div className="muted-kicker">Campaign Ready</div>
+          <h3 className="mt-2 font-display text-lg text-white">Use captured guest data well</h3>
+          <p className="mt-2 text-sm text-muted">Emails, mobiles, consent, postcode catchment, and repeat visits stay visible for campaigns, events, and newsletters.</p>
+          <NavLink to="/campaigns" onClick={closeNav}>
+            <Button className="mt-4 w-full">Open Campaigns</Button>
           </NavLink>
         </div>
 
         <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-4">
-          <div className="muted-kicker">Theme</div>
-          <div className="mt-2 flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-white">{theme === 'light' ? 'Light mode' : 'Dark mode'}</div>
-              <div className="mt-1 text-xs text-muted">Switch the admin palette for easier reading.</div>
+              <div className="text-sm font-semibold text-white">{profile?.full_name || 'James Mitchell'}</div>
+              <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted">{profile?.role || 'Owner'}</div>
             </div>
-            <Button variant="outline" onClick={toggleTheme}>
-              {theme === 'light' ? 'Dark' : 'Light'}
+          </div>
+          <div className="mt-4 grid gap-2">
+            <NavLink to="/settings" onClick={closeNav}>
+              <Button variant="outline" className="w-full">Settings</Button>
+            </NavLink>
+            <Button variant="outline" className="w-full" onClick={toggleTheme}>
+              {theme === 'light' ? 'Dark mode' : 'Light mode'}
             </Button>
           </div>
-        </div>
-
-        <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-4">
-          <div className="text-sm font-semibold text-white">{profile?.full_name || 'Steven Tingate'}</div>
-          <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted">{profile?.role || 'Admin'}</div>
           <Button variant="ghost" className="mt-4 w-full" onClick={signOut}>Sign out</Button>
         </div>
       </aside>

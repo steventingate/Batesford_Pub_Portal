@@ -1762,7 +1762,7 @@ Deno.serve(async (req: Request) => {
       try {
         const { data: existingGuest, error: existingError } = await supabase
           .from("guests")
-          .select("id, full_name, mobile, postcode")
+          .select("id, full_name, mobile, postcode, marketing_consent, unsubscribe_status")
           .eq("email", normalizedEmail)
           .maybeSingle();
 
@@ -1770,7 +1770,7 @@ Deno.serve(async (req: Request) => {
           console.log("Guest lookup warning", existingError.message);
         } else if (existingGuest?.id) {
           guestId = existingGuest.id;
-          const updates: Record<string, string> = {};
+          const updates: Record<string, unknown> = {};
           if (payload.name && payload.name.trim()) {
             updates.full_name = payload.name.trim();
           }
@@ -1784,6 +1784,14 @@ Deno.serve(async (req: Request) => {
           ) {
             updates.postcode = normalizedPostcode;
             updates.postcode_updated_at = now.toISOString();
+          }
+          if (payload.marketing_opt_in === true) {
+            updates.marketing_consent = true;
+            updates.consent_timestamp = now.toISOString();
+            updates.consent_source = "portal_form";
+            updates.unsubscribe_status = false;
+            updates.unsubscribe_timestamp = null;
+            updates.unsubscribe_source = null;
           }
           if (Object.keys(updates).length > 0) {
             const { error: updateError } = await supabase
@@ -1803,6 +1811,10 @@ Deno.serve(async (req: Request) => {
               mobile: payload.mobile?.trim() || null,
               postcode: postcodeValid ? normalizedPostcode : null,
               postcode_updated_at: postcodeValid ? now.toISOString() : null,
+              marketing_consent: payload.marketing_opt_in === true,
+              consent_timestamp: payload.marketing_opt_in === true ? now.toISOString() : null,
+              consent_source: payload.marketing_opt_in === true ? "portal_form" : null,
+              unsubscribe_status: false,
               created_at: now.toISOString(),
               updated_at: now.toISOString(),
             });
