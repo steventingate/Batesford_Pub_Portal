@@ -23,6 +23,23 @@ create policy "Admins can manage wifi access points" on public.wifi_access_point
 
 grant select, insert, update, delete on public.wifi_access_points to authenticated;
 
+insert into public.wifi_access_points (ap_mac, site_slug, area_name, display_name, is_active)
+select distinct
+  lower(trim(ps.ap_mac)) as ap_mac,
+  nullif(trim(ps.site_slug), '') as site_slug,
+  'Access Point ' || upper(right(replace(lower(trim(ps.ap_mac)), ':', ''), 4)) as area_name,
+  null::text as display_name,
+  true as is_active
+from public.portal_sessions ps
+where ps.ap_mac is not null
+  and trim(ps.ap_mac) <> ''
+on conflict (ap_mac) do update
+set
+  site_slug = coalesce(public.wifi_access_points.site_slug, excluded.site_slug),
+  area_name = coalesce(nullif(public.wifi_access_points.area_name, ''), excluded.area_name),
+  is_active = true,
+  updated_at = now();
+
 do $$
 begin
   if exists (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '../components/ui/Button';
 import { useToast } from '../components/ToastProvider';
+import { useAuth } from '../contexts/AuthContext';
 import {
   ConsentRateWidget,
   DashboardSkeleton,
@@ -13,10 +14,11 @@ import {
   TopPostcodesPanel,
   VisitsChart
 } from '../components/dashboard/DashboardWidgets';
-import { buildDashboardExportCsv, getDashboardAnalytics, type DashboardAnalyticsResult, type DashboardRangePreset } from '../lib/dashboardAnalytics';
+import { buildDashboardExportCsv, fetchLiveClients, getDashboardAnalytics, type DashboardAnalyticsResult, type DashboardRangePreset } from '../lib/dashboardAnalytics';
 
 export default function Dashboard() {
   const { pushToast } = useToast();
+  const { session, status } = useAuth();
   const [preset, setPreset] = useState<DashboardRangePreset>('last7');
   const [analytics, setAnalytics] = useState<DashboardAnalyticsResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,6 +51,48 @@ export default function Dashboard() {
       cancelled = true;
     };
   }, [preset, pushToast]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadLiveClients = async () => {
+      if (status !== 'authed' || !session?.access_token || !analytics) return;
+
+      try {
+        const live = await fetchLiveClients(session.access_token);
+        if (cancelled) return;
+
+        setAnalytics((current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            liveNow: {
+              ...current.liveNow,
+              count: live.count,
+              trend: current.liveNow.trend.map((value, index, arr) => {
+                if (index === arr.length - 1) return Math.max(live.count, 1);
+                if (index === arr.length - 2) return Math.max(1, Math.round((value + live.count) / 2));
+                return value;
+              }),
+              areas: live.areas.length ? live.areas : current.liveNow.areas,
+              guests: live.guests,
+              usesFallbackAreas: false
+            },
+            fallbacksUsed: current.fallbacksUsed.filter((entry) => entry !== 'top active areas using fallback labels')
+          };
+        });
+      } catch (error) {
+        if (!cancelled) {
+          console.error('[dashboard] live clients fetch failed', error);
+        }
+      }
+    };
+
+    void loadLiveClients();
+    return () => {
+      cancelled = true;
+    };
+  }, [analytics?.range.label, preset, session?.access_token, status]);
 
   const handleExport = () => {
     if (!analytics) return;

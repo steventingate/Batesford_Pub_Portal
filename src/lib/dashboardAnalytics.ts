@@ -142,6 +142,15 @@ export type DashboardAnalyticsResult = {
   detectedFields: string[];
 };
 
+export type LiveClientSnapshot = {
+  key: string;
+  name: string;
+  contact: string;
+  area: string;
+  status: string;
+  timeLabel: string;
+};
+
 const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const AREA_FALLBACKS = ['Beer Garden', 'Main Bar', 'Bistro', 'Sports Bar'];
 const STATUS_COLORS: Record<string, string> = {
@@ -731,4 +740,72 @@ export function buildDashboardExportCsv(data: DashboardAnalyticsResult) {
     lines.push(`"${row.title}","${row.detail}"`);
   });
   return lines.join('\n');
+}
+
+type LiveClientApiRow = {
+  client_id?: string | null;
+  client_mac?: string | null;
+  guest_name?: string | null;
+  guest_email?: string | null;
+  guest_phone?: string | null;
+  access_point?: string | null;
+  connected_at?: string | null;
+  submitted_at?: string | null;
+  authorized_at?: string | null;
+  completed_at?: string | null;
+};
+
+type LiveClientsApiResponse = {
+  clients?: LiveClientApiRow[];
+  synced_access_points?: number;
+};
+
+const getLiveClientMoment = (row: LiveClientApiRow) =>
+  row.connected_at || row.authorized_at || row.submitted_at || row.completed_at || new Date().toISOString();
+
+export async function fetchLiveClients(accessToken: string): Promise<{
+  count: number;
+  areas: { label: string; value: number }[];
+  guests: LiveClientSnapshot[];
+  syncedAccessPoints: number;
+}> {
+  const response = await fetch('/api/admin/live-clients', {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  const payload = await response.json().catch(() => ({} as LiveClientsApiResponse));
+  if (!response.ok) {
+    const message = payload && typeof payload === 'object' && 'error' in payload
+      ? String((payload as { error?: string }).error || '')
+      : '';
+    throw new Error(message || `Unable to load live clients (${response.status}).`);
+  }
+
+  const clients = Array.isArray(payload.clients) ? payload.clients : [];
+  const areaCounts = new Map<string, number>();
+  clients.forEach((client: LiveClientApiRow) => {
+    const label = String(client.access_point || '').trim() || 'Venue Floor';
+    areaCounts.set(label, (areaCounts.get(label) ?? 0) + 1);
+  });
+
+  const guests = clients.slice(0, 8).map((client: LiveClientApiRow, index: number) => ({
+    key: String(client.client_id || client.client_mac || index),
+    name: String(client.guest_name || '').trim() || String(client.client_mac || '').trim() || 'Guest device',
+    contact: String(client.guest_email || '').trim() || String(client.guest_phone || '').trim() || String(client.client_mac || '').trim() || 'No contact',
+    area: String(client.access_point || '').trim() || 'Venue Floor',
+    status: 'Connected',
+    timeLabel: formatRelativeMinutes(getLiveClientMoment(client))
+  }));
+
+  return {
+    count: clients.length,
+    areas: Array.from(areaCounts.entries())
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 4),
+    guests,
+    syncedAccessPoints: Number(payload.synced_access_points || 0)
+  };
 }

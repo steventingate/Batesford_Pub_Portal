@@ -2047,6 +2047,16 @@ function buildLiveClientBase(client, fallbackSite) {
   };
 }
 
+function buildAccessPointFallbackLabel(apMac) {
+  const compact = String(apMac || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+  return compact ? `Access Point ${compact.slice(-4)}` : "Venue Floor";
+}
+
+function cleanAccessPointLabel(value, apMac) {
+  const label = String(value || "").trim();
+  return label || buildAccessPointFallbackLabel(apMac);
+}
+
 async function listDirectUnifiLiveClientsV1(site) {
   const siteInfo = await resolveUnifiV1SiteId(site);
   const response = await unifiV1Request(
@@ -2156,6 +2166,7 @@ async function enrichLiveClients(rows) {
 
     return {
       ...row,
+      ap_mac: session?.ap_mac || null,
       guest_name: session?.guest_name || null,
       guest_email: session?.guest_email || null,
       guest_phone: session?.guest_phone || null,
@@ -2168,6 +2179,37 @@ async function enrichLiveClients(rows) {
       session_status: session?.status || null,
     };
   });
+}
+
+async function syncAccessPointsFromLiveClients(rows) {
+  const apRows = [];
+  const seen = new Set();
+
+  for (const row of rows) {
+    const apMac = normalizeMac(row?.ap_mac);
+    if (!apMac || seen.has(apMac)) continue;
+    seen.add(apMac);
+    apRows.push({
+      ap_mac: apMac,
+      site_slug: String(row?.site_slug || "").trim() || null,
+      area_name: cleanAccessPointLabel(row?.access_point, apMac),
+      display_name: String(row?.access_point || "").trim() || null,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  if (!apRows.length) return 0;
+
+  const { error } = await supabase
+    .from("wifi_access_points")
+    .upsert(apRows, { onConflict: "ap_mac" });
+
+  if (error) {
+    throw new Error(`Unable to sync access points: ${error.message}`);
+  }
+
+  return apRows.length;
 }
 
 async function authorizeWifi(payload) {
@@ -2253,9 +2295,11 @@ app.get("/api/admin/live-clients", async (req, res) => {
     const site = normalizeSite(req.query.site) || UNIFI_SITE_NAME || "xlgkkyrq";
     const rows = await listLiveConnectedClients(site);
     const enriched = await enrichLiveClients(rows);
+    const syncedAccessPoints = await syncAccessPointsFromLiveClients(enriched);
     res.json({
       site,
       fetched_at: new Date().toISOString(),
+      synced_access_points: syncedAccessPoints,
       clients: enriched.sort((a, b) => (b.duration_seconds || 0) - (a.duration_seconds || 0)),
     });
   } catch (error) {
