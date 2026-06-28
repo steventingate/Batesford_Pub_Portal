@@ -161,12 +161,12 @@ export function VisitsChart({ data }: { data: VisitPoint[] }) {
           {[0, 1, 2, 3].map((line) => (
             <line key={line} x1="20" y1={40 + line * 50} x2="580" y2={40 + line * 50} className="chart-grid-line" />
           ))}
-          <polyline fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={visitPoints.map((point) => `${point.x},${point.y}`).join(' ')} />
-          <polyline fill="none" stroke="#94a3b8" strokeWidth="2" strokeDasharray="5 5" strokeLinecap="round" strokeLinejoin="round" points={uniquePoints.map((point) => `${point.x},${point.y}`).join(' ')} />
+          <polyline fill="none" stroke="#22c55e" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" points={visitPoints.map((point) => `${point.x},${point.y}`).join(' ')} />
+          <polyline fill="none" stroke="#94a3b8" strokeWidth="1.8" strokeDasharray="5 5" strokeLinecap="round" strokeLinejoin="round" points={uniquePoints.map((point) => `${point.x},${point.y}`).join(' ')} />
           {visitPoints.map((point, index) => (
             <g key={`${point.label}-${index}`} onMouseEnter={() => setHoverIndex(index)}>
-              <circle cx={point.x} cy={point.y} r="4.5" fill="#22c55e" />
-              <circle cx={uniquePoints[index].x} cy={uniquePoints[index].y} r="4" fill="#94a3b8" />
+              <circle cx={point.x} cy={point.y} r="3.8" fill="#22c55e" />
+              <circle cx={uniquePoints[index].x} cy={uniquePoints[index].y} r="3.2" fill="#94a3b8" />
             </g>
           ))}
           {hoverIndex !== null ? (
@@ -277,7 +277,7 @@ export function LiveNowPanel({ liveNow }: { liveNow: DashboardAnalyticsResult['l
             <div key={guest.key} className="live-guest-row">
               <div>
                 <div className="live-guest-name">{guest.name}</div>
-                <div className="live-guest-meta">{guest.contact} · {guest.area}</div>
+                <div className="live-guest-meta">{guest.contact} / {guest.area}</div>
               </div>
               <div className="live-guest-time">{guest.timeLabel}</div>
             </div>

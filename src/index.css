@@ -775,13 +775,13 @@ a {
 
 .metric-card {
   padding: 18px 18px 14px;
-  min-height: 168px;
+  min-height: 176px;
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
   box-shadow: 0 24px 50px rgba(0, 0, 0, 0.26), 0 0 0 1px rgba(255,255,255,0.01), 0 0 28px var(--metric-glow, transparent);
 }
 
 .dashboard-card {
-  padding: 20px;
+  padding: 22px;
 }
 
 .metric-card:hover,
@@ -973,6 +973,7 @@ a {
   grid-template-columns: repeat(8, minmax(0, 1fr));
   font-size: 12px;
   color: #8799ad;
+  gap: 6px;
 }
 
 .status-donut-wrap,
@@ -983,6 +984,17 @@ a {
 
 .status-donut-wrap {
   width: 180px;
+}
+
+.status-card,
+.consent-widget {
+  display: grid;
+  gap: 18px;
+}
+
+.status-card {
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  align-items: center;
 }
 
 .status-donut,
@@ -1166,11 +1178,14 @@ a {
 }
 
 .stacked-bars {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 10px;
-  height: 210px;
+  display: flex;
+  gap: 14px;
+  height: 224px;
   align-items: end;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 2px 8px;
+  scrollbar-width: thin;
 }
 
 .stacked-bar-col {
@@ -1179,12 +1194,14 @@ a {
   align-items: center;
   gap: 10px;
   height: 100%;
+  min-width: 58px;
+  flex: 0 0 58px;
 }
 
 .stacked-bar-track {
-  width: 100%;
+  width: 44px;
   min-height: 16px;
-  border-radius: 16px;
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
@@ -1212,6 +1229,11 @@ a {
 .consent-ring {
   width: 144px;
   height: 144px;
+}
+
+.consent-widget {
+  grid-template-columns: minmax(132px, 156px) minmax(0, 1fr);
+  align-items: center;
 }
 
 .consent-detail-list div {
@@ -1489,6 +1511,12 @@ a {
   line-height: 1.5;
 }
 
+.visits-chart-wrap,
+.status-card,
+.consent-widget {
+  min-width: 0;
+}
+
 .live-area-row {
   grid-template-columns: minmax(0, 1fr) auto 96px;
 }
@@ -1620,6 +1648,16 @@ a {
     padding: 18px 14px 28px;
   }
 
+  .dashboard-card,
+  .metric-card,
+  .insights-strip {
+    border-radius: 22px;
+  }
+
+  .dashboard-card {
+    padding: 18px;
+  }
+
   .dashboard-topbar {
     flex-wrap: wrap;
     gap: 12px;
@@ -1673,6 +1711,15 @@ a {
     font-size: 34px;
   }
 
+  .dashboard-card-header {
+    margin-bottom: 12px;
+  }
+
+  .dashboard-card-header h3 {
+    font-size: 24px;
+    line-height: 1.1;
+  }
+
   .metric-card {
     min-height: 154px;
   }
@@ -1685,19 +1732,55 @@ a {
     font-size: 12px;
   }
 
+  .visits-chart {
+    height: 220px;
+  }
+
+  .chart-legend {
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
   .chart-x-axis {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     row-gap: 4px;
+    font-size: 11px;
   }
 
   .stacked-bars {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    height: auto;
-    min-height: 220px;
+    gap: 10px;
+    height: 170px;
+    min-height: 170px;
+    padding-bottom: 10px;
+  }
+
+  .stacked-bar-col {
+    min-width: 58px;
+    flex-basis: 58px;
+    gap: 8px;
+  }
+
+  .stacked-bar-track {
+    width: 42px;
+    border-radius: 14px;
   }
 
   .heatmap-grid {
     grid-template-columns: 28px 1fr;
+  }
+
+  .heatmap-days,
+  .heatmap-hours {
+    font-size: 11px;
+  }
+
+  .heatmap-row {
+    gap: 3px;
+  }
+
+  .heatmap-cell {
+    height: 16px;
+    border-radius: 4px;
   }
 
   .live-area-row {
@@ -1715,5 +1798,41 @@ a {
   .consent-detail-list em {
     grid-column: 1 / -1;
     justify-self: end;
+  }
+
+  .status-card,
+  .consent-widget {
+    gap: 14px;
+  }
+
+  .status-donut-wrap {
+    width: 156px;
+  }
+
+  .status-donut {
+    width: 156px;
+    height: 156px;
+  }
+
+  .status-donut-center strong,
+  .consent-ring-center strong {
+    font-size: 32px;
+  }
+
+  .consent-ring-wrap {
+    width: 128px;
+  }
+
+  .consent-ring {
+    width: 128px;
+    height: 128px;
+  }
+
+  .live-panel-top {
+    align-items: flex-end;
+  }
+
+  .live-count {
+    font-size: 48px;
   }
 }
