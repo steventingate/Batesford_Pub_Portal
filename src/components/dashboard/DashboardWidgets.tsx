@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import clsx from 'clsx';
 import type { DashboardAnalyticsResult } from '../../lib/dashboardAnalytics';
 
-type Metric = DashboardAnalyticsResult['metrics'][number];
+export type DashboardMetric = DashboardAnalyticsResult['metrics'][number];
+type Metric = DashboardMetric;
 type VisitPoint = DashboardAnalyticsResult['visitsOverTime'][number];
 type StatusSlice = DashboardAnalyticsResult['guestStatus']['slices'][number];
 type Insight = DashboardAnalyticsResult['insights'][number];
@@ -96,7 +97,7 @@ function MiniSparkline({ values, accent }: { values: number[]; accent: Metric['a
   );
 }
 
-export function MetricCards({ metrics }: { metrics: Metric[] }) {
+export function MetricCards({ metrics, onSelect }: { metrics: Metric[]; onSelect?: (metric: DashboardMetric) => void }) {
   const iconMap: Record<string, Parameters<typeof Icon>[0]['kind']> = {
     uniqueGuests: 'users',
     newGuests: 'user-plus',
@@ -111,7 +112,13 @@ export function MetricCards({ metrics }: { metrics: Metric[] }) {
       {metrics.map((metric) => {
         const accent = accentStyles[metric.accent];
         return (
-          <article key={metric.key} className="metric-card" style={{ '--metric-glow': accent.glow } as React.CSSProperties}>
+          <button
+            key={metric.key}
+            type="button"
+            className="metric-card metric-card-button"
+            style={{ '--metric-glow': accent.glow } as React.CSSProperties}
+            onClick={() => onSelect?.(metric)}
+          >
             <div className="metric-card-top">
               <div className="metric-icon" style={{ background: accent.bubble, color: accent.line }}>
                 <Icon kind={iconMap[metric.key] || 'users'} />
@@ -124,7 +131,7 @@ export function MetricCards({ metrics }: { metrics: Metric[] }) {
             <div className="metric-value">{metric.value}</div>
             <div className="metric-helper">{metric.helper}</div>
             <MiniSparkline values={metric.trend} accent={metric.accent} />
-          </article>
+          </button>
         );
       })}
     </div>
