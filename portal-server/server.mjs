@@ -83,6 +83,14 @@ const UNIFI_POST_AUTH_REFRESH_DELAY_MS = Math.max(
   15000,
   Number.parseInt(process.env.UNIFI_POST_AUTH_REFRESH_DELAY_MS || "60000", 10) || 60000,
 );
+const UNIFI_V1_POST_AUTH_REFRESH_DELAY_MS = Math.max(
+  2000,
+  Number.parseInt(process.env.UNIFI_V1_POST_AUTH_REFRESH_DELAY_MS || "4500", 10) || 4500,
+);
+const RELEASE_REAUTH_MIN_INTERVAL_MS = Math.max(
+  2000,
+  Number.parseInt(process.env.RELEASE_REAUTH_MIN_INTERVAL_MS || "4000", 10) || 4000,
+);
 const UNIFI_STATUS_LIST_FALLBACK = process.env.UNIFI_STATUS_LIST_FALLBACK === "true";
 const DEFAULT_WEBSITE_URL = (process.env.PORTAL_DEFAULT_WEBSITE_URL ||
   "https://www.thebatesfordhotel.com.au/").trim();
@@ -535,7 +543,7 @@ function shouldRefreshSessionAuthorization(session) {
   if (UNIFI_AUTH_BACKEND !== "direct") return false;
   const authorizedAtMs = session?.authorized_at ? Date.parse(session.authorized_at) : NaN;
   if (!Number.isFinite(authorizedAtMs)) return true;
-  return Date.now() - authorizedAtMs >= 15000;
+  return Date.now() - authorizedAtMs >= RELEASE_REAUTH_MIN_INTERVAL_MS;
 }
 
 async function refreshSessionAuthorization(session, siteConfig, reason) {
@@ -588,8 +596,12 @@ async function refreshSessionAuthorization(session, siteConfig, reason) {
 
 function schedulePostAuthRefresh(session, siteConfig) {
   if (!UNIFI_POST_AUTH_REFRESH_ENABLED) return;
-  if (UNIFI_AUTH_BACKEND !== "direct" || UNIFI_AUTH_MODE !== "legacy") return;
+  if (UNIFI_AUTH_BACKEND !== "direct" || !["legacy", "v1"].includes(UNIFI_AUTH_MODE)) return;
   if (!session?.session_key) return;
+
+  const refreshDelayMs = UNIFI_AUTH_MODE === "v1"
+    ? UNIFI_V1_POST_AUTH_REFRESH_DELAY_MS
+    : UNIFI_POST_AUTH_REFRESH_DELAY_MS;
 
   const existingTimer = scheduledSessionRefreshes.get(session.session_key);
   if (existingTimer) {
@@ -608,7 +620,7 @@ function schedulePostAuthRefresh(session, siteConfig) {
           metadata: {
             auth_backend: UNIFI_AUTH_BACKEND,
             auth_mode: UNIFI_AUTH_MODE,
-            delay_ms: UNIFI_POST_AUTH_REFRESH_DELAY_MS,
+            delay_ms: refreshDelayMs,
           },
         });
       } catch (error) {
@@ -616,12 +628,12 @@ function schedulePostAuthRefresh(session, siteConfig) {
           site: session.site_slug,
           session_key: session.session_key,
           client_mac: session.client_mac,
-          delay_ms: UNIFI_POST_AUTH_REFRESH_DELAY_MS,
+          delay_ms: refreshDelayMs,
           error: error instanceof Error ? error.message : String(error),
         });
       }
     })();
-  }, UNIFI_POST_AUTH_REFRESH_DELAY_MS);
+  }, refreshDelayMs);
 
   if (typeof timer.unref === "function") {
     timer.unref();
@@ -632,7 +644,7 @@ function schedulePostAuthRefresh(session, siteConfig) {
     site: session.site_slug,
     session_key: session.session_key,
     client_mac: session.client_mac,
-    delay_ms: UNIFI_POST_AUTH_REFRESH_DELAY_MS,
+    delay_ms: refreshDelayMs,
     auth_mode: UNIFI_AUTH_MODE,
   });
 }
@@ -2265,7 +2277,7 @@ app.get("/api/admin/live-clients", async (req, res) => {
   if (!admin) return;
 
   try {
-    const site = normalizeSite(req.query.site) || UNIFI_SITE_NAME || "xlgkkyrq";
+    const site = normalizeSite(req.query.site) || UNIFI_SITE_NAME || "default";
     const rows = await listLiveConnectedClients(site);
     const enriched = await enrichLiveClients(rows);
     const syncedAccessPoints = await syncAccessPointsFromLiveClients(enriched);
@@ -2998,6 +3010,8 @@ app.listen(PORT, () => {
     unifi_v1_client_lookup_delay_ms: UNIFI_V1_CLIENT_LOOKUP_DELAY_MS,
     unifi_post_auth_refresh_enabled: UNIFI_POST_AUTH_REFRESH_ENABLED,
     unifi_post_auth_refresh_delay_ms: UNIFI_POST_AUTH_REFRESH_DELAY_MS,
+    unifi_v1_post_auth_refresh_delay_ms: UNIFI_V1_POST_AUTH_REFRESH_DELAY_MS,
+    release_reauth_min_interval_ms: RELEASE_REAUTH_MIN_INTERVAL_MS,
     max_auto_release_attempts: MAX_AUTO_RELEASE_ATTEMPTS,
     release_retry_delay_ms: RELEASE_RETRY_DELAY_MS,
     wifi_connect_function_url: WIFI_CONNECT_FUNCTION_URL,
