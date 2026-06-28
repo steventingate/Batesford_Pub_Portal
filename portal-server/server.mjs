@@ -859,10 +859,6 @@ function renderFormPage({ siteConfig, site, session, errorMessage = "", values =
             <input id="email" name="email" type="email" autocomplete="email" required value="${escapeHtml(values.email || "")}" />
           </div>
           <div>
-            <label for="mobile">Contact number</label>
-            <input id="mobile" name="mobile" type="tel" autocomplete="tel" value="${escapeHtml(values.mobile || "")}" />
-          </div>
-          <div>
             <label for="postcode">Postcode (optional)</label>
             <input id="postcode" name="postcode" type="text" inputmode="numeric" pattern="[0-9]{4}" value="${escapeHtml(values.postcode || "")}" />
           </div>
@@ -1068,14 +1064,7 @@ function renderReleasePage({
         <h1>Guest Wi-Fi</h1>
         <h2 id="release-title">Finishing Your Connection</h2>
         <p id="release-copy" class="lead">Your Wi-Fi access has been approved. We are finishing the captive network check now.</p>
-        <div class="actions">
-          ${retryable
-            ? `<a id="release-finish-link" class="btn" href="${escapeHtml(finishUrl)}">Try to finish connection</a>`
-            : ""}
-          <a id="release-website-link" class="btn secondary" href="${escapeHtml(websiteRedirectUrl)}">Open venue website</a>
-          <button id="release-done" type="button" class="btn secondary">Done</button>
-        </div>
-        <p id="release-note" class="footer-note subtle">If this page stays open, we will retry the Apple captive check automatically. You can also trigger it manually.</p>
+        <p id="release-note" class="footer-note"><strong>Do not close this window until the connection has finalized.</strong></p>
       </div>
       <script>
         const websiteUrl = ${JSON.stringify(websiteRedirectUrl)};
@@ -1086,9 +1075,6 @@ function renderReleasePage({
         const maxAutoReleaseAttempts = ${JSON.stringify(maxAutoReleaseAttempts)};
         const maxManualReleaseAttempts = ${JSON.stringify(maxManualReleaseAttempts)};
         const retryDelayMs = ${JSON.stringify(RELEASE_RETRY_DELAY_MS)};
-        const doneButton = document.getElementById("release-done");
-        const finishLink = document.getElementById("release-finish-link");
-        const websiteLink = document.getElementById("release-website-link");
         const releaseCopy = document.getElementById("release-copy");
         const releaseNote = document.getElementById("release-note");
         let pageHiddenSent = false;
@@ -1104,20 +1090,20 @@ function renderReleasePage({
           if (retryable) {
             if (releaseAttempts >= maxAutoReleaseAttempts) {
               releaseCopy.textContent = "Your Wi-Fi access has been approved, but automatic captive completion stalled on this device.";
-              releaseNote.textContent = "Tap Try to finish connection again. If iPhone still does not close the captive window, Open venue website is the fallback.";
+              releaseNote.innerHTML = "<strong>Do not close this window until the connection has finalized.</strong>";
               return;
             }
             releaseCopy.textContent = "Your Wi-Fi access has been approved. We are retrying the Apple captive check now.";
-            releaseNote.textContent = "If the network still has not closed, tap Try to finish connection. Open venue website is only a fallback.";
+            releaseNote.innerHTML = "<strong>Do not close this window until the connection has finalized.</strong>";
             return;
           }
           if (releaseAttempts >= maxManualReleaseAttempts) {
             releaseCopy.textContent = "Your Wi-Fi access has been approved, but this device has not completed the captive network check.";
-            releaseNote.textContent = "Automatic and manual captive retries are exhausted. Tap Open venue website or Done, then check whether Wi-Fi is usable.";
+            releaseNote.innerHTML = "<strong>Do not close this window until the connection has finalized.</strong>";
             return;
           }
           releaseCopy.textContent = "Your Wi-Fi access has been approved. This window may stay open until your device finishes its captive network check.";
-          releaseNote.textContent = "If it does not close, tap Open venue website or Done and confirm the device now has internet access.";
+          releaseNote.innerHTML = "<strong>Do not close this window until the connection has finalized.</strong>";
         }
 
         function sendPageHidden(reason) {
@@ -1150,19 +1136,6 @@ function renderReleasePage({
 
         updateRetryMessage();
 
-        finishLink?.addEventListener("click", (event) => {
-          event.preventDefault();
-          beginRetry("manual");
-        });
-
-        websiteLink?.addEventListener("click", (event) => {
-          event.preventDefault();
-          navigate(websiteUrl);
-        });
-
-        doneButton?.addEventListener("click", () => {
-          window.close();
-        });
         document.addEventListener("visibilitychange", () => {
           if (document.visibilityState === "hidden") sendPageHidden("visibility_hidden");
         });
