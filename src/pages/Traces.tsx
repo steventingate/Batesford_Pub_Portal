@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { subDays } from 'date-fns';
 import { supabase } from '../lib/supabaseClient';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
+import { Badge } from '../components/ui/Badge';
 import { formatDateTime } from '../lib/format';
+import { HorizontalBars } from '../components/admin/AdminComponents';
 
 type TraceRow = {
   trace_id: string;
@@ -12,19 +15,11 @@ type TraceRow = {
   site_id: string | null;
   client_mac: string | null;
   ssid: string | null;
-  ap_mac: string | null;
-  request_url: string | null;
   created_at: string;
-  completed_at: string | null;
   total_duration_ms: number | null;
-  backend_duration_ms: number | null;
-  frontend_duration_ms: number | null;
   outcome: string;
   notes: string | null;
-  redirect_mode: string | null;
-  verify_attempts: number | null;
   release_result: string | null;
-  edge_route_id: string | null;
   metadata: Record<string, unknown> | null;
 };
 
@@ -33,657 +28,435 @@ type TraceEventRow = {
   trace_id: string;
   stage_name: string;
   started_at: string;
-  ended_at: string | null;
-  duration_ms: number | null;
   status: string;
   message: string | null;
   metadata: Record<string, unknown> | null;
-  created_at: string;
 };
 
-type VenueSummaryRow = {
+type PortalIssueRow = {
+  id: string;
+  session_key: string;
+  site_slug: string;
+  client_mac: string | null;
+  guest_email: string | null;
+  guest_phone: string | null;
+  status: string | null;
+  last_error: string | null;
+  trace_id: string | null;
+  submitted_at: string | null;
+  updated_at: string;
+};
+
+type Incident = {
+  id: string;
+  source: 'trace' | 'session';
+  severity: 'critical' | 'warning';
+  category: string;
+  title: string;
+  detail: string;
   venue: string;
-  count: number;
-  avg: number;
-  p95: number;
-  max: number;
+  timestamp: string;
+  reference: string;
+  contact: string;
+  raw: TraceRow | PortalIssueRow;
 };
 
-const SLOW_THRESHOLDS = {
-  dbMs: 500,
-  unifiLoginMs: 1000,
-  unifiAuthorizeMs: 1500,
-  totalFlowMs: 5000
-} as const;
+const windowOptions = [
+  { value: '24h', label: 'Last 24 hours', days: 1 },
+  { value: '7d', label: 'Last 7 days', days: 7 },
+  { value: '30d', label: 'Last 30 days', days: 30 }
+] as const;
 
-const TRACE_FETCH_LIMIT = 200;
-const RELEASE_OK_MS = 4000;
-const CAPTIVE_TICK_TARGET_MS = 15000;
+const normalize = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
 
-const toDurationMs = (event: TraceEventRow) => {
-  if (typeof event.duration_ms === 'number' && Number.isFinite(event.duration_ms)) {
-    return Math.max(0, Math.round(event.duration_ms));
-  }
-  const startMs = Date.parse(event.started_at);
-  const endMs = Date.parse(event.ended_at ?? event.started_at);
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
-  return Math.max(0, Math.round(endMs - startMs));
+const isCriticalTrace = (trace: TraceRow) => {
+  const outcome = normalize(trace.outcome);
+  const release = normalize(trace.release_result);
+  return outcome.includes('error') || outcome.includes('status_error') || outcome.includes('fail') || release.includes('fail');
 };
 
-const toIsoStart = (dateInput: string, endOfDay: boolean) => {
-  const suffix = endOfDay ? 'T23:59:59.999' : 'T00:00:00.000';
-  const date = new Date(`${dateInput}${suffix}`);
-  if (!Number.isFinite(date.getTime())) return null;
-  return date.toISOString();
+const isTraceIncident = (trace: TraceRow) => {
+  const outcome = normalize(trace.outcome);
+  if (isCriticalTrace(trace)) return true;
+  return outcome !== '' && !['ok', 'success', 'authorized', 'completed'].includes(outcome);
 };
 
-const toP95 = (values: number[]) => {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * 0.95) - 1));
-  return sorted[index] ?? 0;
+const toTraceIncident = (trace: TraceRow): Incident => {
+  const critical = isCriticalTrace(trace);
+  const outcome = trace.outcome || 'Unknown outcome';
+  return {
+    id: `trace-${trace.trace_id}`,
+    source: 'trace',
+    severity: critical ? 'critical' : 'warning',
+    category: critical ? 'Backend Error' : 'Auth Flow Warning',
+    title: outcome.replace(/_/g, ' '),
+    detail: trace.notes || `Captured in wifi_auth_traces with release result ${trace.release_result || 'n/a'}.`,
+    venue: trace.venue_slug || trace.site_id || 'default',
+    timestamp: trace.created_at,
+    reference: trace.trace_id,
+    contact: trace.client_mac || trace.ssid || 'Unknown device',
+    raw: trace
+  };
 };
 
-const average = (values: number[]) => {
-  if (!values.length) return 0;
-  const total = values.reduce((sum, value) => sum + value, 0);
-  return Math.round(total / values.length);
-};
+const toSessionIncident = (session: PortalIssueRow): Incident | null => {
+  const status = normalize(session.status);
+  const hasError = Boolean(session.last_error);
+  const isFailed = status.includes('fail') || status.includes('error') || status.includes('reject') || status.includes('den');
+  const isClosedEarly = status.includes('present') || status.includes('close') || status.includes('dismiss') || status.includes('timeout') || status.includes('abandon');
 
-const getStageThresholdMs = (stageName: string) => {
-  const normalized = stageName.toLowerCase();
-  if (normalized.includes('db_insert')) return SLOW_THRESHOLDS.dbMs;
-  if (normalized.includes('unifi_login')) return SLOW_THRESHOLDS.unifiLoginMs;
-  if (normalized.includes('unifi_authorize')) return SLOW_THRESHOLDS.unifiAuthorizeMs;
-  return null;
-};
+  if (!hasError && !isFailed && !isClosedEarly) return null;
 
-const parseTraceContext = (trace: TraceRow | null) => {
-  const metadata = trace?.metadata;
-  if (!metadata || typeof metadata !== 'object') return null;
-  const rawContext = (metadata as Record<string, unknown>).trace_context;
-  if (!rawContext || typeof rawContext !== 'object') return null;
-  return rawContext as Record<string, unknown>;
-};
-
-const getEventTimeMs = (event: TraceEventRow | undefined) => {
-  if (!event) return null;
-  const parsed = Date.parse(event.started_at);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-const findFirstEvent = (events: TraceEventRow[], stageName: string) => {
-  return events.find((event) => event.stage_name === stageName);
+  return {
+    id: `session-${session.id}`,
+    source: 'session',
+    severity: hasError || isFailed ? 'critical' : 'warning',
+    category: hasError ? 'Portal Error' : isFailed ? 'Failed Auth' : 'Closed Early',
+    title: hasError ? 'Portal session recorded an error' : isFailed ? 'Guest failed authorization' : 'Guest closed before completion',
+    detail: session.last_error || `portal_sessions status stored as ${session.status || 'unknown'}.`,
+    venue: session.site_slug,
+    timestamp: session.updated_at || session.submitted_at || new Date().toISOString(),
+    reference: session.trace_id || session.session_key,
+    contact: session.guest_email || session.guest_phone || session.client_mac || 'Unknown guest',
+    raw: session
+  };
 };
 
 export default function Traces() {
-  const [traces, setTraces] = useState<TraceRow[]>([]);
-  const [events, setEvents] = useState<TraceEventRow[]>([]);
-  const [selectedTraceId, setSelectedTraceId] = useState<string>('');
-  const [listLoading, setListLoading] = useState(false);
+  const [windowValue, setWindowValue] = useState<(typeof windowOptions)[number]['value']>('7d');
+  const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'warning'>('all');
+  const [venueFilter, setVenueFilter] = useState('all');
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [selectedIncidentId, setSelectedIncidentId] = useState('');
+  const [selectedTraceEvents, setSelectedTraceEvents] = useState<TraceEventRow[]>([]);
+  const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [venueFilter, setVenueFilter] = useState('');
-  const [outcomeFilter, setOutcomeFilter] = useState('');
-  const [ssidFilter, setSsidFilter] = useState('');
-  const [minDurationFilter, setMinDurationFilter] = useState('');
-  const [startDateFilter, setStartDateFilter] = useState('');
-  const [endDateFilter, setEndDateFilter] = useState('');
-  const [copyFeedback, setCopyFeedback] = useState('');
 
-  const loadTraces = useCallback(async () => {
-    setListLoading(true);
+  const loadIncidents = useCallback(async () => {
+    setLoading(true);
     setError(null);
 
-    let query = supabase
-      .from('wifi_auth_traces')
-      .select('trace_id, venue_slug, site_id, client_mac, ssid, ap_mac, request_url, created_at, completed_at, total_duration_ms, backend_duration_ms, frontend_duration_ms, outcome, notes, redirect_mode, verify_attempts, release_result, edge_route_id, metadata')
-      .order('created_at', { ascending: false })
-      .limit(TRACE_FETCH_LIMIT);
+    const rangeDays = windowOptions.find((option) => option.value === windowValue)?.days ?? 7;
+    const startIso = subDays(new Date(), rangeDays).toISOString();
 
-    if (venueFilter.trim()) {
-      query = query.eq('venue_slug', venueFilter.trim());
-    }
-    if (outcomeFilter.trim()) {
-      query = query.eq('outcome', outcomeFilter.trim());
-    }
-    if (ssidFilter.trim()) {
-      query = query.ilike('ssid', `%${ssidFilter.trim()}%`);
-    }
+    const [traceRes, sessionRes] = await Promise.all([
+      supabase
+        .from('wifi_auth_traces')
+        .select('trace_id, venue_slug, site_id, client_mac, ssid, created_at, total_duration_ms, outcome, notes, release_result, metadata')
+        .gte('created_at', startIso)
+        .order('created_at', { ascending: false })
+        .limit(300),
+      supabase
+        .from('portal_sessions')
+        .select('id, session_key, site_slug, client_mac, guest_email, guest_phone, status, last_error, trace_id, submitted_at, updated_at')
+        .gte('updated_at', startIso)
+        .order('updated_at', { ascending: false })
+        .limit(300)
+    ]);
 
-    const minDuration = Number(minDurationFilter);
-    if (Number.isFinite(minDuration) && minDuration >= 0) {
-      query = query.gte('total_duration_ms', Math.round(minDuration));
-    }
-
-    if (startDateFilter) {
-      const startIso = toIsoStart(startDateFilter, false);
-      if (startIso) {
-        query = query.gte('created_at', startIso);
-      }
-    }
-
-    if (endDateFilter) {
-      const endIso = toIsoStart(endDateFilter, true);
-      if (endIso) {
-        query = query.lte('created_at', endIso);
-      }
-    }
-
-    const { data, error: tracesError } = await query;
-    if (tracesError) {
-      setTraces([]);
-      setSelectedTraceId('');
-      setEvents([]);
-      setError(tracesError.message);
-      setListLoading(false);
+    if (traceRes.error || sessionRes.error) {
+      setError(traceRes.error?.message || sessionRes.error?.message || 'Unable to load alert records.');
+      setIncidents([]);
+      setSelectedIncidentId('');
+      setLoading(false);
       return;
     }
 
-    const rows = (data as TraceRow[] | null) ?? [];
-    setTraces(rows);
-    if (!rows.length) {
-      setSelectedTraceId('');
-      setEvents([]);
-    } else if (!selectedTraceId || !rows.some((row) => row.trace_id === selectedTraceId)) {
-      setSelectedTraceId(rows[0].trace_id);
-    }
+    const traceIncidents = ((traceRes.data as TraceRow[] | null) ?? []).filter(isTraceIncident).map(toTraceIncident);
+    const sessionIncidents = (((sessionRes.data as PortalIssueRow[] | null) ?? []).map(toSessionIncident).filter(Boolean) as Incident[]);
+    const merged = [...traceIncidents, ...sessionIncidents].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 
-    setListLoading(false);
-  }, [endDateFilter, minDurationFilter, outcomeFilter, selectedTraceId, ssidFilter, startDateFilter, venueFilter]);
+    setIncidents(merged);
+    setSelectedIncidentId((current) => current && merged.some((incident) => incident.id === current) ? current : merged[0]?.id || '');
+    setLoading(false);
+  }, [windowValue]);
 
   useEffect(() => {
-    loadTraces();
-  }, [loadTraces]);
+    void loadIncidents();
+  }, [loadIncidents]);
+
+  const selectedIncident = useMemo(
+    () => incidents.find((incident) => incident.id === selectedIncidentId) ?? null,
+    [incidents, selectedIncidentId]
+  );
 
   useEffect(() => {
     const loadEvents = async () => {
-      if (!selectedTraceId) {
-        setEvents([]);
+      if (!selectedIncident || selectedIncident.source !== 'trace') {
+        setSelectedTraceEvents([]);
         return;
       }
+
       setDetailLoading(true);
       const { data, error: eventsError } = await supabase
         .from('wifi_auth_trace_events')
-        .select('id, trace_id, stage_name, started_at, ended_at, duration_ms, status, message, metadata, created_at')
-        .eq('trace_id', selectedTraceId)
+        .select('id, trace_id, stage_name, started_at, status, message, metadata')
+        .eq('trace_id', selectedIncident.reference)
         .order('started_at', { ascending: true });
 
       if (eventsError) {
-        setEvents([]);
-        setError(eventsError.message);
+        setSelectedTraceEvents([]);
       } else {
-        setEvents((data as TraceEventRow[] | null) ?? []);
+        const rows = (data as TraceEventRow[] | null) ?? [];
+        setSelectedTraceEvents(rows.filter((row) => normalize(row.status) !== 'ok'));
       }
+
       setDetailLoading(false);
     };
 
-    loadEvents();
-  }, [selectedTraceId]);
+    void loadEvents();
+  }, [selectedIncident]);
 
-  const selectedTrace = useMemo(
-    () => traces.find((trace) => trace.trace_id === selectedTraceId) ?? null,
-    [selectedTraceId, traces]
-  );
-
-  const venueOptions = useMemo(() => {
+  const venues = useMemo(() => {
     const values = new Set<string>();
-    traces.forEach((trace) => {
-      if (trace.venue_slug) {
-        values.add(trace.venue_slug);
-      }
-    });
+    incidents.forEach((incident) => values.add(incident.venue));
     return Array.from(values).sort((a, b) => a.localeCompare(b));
-  }, [traces]);
+  }, [incidents]);
 
-  const outcomes = useMemo(() => {
-    const values = new Set<string>();
-    traces.forEach((trace) => {
-      if (trace.outcome) {
-        values.add(trace.outcome);
-      }
+  const filteredIncidents = useMemo(() => {
+    return incidents.filter((incident) => {
+      if (severityFilter !== 'all' && incident.severity !== severityFilter) return false;
+      if (venueFilter !== 'all' && incident.venue !== venueFilter) return false;
+      return true;
     });
-    return Array.from(values).sort((a, b) => a.localeCompare(b));
-  }, [traces]);
+  }, [incidents, severityFilter, venueFilter]);
 
-  const totalSlow = useMemo(() => {
-    return traces.filter((trace) => (trace.total_duration_ms ?? 0) > SLOW_THRESHOLDS.totalFlowMs).length;
-  }, [traces]);
-
-  const venueSummaries = useMemo<VenueSummaryRow[]>(() => {
-    const grouped = new Map<string, number[]>();
-    traces.forEach((trace) => {
-      if (!Number.isFinite(trace.total_duration_ms ?? null)) return;
-      const key = trace.venue_slug || trace.site_id || 'unknown';
-      const next = grouped.get(key) ?? [];
-      next.push(Math.max(0, Math.round(trace.total_duration_ms ?? 0)));
-      grouped.set(key, next);
-    });
-
-    return Array.from(grouped.entries())
-      .map(([venue, values]) => ({
-        venue,
-        count: values.length,
-        avg: average(values),
-        p95: toP95(values),
-        max: Math.max(...values)
-      }))
-      .sort((a, b) => b.avg - a.avg);
-  }, [traces]);
-
-  const timelineRows = useMemo(() => {
-    if (!events.length) return [];
-
-    const parsed = events
-      .map((event) => {
-        const startMs = Date.parse(event.started_at);
-        const endMs = Date.parse(event.ended_at ?? event.started_at);
-        const duration = toDurationMs(event);
-        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
-          return null;
-        }
-        return {
-          ...event,
-          startMs,
-          endMs,
-          duration
-        };
-      })
-      .filter((row): row is NonNullable<typeof row> => row !== null);
-
-    if (!parsed.length) return [];
-
-    const minStart = Math.min(...parsed.map((row) => row.startMs));
-    const maxEnd = Math.max(...parsed.map((row) => row.endMs));
-    const range = Math.max(1, maxEnd - minStart);
-
-    return parsed.map((row) => {
-      const threshold = getStageThresholdMs(row.stage_name);
-      const isSlow = threshold !== null && row.duration > threshold;
-      return {
-        ...row,
-        offsetPct: ((row.startMs - minStart) / range) * 100,
-        widthPct: Math.max(1, (row.duration / range) * 100),
-        isSlow,
-        threshold
-      };
-    });
-  }, [events]);
-
-  const backendFastFrontendSlow = useMemo(() => {
-    if (!selectedTrace) return false;
-    const backendMs = selectedTrace.backend_duration_ms ?? 0;
-    const frontendMs = selectedTrace.frontend_duration_ms ?? 0;
-    return backendMs > 0 && backendMs <= 2000 && frontendMs > SLOW_THRESHOLDS.totalFlowMs;
-  }, [selectedTrace]);
-
-  const releaseDiagnosis = useMemo(() => {
-    if (!events.length) return null;
-
-    const postAuth = findFirstEvent(events, 'post_auth_redirect_issued');
-    const releaseRoute = findFirstEvent(events, 'release_route_received');
-    const probeRelease = findFirstEvent(events, 'probe_release_redirect');
-    const pageHiddenEvents = events.filter((event) => event.stage_name === 'page_hidden');
-    const manualWebsite = findFirstEvent(events, 'manual_website_clicked');
-
-    const postAuthMs = getEventTimeMs(postAuth);
-    const probeReleaseMs = getEventTimeMs(probeRelease);
-    const pageHidden = probeReleaseMs === null
-      ? pageHiddenEvents[0]
-      : pageHiddenEvents.find((event) => {
-          const eventMs = getEventTimeMs(event);
-          return eventMs !== null && eventMs >= probeReleaseMs;
-        });
-    const pageHiddenMs = getEventTimeMs(pageHidden);
-    const submitMs = getEventTimeMs(findFirstEvent(events, 'portal_submit'));
-
-    const submitToProbeMs = submitMs !== null && probeReleaseMs !== null
-      ? Math.max(0, Math.round(probeReleaseMs - submitMs))
-      : null;
-    const postAuthToProbeMs = postAuthMs !== null && probeReleaseMs !== null
-      ? Math.max(0, Math.round(probeReleaseMs - postAuthMs))
-      : null;
-    const probeToHiddenMs = probeReleaseMs !== null && pageHiddenMs !== null
-      ? Math.max(0, Math.round(pageHiddenMs - probeReleaseMs))
-      : null;
-
-    let status = 'No release data yet';
-    let tone: 'ok' | 'warn' | 'slow' = 'warn';
-
-    if (!probeRelease) {
-      status = 'No OS probe release was recorded. Check missing UniFi url param or release route.';
-      tone = 'slow';
-    } else if (submitToProbeMs !== null && submitToProbeMs <= RELEASE_OK_MS && !pageHidden) {
-      status = 'Backend released quickly. If the blue tick was slow, investigate UniFi/AP/DNS captive probe passthrough.';
-      tone = 'warn';
-    } else if (probeToHiddenMs !== null && probeToHiddenMs > CAPTIVE_TICK_TARGET_MS) {
-      status = 'Probe release happened, but the captive window stayed open too long. Treat this as network/client release delay.';
-      tone = 'slow';
-    } else {
-      status = 'Release timing looks healthy.';
-      tone = 'ok';
-    }
-
+  const metrics = useMemo(() => {
+    const last24h = subDays(new Date(), 1).getTime();
+    const critical = filteredIncidents.filter((incident) => incident.severity === 'critical').length;
+    const failedAuth = filteredIncidents.filter((incident) => incident.category === 'Failed Auth').length;
+    const closedEarly = filteredIncidents.filter((incident) => incident.category === 'Closed Early').length;
+    const recent = filteredIncidents.filter((incident) => Date.parse(incident.timestamp) >= last24h).length;
     return {
-      status,
-      tone,
-      submitToProbeMs,
-      postAuthToProbeMs,
-      probeToHiddenMs,
-      hasReleaseRoute: Boolean(releaseRoute),
-      hasProbeRelease: Boolean(probeRelease),
-      hasPageHidden: Boolean(pageHidden),
-      manualWebsiteClicked: Boolean(manualWebsite)
+      total: filteredIncidents.length,
+      recent,
+      critical,
+      failedAuth,
+      closedEarly,
+      venues: new Set(filteredIncidents.map((incident) => incident.venue)).size
     };
-  }, [events]);
+  }, [filteredIncidents]);
 
-  const handleCopyTraceId = useCallback(async () => {
-    if (!selectedTraceId) return;
-    try {
-      await navigator.clipboard.writeText(selectedTraceId);
-      setCopyFeedback('Copied trace_id');
-      window.setTimeout(() => setCopyFeedback(''), 1500);
-    } catch {
-      setCopyFeedback('Copy failed');
-      window.setTimeout(() => setCopyFeedback(''), 1500);
-    }
-  }, [selectedTraceId]);
+  const topCategories = useMemo(() => {
+    const counts = new Map<string, number>();
+    filteredIncidents.forEach((incident) => counts.set(incident.category, (counts.get(incident.category) ?? 0) + 1));
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([label, value]) => ({ label, value }));
+  }, [filteredIncidents]);
 
-  const handleExportJson = useCallback(() => {
-    if (!selectedTrace) return;
-    const payload = {
-      trace: selectedTrace,
-      events,
-      exported_at: new Date().toISOString()
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `wifi-trace-${selectedTrace.trace_id}.json`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
-  }, [events, selectedTrace]);
+  const topVenues = useMemo(() => {
+    const counts = new Map<string, number>();
+    filteredIncidents.forEach((incident) => counts.set(incident.venue, (counts.get(incident.venue) ?? 0) + 1));
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([label, value]) => ({ label, value }));
+  }, [filteredIncidents]);
 
-  const traceContext = parseTraceContext(selectedTrace);
+  const activeIncident = useMemo(() => {
+    if (!selectedIncidentId) return filteredIncidents[0] ?? null;
+    return filteredIncidents.find((incident) => incident.id === selectedIncidentId) ?? filteredIncidents[0] ?? null;
+  }, [filteredIncidents, selectedIncidentId]);
 
   return (
-    <div className="space-y-6">
+    <div className="admin-page ops-page">
       <div className="page-header">
         <div>
-          <h2 className="text-3xl font-display">Wi-Fi Traces</h2>
-          <p className="text-muted">End-to-end auth timing for captive portal attempts.</p>
+          <div className="muted-kicker">Operations Monitor</div>
+          <h2 className="text-3xl font-display">Alerts</h2>
+          <p className="text-muted">This surface is now focused on DB-backed failures, guest drop-offs, and captive portal incidents that need operational follow-up.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => loadTraces()} disabled={listLoading}>
-            {listLoading ? 'Refreshing...' : 'Refresh'}
+        <div className="flex flex-wrap gap-3">
+          <Button variant="outline" onClick={() => void loadIncidents()} disabled={loading}>
+            {loading ? 'Refreshing...' : 'Refresh'}
           </Button>
+          <Link to="/automations" className="btn btn-outline">Open automations</Link>
         </div>
       </div>
 
-      <Card className="space-y-4">
-        <form
-          className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            loadTraces();
-          }}
-        >
-          <Select label="Venue" value={venueFilter} onChange={(event) => setVenueFilter(event.target.value)}>
-            <option value="">All venues</option>
-            {venueOptions.map((venue) => (
-              <option key={venue} value={venue}>
-                {venue}
-              </option>
-            ))}
-          </Select>
-
-          <Select label="Outcome" value={outcomeFilter} onChange={(event) => setOutcomeFilter(event.target.value)}>
-            <option value="">All outcomes</option>
-            {outcomes.map((outcome) => (
-              <option key={outcome} value={outcome}>
-                {outcome}
-              </option>
-            ))}
-          </Select>
-
-          <Input
-            label="SSID contains"
-            value={ssidFilter}
-            onChange={(event) => setSsidFilter(event.target.value)}
-            placeholder="Batesford Free Wi-Fi"
-          />
-
-          <Input
-            label="Min total (ms)"
-            value={minDurationFilter}
-            onChange={(event) => setMinDurationFilter(event.target.value)}
-            placeholder="5000"
-            inputMode="numeric"
-          />
-
-          <Input
-            label="Start date"
-            type="date"
-            value={startDateFilter}
-            onChange={(event) => setStartDateFilter(event.target.value)}
-          />
-
-          <Input
-            label="End date"
-            type="date"
-            value={endDateFilter}
-            onChange={(event) => setEndDateFilter(event.target.value)}
-          />
-
-          <div className="md:col-span-2 xl:col-span-6 flex items-center gap-2">
-            <Button type="submit" disabled={listLoading}>
-              Apply filters
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setVenueFilter('');
-                setOutcomeFilter('');
-                setSsidFilter('');
-                setMinDurationFilter('');
-                setStartDateFilter('');
-                setEndDateFilter('');
-              }}
-            >
-              Clear
-            </Button>
-            <span className="text-xs text-muted ml-auto">
-              Slow flow threshold: {SLOW_THRESHOLDS.totalFlowMs}ms ({totalSlow} traces in current results)
-            </span>
+      <Card className="settings-section-card">
+        <div className="settings-card-header">
+          <div>
+            <h3>Incident Filters</h3>
+            <p>Monitoring `wifi_auth_traces`, `wifi_auth_trace_events`, and `portal_sessions.last_error` for operational issues only.</p>
           </div>
-        </form>
+        </div>
+        <div className="ops-filter-grid">
+          <Select label="Window" value={windowValue} onChange={(event) => setWindowValue(event.target.value as typeof windowValue)}>
+            {windowOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </Select>
+          <Select label="Severity" value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as typeof severityFilter)}>
+            <option value="all">All severities</option>
+            <option value="critical">Critical only</option>
+            <option value="warning">Warnings only</option>
+          </Select>
+          <Select label="Venue" value={venueFilter} onChange={(event) => setVenueFilter(event.target.value)}>
+            <option value="all">All venues</option>
+            {venues.map((venue) => (
+              <option key={venue} value={venue}>{venue}</option>
+            ))}
+          </Select>
+        </div>
       </Card>
 
-      {error && (
-        <Card className="border border-red-200 bg-red-50 text-red-700">
-          {error}
-        </Card>
-      )}
+      {error ? <Card className="settings-feedback error">{error}</Card> : null}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_1fr] gap-6">
-        <Card className="space-y-4 overflow-hidden">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Recent traces</h3>
-            <span className="text-sm text-muted">{traces.length} rows</span>
+      <div className="admin-grid md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <div className="muted-kicker">Open Incidents</div>
+          <p className="mt-3 font-display text-4xl text-[var(--dashboard-text)]">{metrics.total}</p>
+          <p className="mt-2 text-sm text-muted">Current filtered incident set across auth traces and portal sessions.</p>
+        </Card>
+        <Card>
+          <div className="muted-kicker">Last 24 Hours</div>
+          <p className="mt-3 font-display text-4xl text-[var(--dashboard-text)]">{metrics.recent}</p>
+          <p className="mt-2 text-sm text-muted">Fresh incidents that likely still need a venue-side check.</p>
+        </Card>
+        <Card>
+          <div className="muted-kicker">Critical Errors</div>
+          <p className="mt-3 font-display text-4xl text-[var(--dashboard-text)]">{metrics.critical}</p>
+          <p className="mt-2 text-sm text-muted">Backend failures, portal errors, and failed authorization records.</p>
+        </Card>
+        <Card>
+          <div className="muted-kicker">Closed Early</div>
+          <p className="mt-3 font-display text-4xl text-[var(--dashboard-text)]">{metrics.closedEarly}</p>
+          <p className="mt-2 text-sm text-muted">Guests who closed or abandoned the flow before authorization completed.</p>
+        </Card>
+      </div>
+
+      <div className="admin-grid xl:grid-cols-[1.05fr_0.95fr]">
+        <Card className="settings-section-card">
+          <div className="settings-card-header">
+            <div>
+              <h3>Recent Incident Feed</h3>
+              <p>Use this list as the operational source of truth instead of the old raw trace explorer.</p>
+            </div>
+            <Badge tone="dark">{filteredIncidents.length} records</Badge>
           </div>
-          <div className="overflow-auto max-h-[560px] border border-slate-200 rounded-xl">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 sticky top-0">
-                <tr className="text-left text-muted">
-                  <th className="px-3 py-2">Trace</th>
-                  <th className="px-3 py-2">Venue</th>
-                  <th className="px-3 py-2">Created</th>
-                  <th className="px-3 py-2">Total (ms)</th>
-                  <th className="px-3 py-2">Outcome</th>
-                  <th className="px-3 py-2">Client</th>
-                </tr>
-              </thead>
-              <tbody>
-                {traces.map((trace) => {
-                  const selected = trace.trace_id === selectedTraceId;
-                  const totalMs = trace.total_duration_ms ?? 0;
-                  const rowSlow = totalMs > SLOW_THRESHOLDS.totalFlowMs;
-                  return (
-                    <tr
-                      key={trace.trace_id}
-                      className={`border-t border-slate-100 cursor-pointer ${selected ? 'bg-brand/10' : 'hover:bg-slate-50'} ${rowSlow ? 'trace-row-slow' : ''}`}
-                      onClick={() => setSelectedTraceId(trace.trace_id)}
-                    >
-                      <td className="px-3 py-2 font-mono text-xs">{trace.trace_id}</td>
-                      <td className="px-3 py-2">{trace.venue_slug || trace.site_id || '-'}</td>
-                      <td className="px-3 py-2">{formatDateTime(trace.created_at)}</td>
-                      <td className="px-3 py-2">{totalMs || '-'}</td>
-                      <td className="px-3 py-2">{trace.outcome || '-'}</td>
-                      <td className="px-3 py-2">{trace.client_mac || trace.ssid || '-'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {!traces.length && !listLoading && (
-              <p className="p-6 text-sm text-muted text-center">No traces match the current filters.</p>
+          <div className="ops-incident-list">
+            {filteredIncidents.length ? (
+              filteredIncidents.slice(0, 18).map((incident) => (
+                <button
+                  key={incident.id}
+                  type="button"
+                  className={`ops-incident-row${activeIncident?.id === incident.id ? ' is-active' : ''}`}
+                  onClick={() => setSelectedIncidentId(incident.id)}
+                >
+                  <div className="ops-incident-top">
+                    <div>
+                      <div className="ops-incident-title">{incident.title}</div>
+                      <div className="ops-incident-meta">{incident.venue} · {incident.category} · {incident.source === 'trace' ? 'wifi_auth_traces' : 'portal_sessions'}</div>
+                    </div>
+                    <span className={`ops-severity ${incident.severity}`}>{incident.severity}</span>
+                  </div>
+                  <div className="ops-incident-detail">{incident.detail}</div>
+                  <div className="ops-incident-foot">
+                    <span>{incident.contact}</span>
+                    <span>{formatDateTime(incident.timestamp)}</span>
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="dashboard-empty-state">No incidents matched the current filters.</div>
             )}
           </div>
         </Card>
 
-        <Card className="space-y-4">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <h3 className="text-lg font-semibold">Trace details</h3>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={handleCopyTraceId} disabled={!selectedTraceId}>
-                Copy trace_id
-              </Button>
-              <Button variant="outline" onClick={handleExportJson} disabled={!selectedTrace}>
-                Export JSON
-              </Button>
+        <Card className="settings-section-card">
+          <div className="settings-card-header">
+            <div>
+              <h3>Selected Incident</h3>
+              <p>Context for the currently selected failure, including the record source and stored reference.</p>
             </div>
           </div>
-
-          {copyFeedback && <p className="text-xs text-brand">{copyFeedback}</p>}
-
-          {!selectedTrace && <p className="text-sm text-muted">Select a trace to inspect timeline details.</p>}
-
-          {selectedTrace && (
-            <div className="space-y-3">
-              <div className="text-sm space-y-1">
-                <div><strong>Trace ID:</strong> <span className="font-mono text-xs">{selectedTrace.trace_id}</span></div>
-                <div><strong>Venue:</strong> {selectedTrace.venue_slug || selectedTrace.site_id || '-'}</div>
-                <div><strong>Outcome:</strong> {selectedTrace.outcome}</div>
-                <div><strong>Total:</strong> {selectedTrace.total_duration_ms ?? '-'} ms</div>
-                <div><strong>Backend:</strong> {selectedTrace.backend_duration_ms ?? '-'} ms</div>
-                <div><strong>Frontend:</strong> {selectedTrace.frontend_duration_ms ?? '-'} ms</div>
-                <div><strong>SSID:</strong> {selectedTrace.ssid || '-'}</div>
-                <div><strong>Client MAC:</strong> {selectedTrace.client_mac || '-'}</div>
-                <div><strong>Redirect mode:</strong> {selectedTrace.redirect_mode || '-'}</div>
-                <div><strong>Verify attempts:</strong> {selectedTrace.verify_attempts ?? '-'}</div>
-                <div><strong>Release result:</strong> {selectedTrace.release_result || '-'}</div>
-                <div><strong>Edge route:</strong> {selectedTrace.edge_route_id || '-'}</div>
-                <div><strong>Created:</strong> {formatDateTime(selectedTrace.created_at)}</div>
+          {activeIncident ? (
+            <div className="ops-detail-stack">
+              <div className="ops-detail-grid">
+                <div><span>Severity</span><strong>{activeIncident.severity}</strong></div>
+                <div><span>Category</span><strong>{activeIncident.category}</strong></div>
+                <div><span>Venue</span><strong>{activeIncident.venue}</strong></div>
+                <div><span>Reference</span><strong>{activeIncident.reference}</strong></div>
+                <div><span>Source</span><strong>{activeIncident.source === 'trace' ? 'wifi_auth_traces' : 'portal_sessions'}</strong></div>
+                <div><span>Seen At</span><strong>{formatDateTime(activeIncident.timestamp)}</strong></div>
               </div>
-
-              {backendFastFrontendSlow && (
-                <div className="trace-note-slow">
-                  Backend completed quickly, but frontend/captive release appears slow for this trace.
-                </div>
-              )}
-
-              {releaseDiagnosis && (
-                <div className={releaseDiagnosis.tone === 'slow' ? 'trace-note-slow' : 'trace-context-box'}>
-                  <p className="font-semibold mb-2">Captive release diagnosis</p>
-                  <p className="text-sm mb-2">{releaseDiagnosis.status}</p>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div><strong>Submit to probe:</strong> {releaseDiagnosis.submitToProbeMs ?? '-'} ms</div>
-                    <div><strong>Post-auth to probe:</strong> {releaseDiagnosis.postAuthToProbeMs ?? '-'} ms</div>
-                    <div><strong>Probe to page hidden:</strong> {releaseDiagnosis.probeToHiddenMs ?? '-'} ms</div>
-                    <div><strong>Release route hit:</strong> {releaseDiagnosis.hasReleaseRoute ? 'yes' : 'no'}</div>
-                    <div><strong>Probe release:</strong> {releaseDiagnosis.hasProbeRelease ? 'yes' : 'no'}</div>
-                    <div><strong>Page hidden:</strong> {releaseDiagnosis.hasPageHidden ? 'yes' : 'no'}</div>
-                    <div><strong>Manual website:</strong> {releaseDiagnosis.manualWebsiteClicked ? 'yes' : 'no'}</div>
-                  </div>
-                </div>
-              )}
-
-              {traceContext && (
-                <div className="trace-context-box">
-                  <p className="font-semibold mb-1">Trace context</p>
-                  <pre>{JSON.stringify(traceContext, null, 2)}</pre>
-                </div>
-              )}
-
-              <div>
-                <p className="text-sm font-semibold mb-2">Stage timeline</p>
-                {detailLoading ? (
-                  <p className="text-sm text-muted">Loading timeline...</p>
-                ) : !timelineRows.length ? (
-                  <p className="text-sm text-muted">No stage events recorded.</p>
-                ) : (
-                  <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
-                    {timelineRows.map((event) => (
-                      <div key={`${event.id}-${event.stage_name}`} className={`trace-stage-row ${event.isSlow ? 'trace-stage-slow' : ''}`}>
-                        <div className="trace-stage-header">
-                          <span className="font-mono text-xs">{event.stage_name}</span>
-                          <span className="text-xs text-muted">{event.duration} ms</span>
+              <div className="ops-callout">
+                <strong>{activeIncident.title}</strong>
+                <p>{activeIncident.detail}</p>
+              </div>
+              {activeIncident.source === 'trace' ? (
+                <div className="space-y-3">
+                  <div className="text-sm font-semibold text-[var(--dashboard-text)]">Trace event errors</div>
+                  {detailLoading ? (
+                    <div className="dashboard-empty-state">Loading event stages...</div>
+                  ) : selectedTraceEvents.length ? (
+                    <div className="ops-event-list">
+                      {selectedTraceEvents.map((event) => (
+                        <div key={event.id} className="ops-event-row">
+                          <div className="ops-event-top">
+                            <strong>{event.stage_name}</strong>
+                            <span>{formatDateTime(event.started_at)}</span>
+                          </div>
+                          <p>{event.message || event.status}</p>
                         </div>
-                        <div className="trace-bar-track">
-                          <span
-                            className={`trace-bar-fill ${event.isSlow ? 'trace-bar-fill-slow' : ''}`}
-                            style={{ left: `${event.offsetPct}%`, width: `${event.widthPct}%` }}
-                          />
-                        </div>
-                        <div className="trace-stage-meta text-xs text-muted">
-                          <span>{formatDateTime(event.started_at)}</span>
-                          {event.threshold !== null && (
-                            <span>slow threshold: {event.threshold} ms</span>
-                          )}
-                        </div>
-                        {event.message && <p className="text-xs text-red-700 mt-1">{event.message}</p>}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="dashboard-empty-state">No non-ok stage rows were stored for this trace.</div>
+                  )}
+                </div>
+              ) : null}
+              <div className="ops-raw-block">
+                <div className="text-sm font-semibold text-[var(--dashboard-text)]">Raw record</div>
+                <pre>{JSON.stringify(activeIncident.raw, null, 2)}</pre>
               </div>
             </div>
+          ) : (
+            <div className="dashboard-empty-state">Select an incident from the feed to inspect the stored record.</div>
           )}
         </Card>
       </div>
 
-      <Card>
-        <h3 className="text-lg font-semibold mb-3">Venue timing summary (current filtered result set)</h3>
-        <div className="overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left text-muted">
-                <th className="py-2 pr-4">Venue</th>
-                <th className="py-2 pr-4">Traces</th>
-                <th className="py-2 pr-4">Avg total (ms)</th>
-                <th className="py-2 pr-4">P95 total (ms)</th>
-                <th className="py-2 pr-4">Max total (ms)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {venueSummaries.map((row) => (
-                <tr key={row.venue} className="border-t border-slate-100">
-                  <td className="py-2 pr-4">{row.venue}</td>
-                  <td className="py-2 pr-4">{row.count}</td>
-                  <td className="py-2 pr-4">{row.avg}</td>
-                  <td className="py-2 pr-4">{row.p95}</td>
-                  <td className="py-2 pr-4">{row.max}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!venueSummaries.length && <p className="text-sm text-muted py-3">No summary data available yet.</p>}
-        </div>
-      </Card>
+      <div className="admin-grid xl:grid-cols-[0.9fr_1.1fr]">
+        <Card className="settings-section-card">
+          <div className="settings-card-header">
+            <div>
+              <h3>Top Incident Types</h3>
+              <p>Most common error categories in the selected window.</p>
+            </div>
+          </div>
+          <HorizontalBars items={topCategories} />
+        </Card>
+
+        <Card className="settings-section-card">
+          <div className="settings-card-header">
+            <div>
+              <h3>Venue Impact</h3>
+              <p>Where the current issue volume is concentrated.</p>
+            </div>
+          </div>
+          <HorizontalBars items={topVenues} />
+          <div className="ops-guidance">
+            <div>
+              <strong>{metrics.failedAuth}</strong>
+              <span>Failed auth incidents</span>
+            </div>
+            <div>
+              <strong>{metrics.venues}</strong>
+              <span>Venues impacted</span>
+            </div>
+            <div>
+              <strong>Internal alert preset</strong>
+              <span>Use the Failed Authorization Alert automation for DB-backed escalation.</span>
+            </div>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
+

@@ -2,13 +2,31 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Card } from '../components/ui/Card';
-import { ChartCard, HorizontalBars, Info } from '../components/admin/AdminComponents';
+import { ChartCard, HorizontalBars } from '../components/admin/AdminComponents';
 import { HeatStrip, StackedBarChart, TimelineChart } from '../components/admin/AdminCharts';
 import { buildVenueInsightsSummary, getInsightsRange, loadVenueInsightsBundle, type DatePreset, type VenueInsightsSummary } from '../lib/venueInsights';
 import { Select } from '../components/ui/Select';
 import { Input } from '../components/ui/Input';
 import { useToast } from '../components/ToastProvider';
 import { useTheme } from '../contexts/ThemeContext';
+
+function InsightStatCard({
+  label,
+  value,
+  helper
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <Card className="insight-stat-card">
+      <div className="muted-kicker">{label}</div>
+      <div className="insight-stat-value">{value}</div>
+      <p className="insight-stat-helper">{helper}</p>
+    </Card>
+  );
+}
 
 export default function Analytics() {
   const { pushToast } = useToast();
@@ -88,7 +106,6 @@ export default function Analytics() {
     }
 
     const group = L.layerGroup();
-
     postcodeMapPoints.forEach((point) => {
       if (typeof point.lat !== 'number' || typeof point.lon !== 'number') return;
 
@@ -126,80 +143,74 @@ export default function Analytics() {
   }, []);
 
   const visiblePostcodes = useMemo(
-    () =>
-      selectedPostcode
-        ? (summary?.topPostcodes ?? []).filter((row) => row.postcode === selectedPostcode)
-        : (summary?.topPostcodes ?? []),
+    () => selectedPostcode ? (summary?.topPostcodes ?? []).filter((row) => row.postcode === selectedPostcode) : (summary?.topPostcodes ?? []),
     [selectedPostcode, summary?.topPostcodes]
   );
 
+  const windowLabel = summary?.range.label ?? 'Loading';
+  const statusBreakdownItems = (summary?.statusBreakdown ?? []).map((row) => ({ label: row.label, value: row.value }));
+  const consentFunnelItems = (summary?.consentFunnel ?? []).map((row) => ({ label: row.label, value: row.value }));
+
   return (
-    <div className="admin-page">
+    <div className="admin-page insights-page">
       <div className="page-header">
         <div>
           <div className="muted-kicker">Venue Intelligence</div>
-          <h2 className="font-display text-4xl text-white">Insights</h2>
-          <p className="max-w-2xl text-muted">One page for guest growth, repeat behaviour, consent quality, and postcode catchment with a manager-friendly date range switcher.</p>
+          <h2 className="font-display text-4xl">Insights</h2>
+          <p>Professional venue reporting for guest growth, catchment strength, consent quality, and operational outcomes across the selected window.</p>
         </div>
       </div>
 
-      <Card className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <Select label="Date range" value={preset} onChange={(event) => setPreset(event.target.value as DatePreset)}>
-          <option value="today">Today</option>
-          <option value="last7">Last 7 days</option>
-          <option value="last30">Last 30 days</option>
-          <option value="month">This month</option>
-          <option value="custom">Custom range</option>
-        </Select>
-        <Input
-          label="Custom start"
-          type="date"
-          value={customStart}
-          onChange={(event) => setCustomStart(event.target.value)}
-          disabled={preset !== 'custom'}
-        />
-        <Input
-          label="Custom end"
-          type="date"
-          value={customEnd}
-          onChange={(event) => setCustomEnd(event.target.value)}
-          disabled={preset !== 'custom'}
-        />
-        <Card tone="muted" className="p-4">
-          <Info label="Window" value={summary?.range.label ?? 'Loading'} />
-        </Card>
-        <Card tone="muted" className="p-4">
-          <Info label="Status" value={loading ? 'Refreshing' : 'Live'} />
-        </Card>
+      <Card className="settings-section-card">
+        <div className="settings-card-header">
+          <div>
+            <h3>Reporting Window</h3>
+            <p>Switch between live windows or set a custom range for campaigns, event recaps, and venue performance reviews.</p>
+          </div>
+        </div>
+        <div className="insights-filter-grid">
+          <Select label="Date range" value={preset} onChange={(event) => setPreset(event.target.value as DatePreset)}>
+            <option value="today">Today</option>
+            <option value="last7">Last 7 days</option>
+            <option value="last30">Last 30 days</option>
+            <option value="month">This month</option>
+            <option value="custom">Custom range</option>
+          </Select>
+          <Input label="Custom start" type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} disabled={preset !== 'custom'} />
+          <Input label="Custom end" type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} disabled={preset !== 'custom'} />
+          <Card tone="muted" className="p-4">
+            <div className="muted-kicker">Window</div>
+            <div className="mt-3 text-lg font-semibold text-[var(--dashboard-text)]">{windowLabel}</div>
+          </Card>
+          <Card tone="muted" className="p-4">
+            <div className="muted-kicker">Status</div>
+            <div className="mt-3 text-lg font-semibold text-[var(--dashboard-text)]">{loading ? 'Refreshing' : 'Live'}</div>
+          </Card>
+        </div>
       </Card>
 
       <div className="admin-grid md:grid-cols-2 xl:grid-cols-4">
-        <Card><Info label="Unique guests" value={loading || !summary ? '...' : String(summary.uniqueGuests)} /></Card>
-        <Card><Info label="New guests" value={loading || !summary ? '...' : String(summary.newGuests)} /></Card>
-        <Card><Info label="Returning guests" value={loading || !summary ? '...' : String(summary.returningGuests)} /></Card>
-        <Card><Info label="Total visits" value={loading || !summary ? '...' : String(summary.totalVisits)} /></Card>
-        <Card><Info label="Guests with email" value={loading || !summary ? '...' : String(summary.guestsWithEmail)} /></Card>
-        <Card><Info label="Guests with mobile" value={loading || !summary ? '...' : String(summary.guestsWithMobile)} /></Card>
-        <Card><Info label="Consent rate" value={loading || !summary ? '...' : `${summary.consentRate}%`} /></Card>
-        <Card><Info label="Peak window" value={loading || !summary ? '...' : `${summary.peakDayOfWeek} / ${summary.peakHourOfDay}`} /></Card>
+        <InsightStatCard label="Unique Guests" value={loading || !summary ? '...' : String(summary.uniqueGuests)} helper="Distinct guests active in the selected window." />
+        <InsightStatCard label="New Guests" value={loading || !summary ? '...' : String(summary.newGuests)} helper="First-time visitors captured during this reporting period." />
+        <InsightStatCard label="Returning Guests" value={loading || !summary ? '...' : String(summary.returningGuests)} helper="Guests who came back after a previous visit." />
+        <InsightStatCard label="Total Visits" value={loading || !summary ? '...' : String(summary.totalVisits)} helper="All Wi-Fi sessions recorded in this range." />
+        <InsightStatCard label="Guests With Email" value={loading || !summary ? '...' : String(summary.guestsWithEmail)} helper="Campaign-ready profiles with an email address." />
+        <InsightStatCard label="Guests With Mobile" value={loading || !summary ? '...' : String(summary.guestsWithMobile)} helper="Profiles that can be reused for SMS or outbound contact." />
+        <InsightStatCard label="Consent Rate" value={loading || !summary ? '...' : `${summary.consentRate}%`} helper="Share of active guests who are currently opted in." />
+        <InsightStatCard label="Peak Window" value={loading || !summary ? '...' : `${summary.peakDayOfWeek} / ${summary.peakHourOfDay}`} helper="Busiest day and hour based on guest session activity." />
       </div>
 
       <div className="admin-grid xl:grid-cols-[1.1fr_0.9fr]">
-        <ChartCard title="Visits over time" subtitle="Wi-Fi visits for the selected window.">
+        <ChartCard title="Visits Over Time" subtitle="Wi-Fi visits for the selected window, suitable for weekly and event reporting.">
           <TimelineChart points={summary?.visitSeries ?? []} />
         </ChartCard>
-        <ChartCard title="Consent funnel" subtitle="Captured, opted in, and unsubscribed guests in this active set.">
-          <HorizontalBars
-            items={(summary?.consentFunnel ?? []).map((row) => ({
-              label: row.label,
-              value: row.value
-            }))}
-          />
+        <ChartCard title="Consent Funnel" subtitle="Captured guests compared with opted-in and unsubscribed contacts.">
+          <HorizontalBars items={consentFunnelItems} />
         </ChartCard>
       </div>
 
       <div className="admin-grid xl:grid-cols-[1fr_1fr]">
-        <ChartCard title="New vs returning over time" subtitle="Unique guests per day, split between first-timers and repeat visitors.">
+        <ChartCard title="New vs Returning Over Time" subtitle="Unique guests per day, split between first-timers and repeat visitors.">
           <StackedBarChart
             points={summary?.newReturningSeries ?? []}
             legends={['New', 'Returning']}
@@ -209,17 +220,17 @@ export default function Analytics() {
             ]}
           />
         </ChartCard>
-        <ChartCard title="Peak visit times" subtitle="Hour-level pulse for when the venue gets busiest.">
+        <ChartCard title="Peak Visit Times" subtitle="Hour-level pulse for when the venue gets busiest.">
           <HeatStrip items={summary?.hourSeries ?? []} />
         </ChartCard>
       </div>
 
       <div className="admin-grid xl:grid-cols-[0.95fr_1.05fr]">
         <ChartCard
-          title="Top postcode catchment"
-          subtitle="Click a postcode to isolate it on the map."
+          title="Top Postcode Catchment"
+          subtitle="Click a postcode to isolate it on the map and assess where repeat visitation is coming from."
           action={selectedPostcode ? (
-            <button type="button" className="text-xs font-semibold text-emerald-100" onClick={() => setSelectedPostcode(null)}>
+            <button type="button" className="dashboard-link-button" onClick={() => setSelectedPostcode(null)}>
               Clear postcode
             </button>
           ) : undefined}
@@ -231,27 +242,23 @@ export default function Analytics() {
           />
         </ChartCard>
 
-        <ChartCard title="Guests by postcode map" subtitle={`Postcodes submitted in the guest portal, plotted on the ${theme === 'dark' ? 'dark' : 'light'} map style.`}>
-          <div className="overflow-hidden rounded-[22px] border border-white/8">
+        <ChartCard title="Guests by Postcode Map" subtitle={`Postcodes submitted in the guest portal, plotted on the ${theme === 'dark' ? 'dark' : 'light'} map style.`}>
+          <div className="overflow-hidden rounded-[22px] border border-[color:var(--dashboard-card-border)]">
             <div ref={mapContainerRef} className="h-[360px] w-full" />
           </div>
         </ChartCard>
       </div>
 
       <div className="admin-grid xl:grid-cols-[0.9fr_1.1fr]">
-        <ChartCard title="Status breakdown" subtitle="Authorized sessions versus failures and other outcomes.">
-          <HorizontalBars
-            items={(summary?.statusBreakdown ?? []).map((row) => ({
-              label: row.label,
-              value: row.value
-            }))}
-          />
+        <ChartCard title="Status Breakdown" subtitle="Authorized sessions versus failures and other outcomes for the same reporting window.">
+          <HorizontalBars items={statusBreakdownItems} />
         </ChartCard>
-        <ChartCard title="Generated readout" subtitle="Plain-English takeaways for the venue team.">
-          <div className="space-y-3">
-            {(summary?.insights ?? ['Loading insights...']).map((line) => (
-              <div key={line} className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-white">
-                {line}
+        <ChartCard title="Executive Readout" subtitle="Plain-English takeaways ready for operators, marketers, or weekly management updates.">
+          <div className="insights-readout-list">
+            {(summary?.insights ?? ['Loading insights...']).map((line, index) => (
+              <div key={line} className="insights-readout-item">
+                <span>{String(index + 1).padStart(2, '0')}</span>
+                <p>{line}</p>
               </div>
             ))}
           </div>

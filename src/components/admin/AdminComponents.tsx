@@ -47,8 +47,8 @@ export function StatCard({ label, value, delta, icon, values }: StatCardProps) {
         <div className="status-pill">{delta}</div>
       </div>
       <p className="mt-6 text-sm text-muted">{label}</p>
-      <p className="mt-2 font-display text-4xl text-white">{value}</p>
-      <div className="mt-4 rounded-2xl border border-white/6 bg-black/10 px-2 py-1">
+      <p className="mt-2 font-display text-4xl text-[var(--dashboard-text)]">{value}</p>
+      <div className="mt-4 rounded-2xl border px-2 py-1" style={{ borderColor: 'var(--dashboard-card-border)', background: 'var(--dashboard-surface)' }}>
         <Sparkline values={values} />
       </div>
     </Card>
@@ -68,7 +68,7 @@ export function ChartCard({ title, subtitle, action, children, className }: Char
     <Card className={clsx('h-full', className)}>
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-lg font-semibold text-white">{title}</h3>
+          <h3 className="text-lg font-semibold text-[var(--dashboard-text)]">{title}</h3>
           {subtitle ? <p className="mt-1 text-sm text-muted">{subtitle}</p> : null}
         </div>
         {action}
@@ -125,7 +125,7 @@ export function ContactCard({ name, email, mobile, postcode, segment, visits, la
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-lg font-semibold text-white">{name}</p>
+          <p className="text-lg font-semibold text-[var(--dashboard-text)]">{name}</p>
           <p className="mt-1 text-sm text-muted">{email || mobile || 'No contact details'}</p>
         </div>
         <div className="status-pill">{visits} visits</div>
@@ -153,7 +153,7 @@ export function SegmentCard({ title, count, description, action }: SegmentCardPr
     <Card className="h-full">
       <div className="muted-kicker">Audience Segment</div>
       <div className="mt-3 flex items-end justify-between gap-4">
-        <h3 className="text-xl font-semibold text-white">{title}</h3>
+        <h3 className="text-xl font-semibold text-[var(--dashboard-text)]">{title}</h3>
         <span className="font-display text-3xl text-emerald-100">{count}</span>
       </div>
       <p className="mt-3 text-sm text-muted">{description}</p>
@@ -175,7 +175,7 @@ export function CampaignCard({ title, audience, recipients, openRate, lastSent, 
   return (
     <Card className="h-full">
       <div className="muted-kicker">Campaign</div>
-      <h3 className="mt-3 text-xl font-semibold text-white">{title}</h3>
+      <h3 className="mt-3 text-xl font-semibold text-[var(--dashboard-text)]">{title}</h3>
       <p className="mt-2 text-sm text-muted">{audience}</p>
       <div className="mt-5 grid grid-cols-3 gap-3">
         <Info label="Recipients" value={String(recipients)} />
@@ -206,10 +206,10 @@ export function HorizontalBars({ items, activeLabel, onSelect }: HorizontalBarsP
           onClick={() => onSelect?.(item.label)}
         >
           <div className="mb-2 flex items-center justify-between text-sm">
-            <span className={clsx('font-medium', activeLabel === item.label ? 'text-emerald-100' : 'text-white')}>{item.label}</span>
+            <span className={clsx('font-medium', activeLabel === item.label ? 'text-emerald-100' : 'text-[var(--dashboard-text)]')}>{item.label}</span>
             <span className="text-muted">{item.value}</span>
           </div>
-          <div className="h-2 rounded-full bg-white/5">
+          <div className="h-2 rounded-full" style={{ background: 'var(--dashboard-surface)' }}>
             <div
               className={clsx('h-2 rounded-full bg-gradient-to-r from-emerald-400 to-teal-200', activeLabel === item.label && 'shadow-glow')}
               style={{ width: `${(item.value / max) * 100}%` }}
@@ -233,7 +233,10 @@ export function MiniBars({ items, activeLabel, onSelect }: MiniBarsProps) {
     <div className="grid grid-cols-7 gap-2">
       {items.map((item) => (
         <button key={item.label} type="button" className="flex flex-col items-center gap-2" onClick={() => onSelect?.(item.label)}>
-          <div className={clsx('flex h-28 w-full items-end rounded-2xl border border-white/6 bg-white/[0.03] p-1', activeLabel === item.label && 'border-emerald-300/25 bg-emerald-300/[0.05]')}>
+          <div
+            className={clsx('flex h-28 w-full items-end rounded-2xl border p-1', activeLabel === item.label && 'border-emerald-300/25 bg-emerald-300/[0.05]')}
+            style={{ borderColor: 'var(--dashboard-card-border)', background: 'var(--dashboard-surface)' }}
+          >
             <div
               className="w-full rounded-xl bg-gradient-to-t from-emerald-400 to-teal-200"
               style={{ height: `${(item.value / max) * 100}%` }}
@@ -282,7 +285,7 @@ export function DonutChart({ items }: DonutChartProps) {
           <div key={item.label} className="flex items-center gap-3">
             <span className="h-3 w-3 rounded-full" style={{ background: item.color }} />
             <div>
-              <p className="text-sm font-medium text-white">{item.label}</p>
+              <p className="text-sm font-medium text-[var(--dashboard-text)]">{item.label}</p>
               <p className="text-xs text-muted">{item.value} guests</p>
             </div>
           </div>
@@ -301,7 +304,7 @@ export function Info({ label, value }: InfoProps) {
   return (
     <div>
       <div className="text-xs uppercase tracking-[0.18em] text-muted">{label}</div>
-      <div className="mt-2 text-sm font-medium text-white">{value}</div>
+      <div className="mt-2 text-sm font-medium text-[var(--dashboard-text)]">{value}</div>
     </div>
   );
 }

@@ -242,7 +242,7 @@ export default function Segments() {
       <div className="page-header">
         <div>
           <div className="muted-kicker">Audience Library</div>
-          <h2 className="font-display text-4xl text-white">Segments</h2>
+          <h2 className="font-display text-4xl text-[var(--dashboard-text)]">Segments</h2>
           <p className="max-w-2xl text-muted">System segments are now actionable. Choose a segment, inspect matching guests, then export or build a campaign from that exact audience.</p>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -271,12 +271,12 @@ export default function Segments() {
       <Card className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
         <Card tone="muted" className="p-4">
           <div className="text-xs uppercase tracking-[0.18em] text-muted">Active segment</div>
-          <div className="mt-2 text-lg font-semibold text-white">{activeDefinition.title}</div>
+          <div className="mt-2 text-lg font-semibold text-[var(--dashboard-text)]">{activeDefinition.title}</div>
           <div className="mt-2 text-sm text-muted">{activeDefinition.description}</div>
         </Card>
         <Card tone="muted" className="p-4">
           <div className="text-xs uppercase tracking-[0.18em] text-muted">Matching guests</div>
-          <div className="mt-2 text-3xl font-display text-white">{visibleGuests.length}</div>
+          <div className="mt-2 text-3xl font-display text-[var(--dashboard-text)]">{visibleGuests.length}</div>
         </Card>
         <Input
           label="Search guests"

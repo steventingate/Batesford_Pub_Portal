@@ -356,7 +356,7 @@ export default function Contacts() {
       <div className="page-header">
         <div>
           <div className="muted-kicker">Guest CRM</div>
-          <h2 className="font-display text-4xl text-white">Guests</h2>
+          <h2 className="font-display text-4xl text-[var(--dashboard-text)]">Guests</h2>
           <p className="max-w-2xl text-muted">
             {searchParams.get('live') === '1'
               ? 'Showing guests connected right now, with live last-seen timestamps overlaid on the CRM register.'
@@ -375,22 +375,22 @@ export default function Contacts() {
       <div className="admin-grid md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <div className="muted-kicker">Visible Guests</div>
-          <p className="mt-3 font-display text-4xl text-white">{totals.total}</p>
+          <p className="mt-3 font-display text-4xl text-[var(--dashboard-text)]">{totals.total}</p>
           <p className="mt-2 text-sm text-muted">Guests in the active result set.</p>
         </Card>
         <Card>
           <div className="muted-kicker">With Email</div>
-          <p className="mt-3 font-display text-4xl text-white">{totals.withEmail}</p>
+          <p className="mt-3 font-display text-4xl text-[var(--dashboard-text)]">{totals.withEmail}</p>
           <p className="mt-2 text-sm text-muted">Ready for campaign outreach.</p>
         </Card>
         <Card>
           <div className="muted-kicker">Returning Guests</div>
-          <p className="mt-3 font-display text-4xl text-white">{totals.returning}</p>
+          <p className="mt-3 font-display text-4xl text-[var(--dashboard-text)]">{totals.returning}</p>
           <p className="mt-2 text-sm text-muted">Repeat visitors in this view.</p>
         </Card>
         <Card>
           <div className="muted-kicker">New Guests Today</div>
-          <p className="mt-3 font-display text-4xl text-white">{totals.newToday}</p>
+          <p className="mt-3 font-display text-4xl text-[var(--dashboard-text)]">{totals.newToday}</p>
           <p className="mt-2 text-sm text-muted">First-time guests captured since midnight.</p>
         </Card>
       </div>

@@ -34,7 +34,7 @@ export function TimelineChart({
   return (
     <div className="space-y-4">
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-48 w-full">
-        <path d="M0 92 H100" className="stroke-white/8" strokeWidth="1" fill="none" />
+        <path d="M0 92 H100" stroke="var(--dashboard-card-border)" strokeWidth="1" fill="none" />
         <path d={`M0 100 L${line} L100 100 Z`} className={fillClassName} />
         <polyline
           points={line}
@@ -86,7 +86,7 @@ export function StackedBarChart({
           const total = point.values.reduce((sum, value) => sum + value, 0);
           return (
             <div key={point.label} className="flex flex-col items-center gap-2">
-              <div className="flex h-40 w-full flex-col justify-end overflow-hidden rounded-2xl border border-white/8 bg-white/[0.03] p-1">
+              <div className="flex h-40 w-full flex-col justify-end overflow-hidden rounded-2xl border p-1" style={{ borderColor: 'var(--dashboard-card-border)', background: 'var(--dashboard-surface)' }}>
                 {point.values.map((value, index) => (
                   <div
                     key={`${point.label}-${legends[index]}`}
@@ -116,9 +116,10 @@ export function HeatStrip({ items }: { items: SeriesPoint[] }) {
       {items.map((item) => (
         <div key={item.label} className="space-y-2">
           <div
-            className="h-16 rounded-2xl border border-white/8"
+            className="h-16 rounded-2xl border"
             style={{
-              background: `linear-gradient(180deg, rgba(16,34,30,0.65), rgba(16,34,30,0.9)), rgba(110,240,193,${0.12 + item.value / max * 0.55})`
+              borderColor: 'var(--dashboard-card-border)',
+              background: `linear-gradient(180deg, color-mix(in srgb, var(--dashboard-surface-strong) 72%, transparent), color-mix(in srgb, var(--dashboard-surface) 92%, transparent)), rgba(110,240,193,${0.12 + item.value / max * 0.55})`
             }}
           />
           <div className="text-center text-[11px] text-muted">{item.label}</div>

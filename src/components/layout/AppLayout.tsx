@@ -28,7 +28,7 @@ const navItems: NavItem[] = [
   { path: '/insights', label: 'Insights', icon: <Icon path="M4 19h16M7 16V9m5 7V5m5 11v-6" /> },
   { path: '/automations', label: 'Automations', icon: <Icon path="M12 2v5m0 10v5M4.93 4.93l3.54 3.54m7.06 7.06 3.54 3.54M2 12h5m10 0h5M4.93 19.07l3.54-3.54m7.06-7.06 3.54-3.54" /> },
   { path: '/reports', label: 'Reports', icon: <Icon path="M6 3h9l5 5v13H6zM14 3v6h6M9 13h6M9 17h6" /> },
-  { path: '/traces', label: 'Traces', icon: <Icon path="M4 6h16M4 12h10M4 18h7" /> },
+  { path: '/traces', label: 'Alerts', icon: <Icon path="M4 6h16M4 12h10M4 18h7" /> },
   { path: '/engagement', label: 'Engagement', icon: <Icon path="M6 12a6 6 0 0 1 12 0c0 6-6 9-6 9s-6-3-6-9Z" /> },
   { path: '/settings', label: 'Settings', icon: <Icon path="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm8 4 .9 1.6-1.8 3.1-1.8-.3a7.9 7.9 0 0 1-1.4.8l-.5 1.8h-3.6l-.5-1.8a7.9 7.9 0 0 1-1.4-.8l-1.8.3L3.1 13.6 4 12l-.9-1.6 1.8-3.1 1.8.3a7.9 7.9 0 0 1 1.4-.8l.5-1.8h3.6l.5 1.8a7.9 7.9 0 0 1 1.4.8l1.8-.3 1.8 3.1Z" /> }
 ];
