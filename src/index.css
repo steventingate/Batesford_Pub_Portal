@@ -1009,6 +1009,13 @@ a {
   align-items: center;
 }
 
+.status-card > :first-child,
+.consent-widget > :first-child {
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+}
+
 .status-donut,
 .consent-ring {
   display: block;
@@ -1020,25 +1027,24 @@ a {
   transform: rotate(-90deg);
 }
 
-.status-donut-center,
-.consent-ring-center {
-  position: absolute;
-  inset: 0;
+.status-summary,
+.consent-summary {
   display: grid;
-  place-items: center;
+  justify-items: center;
+  gap: 4px;
   text-align: center;
 }
 
-.status-donut-center strong,
-.consent-ring-center strong {
+.status-summary strong,
+.consent-summary strong {
   display: block;
   font-size: 36px;
   line-height: 1;
   color: #fff;
 }
 
-.status-donut-center span,
-.consent-ring-center span,
+.status-summary span,
+.consent-summary span,
 .live-label,
 .live-section-title,
 .postcode-row-meta {
@@ -1407,7 +1413,7 @@ a {
 .metric-label,
 .chart-legend,
 .chart-x-axis,
-.status-donut-center span,
+.status-summary span,
 .live-label,
 .live-section-title,
 .live-guest-meta,
@@ -1415,7 +1421,7 @@ a {
 .postcode-row-meta,
 .dashboard-owner-pill span,
 .insight-item p,
-.consent-ring-center span,
+.consent-summary span,
 .status-legend-value span {
   color: var(--dashboard-muted);
 }
@@ -1932,8 +1938,8 @@ a {
     height: 156px;
   }
 
-  .status-donut-center strong,
-  .consent-ring-center strong {
+  .status-summary strong,
+  .consent-summary strong {
     font-size: 32px;
   }
 

@@ -93,6 +93,7 @@ export default function Contacts() {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [sending, setSending] = useState(false);
   const [showPostcodeMap, setShowPostcodeMap] = useState(false);
+  const metricView = searchParams.get('view') || '';
 
   useEffect(() => {
     const load = async () => {
@@ -218,9 +219,40 @@ export default function Contacts() {
       if (hasEmail === 'no' && guest.email) return false;
       if (returningOnly && Number(guest.visit_count ?? 0) < 2) return false;
       if (liveOnly && !guest.is_live_now) return false;
+      if (metricView === 'new' && !guest.first_seen_at) return false;
+      if (metricView === 'new' && dateRange !== 'all' && new Date(guest.first_seen_at!).getTime() < cutoff.getTime()) return false;
+      if (metricView === 'returning' && Number(guest.visit_count ?? 0) < 2) return false;
+      if (metricView === 'with-email' && !guest.email) return false;
+      if (metricView === 'with-mobile' && !guest.mobile) return false;
       return true;
     }));
-  }, [profiles, search, dateRange, hasEmail, returningOnly, searchParams]);
+  }, [profiles, search, dateRange, hasEmail, returningOnly, searchParams, metricView]);
+
+  const activeViewLabel = (() => {
+    switch (metricView) {
+      case 'unique':
+        return 'Showing all distinct guests in the current register.';
+      case 'new':
+        return 'Showing guests first seen inside the selected date range.';
+      case 'returning':
+        return 'Showing repeat guests with two or more visits.';
+      case 'recent':
+        return 'Showing the most recently seen guests first, using live and portal-session activity.';
+      case 'with-email':
+        return 'Showing guests with captured email addresses.';
+      case 'with-mobile':
+        return 'Showing guests with captured mobile numbers.';
+      default:
+        return '';
+    }
+  })();
+
+  const clearQuickView = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('view');
+    next.delete('live');
+    setSearchParams(next);
+  };
 
   const totals = useMemo(() => ({
     total: filtered.length,
@@ -312,10 +344,11 @@ export default function Contacts() {
               ? 'Showing guests connected right now, with live last-seen timestamps overlaid on the CRM register.'
               : 'Search the guest database, spot repeat visitors, and jump into a full profile when you need more than the register view.'}
           </p>
+          {activeViewLabel ? <p className="mt-2 max-w-2xl text-sm text-muted">{activeViewLabel}</p> : null}
         </div>
         <div className="flex flex-wrap gap-3">
-          {searchParams.get('live') === '1' ? (
-            <Button variant="ghost" onClick={() => setSearchParams({})}>Clear live filter</Button>
+          {searchParams.get('live') === '1' || metricView ? (
+            <Button variant="ghost" onClick={clearQuickView}>Clear quick view</Button>
           ) : null}
           <Button variant="outline" onClick={handleExport}>Export CSV</Button>
         </div>

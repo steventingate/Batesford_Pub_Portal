@@ -1,13 +1,32 @@
-import { format, parseISO } from 'date-fns';
+export const VENUE_TIMEZONE = 'Australia/Melbourne';
+
+const dateTimeFormatter = new Intl.DateTimeFormat('en-AU', {
+  timeZone: VENUE_TIMEZONE,
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+  timeZoneName: 'short'
+});
+
+const dateFormatter = new Intl.DateTimeFormat('en-AU', {
+  timeZone: VENUE_TIMEZONE,
+  day: '2-digit',
+  month: 'short'
+});
 
 export const formatDateTime = (value?: string | null) => {
   if (!value) return '';
-  return format(parseISO(value), 'dd MMM yyyy, h:mm a');
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '' : dateTimeFormatter.format(parsed);
 };
 
 export const formatDate = (value?: string | null) => {
   if (!value) return '';
-  return format(parseISO(value), 'dd MMM');
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '' : dateFormatter.format(parsed);
 };
 
 export const toCsv = (rows: Record<string, string | number | boolean | null | undefined>[]) => {

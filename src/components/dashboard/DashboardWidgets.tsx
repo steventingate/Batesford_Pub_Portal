@@ -228,10 +228,10 @@ export function GuestsByStatus({ total, slices }: { total: number; slices: Statu
               return circle;
             })}
           </svg>
-          <div className="status-donut-center">
-            <strong>{total}</strong>
-            <span>Total Guests</span>
-          </div>
+        </div>
+        <div className="status-summary">
+          <strong>{total}</strong>
+          <span>Total Guests</span>
         </div>
         <div className="status-legend">
           {slices.map((slice) => (
@@ -381,10 +381,10 @@ export function ConsentRateWidget({ consent }: { consent: DashboardAnalyticsResu
             <circle cx="72" cy="72" r="56" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="16" />
             <circle cx="72" cy="72" r="56" fill="none" stroke="#22c55e" strokeWidth="16" strokeDasharray={`${dash} ${circumference - dash}`} strokeLinecap="round" transform="rotate(-90 72 72)" />
           </svg>
-          <div className="consent-ring-center">
-            <strong>{consent.rate}%</strong>
-            <span>Consented</span>
-          </div>
+        </div>
+        <div className="consent-summary">
+          <strong>{consent.rate}%</strong>
+          <span>Consented</span>
         </div>
         <div className="consent-detail-list">
           <div><span>Consented</span><strong>{consent.consented}</strong><em className={consent.consentedDelta >= 0 ? 'up' : 'down'}>{consent.consentedDelta >= 0 ? '+' : '-'}{Math.abs(consent.consentedDelta)}%</em></div>

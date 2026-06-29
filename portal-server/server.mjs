@@ -107,6 +107,7 @@ const RELEASE_RETRY_DELAY_MS = Math.max(
   1500,
   Number.parseInt(process.env.PORTAL_RELEASE_RETRY_DELAY_MS || "3000", 10) || 3000,
 );
+const VENUE_TIMEZONE = (process.env.TZ || process.env.PORTAL_TIMEZONE || "Australia/Melbourne").trim();
 const SESSION_WINDOW_MINUTES = Math.max(
   5,
   Number.parseInt(process.env.PORTAL_SESSION_WINDOW_MINUTES || "20", 10) || 20,
@@ -216,8 +217,14 @@ async function requireAdminRequest(req, res) {
 }
 
 function log(stage, data = {}) {
+  const now = new Date();
   console.log(JSON.stringify({
-    ts: new Date().toISOString(),
+    ts: now.toLocaleString("sv-SE", {
+      timeZone: VENUE_TIMEZONE,
+      hour12: false,
+    }).replace(" ", "T"),
+    ts_utc: now.toISOString(),
+    tz: VENUE_TIMEZONE,
     stage,
     ...data,
   }));

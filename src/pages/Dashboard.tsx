@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { Button } from '../components/ui/Button';
@@ -84,7 +84,6 @@ export default function Dashboard() {
   const [analytics, setAnalytics] = useState<DashboardAnalyticsResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
-  const [selectedMetric, setSelectedMetric] = useState<DashboardMetric | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,64 +183,18 @@ export default function Dashboard() {
   const ownerName = profile?.full_name || 'James Mitchell';
   const ownerRole = profile?.role || 'Owner';
   const initials = ownerName.split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase();
-  const metricDetails = useMemo(() => {
-    if (!selectedMetric || !analytics) return null;
-
-    const config: Record<string, { title: string; body: string; ctaLabel: string; ctaPath: string; bullets: string[] }> = {
-      uniqueGuests: {
-        title: 'Unique Guests',
-        body: 'A distinct count of guests seen in the selected range. Use this to understand total reach across your venue Wi-Fi.',
-        ctaLabel: 'Open Guest List',
-        ctaPath: '/guests',
-        bullets: analytics.topPostcodes.slice(0, 3).map((row) => `${row.postcode}: ${row.guests} guests`)
-      },
-      newGuests: {
-        title: 'New Guests',
-        body: 'Guests whose first recorded visit happened inside the current window. This is the clearest acquisition signal in the dashboard.',
-        ctaLabel: 'Open Insights',
-        ctaPath: '/insights',
-        bullets: analytics.newVsReturning.slice(-3).map((row) => `${row.label}: ${row.newGuests} new`)
-      },
-      returningGuests: {
-        title: 'Returning Guests',
-        body: 'Guests who were seen before this window and came back again. This is the retention signal for the venue.',
-        ctaLabel: 'Open Segments',
-        ctaPath: '/segments',
-        bullets: analytics.newVsReturning.slice(-3).map((row) => `${row.label}: ${row.returningGuests} returning`)
-      },
-      totalVisits: {
-        title: 'Total Visits',
-        body: 'All recorded Wi-Fi visit events in the selected period. Compare this against unique guests to spot repeat traffic.',
-        ctaLabel: 'Open Reports',
-        ctaPath: '/reports',
-        bullets: analytics.visitsOverTime.slice(-3).map((row) => `${row.label}: ${row.visits} visits`)
-      },
-      withEmail: {
-        title: 'Guests With Email',
-        body: 'Guests with an email address captured, ready for campaigns and newsletter lists.',
-        ctaLabel: 'Open Campaigns',
-        ctaPath: '/campaigns',
-        bullets: [
-          `${analytics.metrics.find((metric) => metric.key === 'withEmail')?.value || '0%'} capture rate`,
-          `${analytics.consent.consented} consented contacts`,
-          `${analytics.topPostcodes[0]?.postcode || 'No postcode'} top catchment`
-        ]
-      },
-      withMobile: {
-        title: 'Guests With Mobile',
-        body: 'Guests with a mobile number captured, useful for SMS campaigns and re-engagement automation.',
-        ctaLabel: 'Open Engagement',
-        ctaPath: '/engagement',
-        bullets: [
-          `${analytics.metrics.find((metric) => metric.key === 'withMobile')?.value || '0%'} capture rate`,
-          `${analytics.liveNow.count} guests online now`,
-          `${analytics.consent.unsubscribed} unsubscribed contacts`
-        ]
-      }
+  const handleMetricSelect = (metric: DashboardMetric) => {
+    const queryByMetric: Record<string, string> = {
+      uniqueGuests: '/guests?view=unique',
+      newGuests: '/guests?view=new',
+      returningGuests: '/guests?view=returning',
+      totalVisits: '/guests?view=recent',
+      withEmail: '/guests?view=with-email',
+      withMobile: '/guests?view=with-mobile'
     };
 
-    return config[selectedMetric.key] || null;
-  }, [analytics, selectedMetric]);
+    navigate(queryByMetric[metric.key] || '/guests');
+  };
 
   if (loading && !analytics) {
     return (
@@ -305,7 +258,7 @@ export default function Dashboard() {
         </div>
       ) : null}
 
-      {analytics ? <MetricCards metrics={analytics.metrics} onSelect={setSelectedMetric} /> : null}
+      {analytics ? <MetricCards metrics={analytics.metrics} onSelect={handleMetricSelect} /> : null}
 
       {analytics ? (
         <div className="dashboard-grid">
@@ -320,36 +273,6 @@ export default function Dashboard() {
       ) : null}
 
       {analytics ? <KeyInsightsStrip insights={analytics.insights} /> : null}
-
-      {selectedMetric && metricDetails ? (
-        <div className="dashboard-drilldown-backdrop" onClick={() => setSelectedMetric(null)}>
-          <div className="dashboard-drilldown-sheet" onClick={(event) => event.stopPropagation()}>
-            <div className="dashboard-drilldown-header">
-              <div>
-                <div className="muted-kicker">Dashboard Detail</div>
-                <h3>{metricDetails.title}</h3>
-              </div>
-              <button type="button" className="dashboard-icon-button" onClick={() => setSelectedMetric(null)} aria-label="Close drilldown">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
-              </button>
-            </div>
-            <div className="dashboard-drilldown-value">{selectedMetric.value}</div>
-            <p className="dashboard-drilldown-body">{metricDetails.body}</p>
-            <div className="dashboard-drilldown-list">
-              {metricDetails.bullets.map((item) => (
-                <div key={item} className="dashboard-drilldown-item">{item}</div>
-              ))}
-            </div>
-            <div className="dashboard-drilldown-actions">
-              <Button variant="outline" onClick={() => setSelectedMetric(null)}>Close</Button>
-              <Button onClick={() => {
-                setSelectedMetric(null);
-                navigate(metricDetails.ctaPath);
-              }}>{metricDetails.ctaLabel}</Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
