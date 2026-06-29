@@ -11,6 +11,7 @@ services:
     ports:
       - "3000:3000"
     environment:
+      TZ: Australia/Melbourne
       NODE_ENV: production
       PORT: 3000
       SUPABASE_URL: ${SUPABASE_URL}

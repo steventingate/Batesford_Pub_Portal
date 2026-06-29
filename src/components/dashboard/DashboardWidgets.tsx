@@ -202,13 +202,14 @@ export function VisitsChart({ data }: { data: VisitPoint[] }) {
 export function GuestsByStatus({ total, slices }: { total: number; slices: StatusSlice[] }) {
   const circumference = 2 * Math.PI * 70;
   let offset = 0;
+  const visibleSlices = slices.filter((slice) => slice.value > 0);
   return (
     <DashboardCard className="span-3" title={<><h3>Guests By Status</h3></>}>
       <div className="status-card">
         <div className="status-donut-wrap">
           <svg viewBox="0 0 180 180" className="status-donut">
             <circle cx="90" cy="90" r="70" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="22" />
-            {slices.map((slice) => {
+            {visibleSlices.map((slice) => {
               const dash = circumference * (slice.percentage / 100);
               const circle = (
                 <circle
@@ -239,7 +240,10 @@ export function GuestsByStatus({ total, slices }: { total: number; slices: Statu
                 <span className="status-legend-dot" style={{ background: slice.color }} />
                 {slice.label}
               </div>
-              <div className="status-legend-value">{slice.value} <span>{slice.percentage}%</span></div>
+              <div className="status-legend-value">
+                <strong>{slice.value}</strong>
+                <span>{slice.percentage}%</span>
+              </div>
             </div>
           ))}
         </div>
@@ -352,7 +356,8 @@ export function NewVsReturningChart({ data }: { data: DashboardAnalyticsResult['
           const returningHeight = total ? (point.returningGuests / total) * 100 : 0;
           return (
             <div key={point.label} className="stacked-bar-col">
-              <div className="stacked-bar-track" title={`${point.label}: ${point.newGuests} new, ${point.returningGuests} returning`} style={{ height: `${Math.max(12, totalHeight)}%` }}>
+              <div className="stacked-bar-total">{total}</div>
+              <div className="stacked-bar-track" title={`${point.label}: ${point.newGuests} new, ${point.returningGuests} returning`} style={{ height: `${Math.max(22, totalHeight)}%` }}>
                 <div className="stacked-bar-new" style={{ height: `${newHeight}%` }} />
                 <div className="stacked-bar-returning" style={{ height: `${returningHeight}%` }} />
               </div>

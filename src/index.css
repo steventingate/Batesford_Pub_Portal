@@ -1005,7 +1005,7 @@ a {
 }
 
 .status-card {
-  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  grid-template-columns: minmax(188px, 220px) minmax(0, 1fr);
   align-items: center;
 }
 
@@ -1032,7 +1032,7 @@ a {
 .status-donut-center strong,
 .consent-ring-center strong {
   display: block;
-  font-size: 40px;
+  font-size: 36px;
   line-height: 1;
   color: #fff;
 }
@@ -1048,7 +1048,7 @@ a {
 
 .status-legend {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .status-legend-label {
@@ -1057,6 +1057,7 @@ a {
   gap: 10px;
   color: #d7e1ec;
   font-size: 14px;
+  min-width: 0;
 }
 
 .status-legend-dot {
@@ -1066,14 +1067,23 @@ a {
 }
 
 .status-legend-value {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   color: #fff;
   font-weight: 600;
+  flex-shrink: 0;
+}
+
+.status-legend-value strong {
+  font-size: 16px;
+  line-height: 1;
 }
 
 .status-legend-value span {
   color: #8799ad;
   font-weight: 500;
-  margin-left: 6px;
+  margin-left: 0;
 }
 
 .live-count {
@@ -1190,28 +1200,34 @@ a {
 }
 
 .stacked-bars {
-  display: flex;
-  gap: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 12px;
   height: 224px;
   align-items: end;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   padding: 6px 2px 8px;
-  scrollbar-width: thin;
 }
 
 .stacked-bar-col {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  justify-content: end;
+  gap: 8px;
   height: 100%;
-  min-width: 58px;
-  flex: 0 0 58px;
+  min-width: 0;
+}
+
+.stacked-bar-total {
+  min-height: 18px;
+  color: var(--dashboard-muted);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .stacked-bar-track {
-  width: 44px;
+  width: min(46px, 100%);
   min-height: 16px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.03);
@@ -1244,13 +1260,13 @@ a {
 }
 
 .consent-widget {
-  grid-template-columns: minmax(132px, 156px) minmax(0, 1fr);
+  grid-template-columns: minmax(124px, 148px) minmax(0, 1fr);
   align-items: center;
 }
 
 .consent-detail-list div {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: center;
 }
@@ -1262,6 +1278,7 @@ a {
 
 .consent-detail-list strong {
   color: #fff;
+  font-size: 16px;
 }
 
 .consent-detail-list em {
@@ -1529,6 +1546,11 @@ a {
 .visits-chart-wrap,
 .status-card,
 .consent-widget {
+  min-width: 0;
+}
+
+.status-legend-row,
+.consent-detail-list div {
   min-width: 0;
 }
 
@@ -1840,6 +1862,7 @@ a {
   }
 
   .stacked-bars {
+    grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
     gap: 10px;
     height: 170px;
     min-height: 170px;
@@ -1847,8 +1870,6 @@ a {
   }
 
   .stacked-bar-col {
-    min-width: 58px;
-    flex-basis: 58px;
     gap: 8px;
   }
 
@@ -1895,6 +1916,11 @@ a {
   .status-card,
   .consent-widget {
     gap: 14px;
+  }
+
+  .status-card {
+    grid-template-columns: 1fr;
+    justify-items: center;
   }
 
   .status-donut-wrap {

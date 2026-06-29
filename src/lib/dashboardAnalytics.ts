@@ -1,5 +1,5 @@
 import { eachDayOfInterval, endOfDay, format, isSameDay, startOfDay, subDays } from 'date-fns';
-import { resolveLiveGuests } from './guestActivity';
+import { buildSessionBackfillProfiles, resolveLiveGuests } from './guestActivity';
 import { supabase } from './supabaseClient';
 
 export type DashboardRangePreset = 'last7' | 'last30';
@@ -166,6 +166,7 @@ const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const STATUS_COLORS: Record<string, string> = {
   Authorized: '#22c55e',
   'Failed Auth': '#ef4444',
+  'Closed Early': '#f59e0b',
   Other: '#94a3b8'
 };
 
@@ -184,12 +185,21 @@ const normalizeKey = (value: string | null | undefined) => String(value || '').t
 const getSessionGuestKey = (row: PortalSessionRow) =>
   normalizeKey(row.guest_email) || normalizeKey(row.guest_phone) || normalizeKey(row.client_mac) || row.id;
 
-const getSessionMoment = (row: PortalSessionRow) => row.submitted_at || row.authorized_at || row.completed_at || row.updated_at;
+const getSessionMoment = (row: PortalSessionRow) => {
+  const timestamps = [row.submitted_at, row.authorized_at, row.completed_at, row.updated_at]
+    .filter(Boolean)
+    .map((value) => Date.parse(String(value)))
+    .filter((value) => Number.isFinite(value));
+
+  if (!timestamps.length) return null;
+  return new Date(Math.max(...timestamps)).toISOString();
+};
 
 const toStatusLabel = (row: PortalSessionRow) => {
   const status = String(row.status || '').trim().toLowerCase();
   if (row.authorized_at || row.completed_at || status.includes('authorized') || status.includes('complete')) return 'Authorized';
   if (status.includes('fail') || status.includes('error') || status.includes('reject') || status.includes('den')) return 'Failed Auth';
+  if (status.includes('present') || status.includes('close') || status.includes('abandon') || status.includes('dismiss') || status.includes('timeout')) return 'Closed Early';
   return 'Other';
 };
 
@@ -209,7 +219,7 @@ const formatRelativeMinutes = (timestamp: string) => {
 
 const buildRange = (preset: DashboardRangePreset, now = new Date()) => {
   const end = endOfDay(now);
-  const start = preset === 'last30' ? startOfDay(subDays(now, 29)) : startOfDay(subDays(now, 7));
+  const start = preset === 'last30' ? startOfDay(subDays(now, 29)) : startOfDay(subDays(now, 6));
   const compareEnd = endOfDay(subDays(start, 1));
   const daySpan = Math.round((end.getTime() - start.getTime()) / 86400000);
   const compareStart = startOfDay(subDays(compareEnd, daySpan));
@@ -294,8 +304,9 @@ const buildActivityRows = (connections: WifiConnectionRow[], sessions: PortalSes
 
   sessions.forEach((session) => {
     const connectedAt = getSessionMoment(session);
+    if (!connectedAt) return;
     const parsed = new Date(connectedAt);
-    if (!connectedAt || Number.isNaN(parsed.getTime())) return;
+    if (Number.isNaN(parsed.getTime())) return;
 
     const bucketKey = format(parsed, 'yyyy-MM-dd-HH');
     if (wifiBuckets.has(bucketKey)) return;
@@ -351,7 +362,7 @@ const buildStatusBreakdown = (rows: PortalSessionRow[]) => {
   });
   return {
     total,
-    slices: ['Authorized', 'Failed Auth', 'Other'].map((label) => {
+    slices: ['Authorized', 'Failed Auth', 'Closed Early', 'Other'].map((label) => {
       const value = counts.get(label) ?? 0;
       return {
         label,
@@ -487,7 +498,7 @@ const buildLiveNow = (rows: PortalSessionRow[], apRows: AccessPointRow[]) => {
       contact: row.guest_email || row.guest_phone || row.client_mac || 'No contact',
       area: areaLookup.get(normalizeKey(row.ap_mac)) || 'Venue Floor',
       status: 'Connected',
-      timeLabel: formatRelativeMinutes(getSessionMoment(row))
+      timeLabel: formatRelativeMinutes(getSessionMoment(row) || row.updated_at)
     })),
     usesFallbackAreas
   };
@@ -548,12 +559,13 @@ export async function getDashboardAnalytics(preset: DashboardRangePreset = 'last
   const range = buildRange(preset);
   const fallbacksUsed: string[] = [];
 
-  const [profilesResult, currentConnectionsResult, previousConnectionsResult, portalSessionsResult, liveSessionsResult, accessPointsResult] =
+  const [profilesResult, currentConnectionsResult, previousConnectionsResult, portalSessionsResult, previousPortalSessionsResult, liveSessionsResult, accessPointsResult] =
     await Promise.allSettled([
       queryProfiles(),
       queryConnections(range.start, range.end),
       queryConnections(range.compareStart, range.compareEnd),
       queryPortalSessions(range.start, range.end),
+      queryPortalSessions(range.compareStart, range.compareEnd),
       queryLivePortalSessions(range.end),
       queryAccessPoints()
     ]);
@@ -562,24 +574,39 @@ export async function getDashboardAnalytics(preset: DashboardRangePreset = 'last
   const currentConnections = currentConnectionsResult.status === 'fulfilled' ? currentConnectionsResult.value : [];
   const previousConnections = previousConnectionsResult.status === 'fulfilled' ? previousConnectionsResult.value : [];
   const portalSessions = portalSessionsResult.status === 'fulfilled' ? portalSessionsResult.value : [];
+  const previousPortalSessions = previousPortalSessionsResult.status === 'fulfilled' ? previousPortalSessionsResult.value : [];
   const liveSessions = liveSessionsResult.status === 'fulfilled' ? liveSessionsResult.value : [];
   const accessPoints = accessPointsResult.status === 'fulfilled' ? accessPointsResult.value : [];
+
+  const sessionBackfillProfiles = buildSessionBackfillProfiles(profiles, portalSessions) as unknown as GuestSummaryRow[];
+  const previousSessionBackfillProfiles = buildSessionBackfillProfiles(profiles, previousPortalSessions) as unknown as GuestSummaryRow[];
+  const mergedProfiles = [...profiles, ...sessionBackfillProfiles];
+  const mergedPreviousProfiles = [...profiles, ...previousSessionBackfillProfiles];
 
   if (accessPointsResult.status === 'rejected') {
     fallbacksUsed.push('wifi_access_points mapping unavailable');
   }
 
-  const profileById = new Map(profiles.map((profile) => [profile.guest_id, profile]));
   const profileLookup = new Map<string, GuestSummaryRow>();
-  profiles.forEach((profile) => {
+  mergedProfiles.forEach((profile) => {
     profileLookup.set(profile.guest_id, profile);
     if (profile.email) profileLookup.set(normalizeKey(profile.email), profile);
     if (profile.mobile) profileLookup.set(normalizeKey(profile.mobile), profile);
   });
-  const currentGuestIds = new Set(currentConnections.map((row) => row.guest_id));
-  const previousGuestIds = new Set(previousConnections.map((row) => row.guest_id));
-  const currentProfiles = Array.from(currentGuestIds).map((id) => profileById.get(id)).filter(Boolean) as GuestSummaryRow[];
-  const previousProfiles = Array.from(previousGuestIds).map((id) => profileById.get(id)).filter(Boolean) as GuestSummaryRow[];
+
+  const previousProfileLookup = new Map<string, GuestSummaryRow>();
+  mergedPreviousProfiles.forEach((profile) => {
+    previousProfileLookup.set(profile.guest_id, profile);
+    if (profile.email) previousProfileLookup.set(normalizeKey(profile.email), profile);
+    if (profile.mobile) previousProfileLookup.set(normalizeKey(profile.mobile), profile);
+  });
+
+  const activityRows = buildActivityRows(currentConnections, portalSessions);
+  const previousActivityRows = buildActivityRows(previousConnections, previousPortalSessions);
+  const currentGuestIds = new Set(activityRows.map((row) => row.guestKey));
+  const previousGuestIds = new Set(previousActivityRows.map((row) => row.guestKey));
+  const currentProfiles = Array.from(currentGuestIds).map((id) => profileLookup.get(id)).filter(Boolean) as GuestSummaryRow[];
+  const previousProfiles = Array.from(previousGuestIds).map((id) => previousProfileLookup.get(id)).filter(Boolean) as GuestSummaryRow[];
 
   const uniqueGuests = currentGuestIds.size;
   const previousUniqueGuests = previousGuestIds.size;
@@ -587,14 +614,12 @@ export async function getDashboardAnalytics(preset: DashboardRangePreset = 'last
   const previousNewGuests = previousProfiles.filter((profile) => profile.first_seen_at && new Date(profile.first_seen_at) >= range.compareStart && new Date(profile.first_seen_at) <= range.compareEnd).length;
   const returningGuests = Math.max(uniqueGuests - newGuests, 0);
   const previousReturningGuests = Math.max(previousUniqueGuests - previousNewGuests, 0);
-  const totalVisits = currentConnections.length;
-  const previousTotalVisits = previousConnections.length;
+  const totalVisits = activityRows.length;
+  const previousTotalVisits = previousActivityRows.length;
   const guestsWithEmail = currentProfiles.filter((profile) => Boolean(profile.email)).length;
   const previousGuestsWithEmail = previousProfiles.filter((profile) => Boolean(profile.email)).length;
   const guestsWithMobile = currentProfiles.filter((profile) => Boolean(profile.mobile)).length;
   const previousGuestsWithMobile = previousProfiles.filter((profile) => Boolean(profile.mobile)).length;
-
-  const activityRows = buildActivityRows(currentConnections, portalSessions);
   const visitsOverTime = buildVisitsSeriesFromActivity(range.start, range.end, activityRows);
   const guestStatus = buildStatusBreakdown(portalSessions);
   const liveNow = buildLiveNow(liveSessions, accessPoints);

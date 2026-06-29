@@ -109,8 +109,13 @@ export default function Dashboard() {
     };
 
     void load();
+    const intervalId = window.setInterval(() => {
+      void load();
+    }, 30000);
+
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [preset, pushToast]);
 
@@ -153,8 +158,13 @@ export default function Dashboard() {
     };
 
     void loadLiveClients();
+    const intervalId = window.setInterval(() => {
+      void loadLiveClients();
+    }, 15000);
+
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [analytics?.range.label, session?.access_token, status]);
 

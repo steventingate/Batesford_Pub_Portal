@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { type LiveClientSnapshot, fetchLiveClients } from '../lib/dashboardAnalytics';
 import { invokeEdgeFunction } from '../lib/edgeFunctions';
 import { formatDateTime, toCsv } from '../lib/format';
-import { mergeGuestActivity, sortProfilesByActivity } from '../lib/guestActivity';
+import { buildSessionBackfillProfiles, mergeGuestActivity, sortProfilesByActivity } from '../lib/guestActivity';
 import { supabase } from '../lib/supabaseClient';
 
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -60,6 +60,10 @@ type ConnectionRow = {
 type PortalSessionActivityRow = {
   guest_email: string | null;
   guest_phone: string | null;
+  guest_name: string | null;
+  guest_postcode: string | null;
+  client_mac: string | null;
+  status: string | null;
   submitted_at: string | null;
   authorized_at: string | null;
   completed_at: string | null;
@@ -102,7 +106,7 @@ export default function Contacts() {
           .order('last_seen_at', { ascending: false }),
         supabase
           .from('portal_sessions')
-          .select('guest_email, guest_phone, submitted_at, authorized_at, completed_at, updated_at')
+          .select('guest_email, guest_phone, guest_name, guest_postcode, client_mac, status, submitted_at, authorized_at, completed_at, updated_at')
           .gte('updated_at', ninetyDaysAgo.toISOString())
           .order('updated_at', { ascending: false })
       ]);
@@ -128,10 +132,22 @@ export default function Contacts() {
         liveGuests
       );
 
-      setProfiles(sortProfilesByActivity(mergedProfiles));
+      const sessionBackfillProfiles = buildSessionBackfillProfiles(
+        (profilesRes.data as GuestProfile[]) ?? [],
+        (sessionsRes.data as PortalSessionActivityRow[]) ?? []
+      ) as GuestProfile[];
+
+      setProfiles(sortProfilesByActivity([...mergedProfiles, ...sessionBackfillProfiles]));
     };
 
     void load();
+    const intervalId = window.setInterval(() => {
+      void load();
+    }, 30000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
   }, [pushToast, session?.access_token, status]);
 
   useEffect(() => {

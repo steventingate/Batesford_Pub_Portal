@@ -12,6 +12,10 @@ export type GuestActivityProfile = {
 export type GuestActivitySession = {
   guest_email: string | null;
   guest_phone: string | null;
+  guest_name?: string | null;
+  guest_postcode?: string | null;
+  client_mac?: string | null;
+  status?: string | null;
   submitted_at: string | null;
   authorized_at: string | null;
   completed_at: string | null;
@@ -45,7 +49,7 @@ export type ResolvedLiveGuest<T extends GuestActivityProfile> = {
 export const normalizeGuestKey = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
 
 export const getGuestSessionMoment = (session: GuestActivitySession) =>
-  session.submitted_at || session.authorized_at || session.completed_at || session.updated_at || null;
+  pickLatestTimestamp(session.submitted_at, session.authorized_at, session.completed_at, session.updated_at);
 
 const pickLatestTimestamp = (...values: Array<string | null | undefined>) => {
   let latest: string | null = null;
@@ -60,6 +64,21 @@ const pickLatestTimestamp = (...values: Array<string | null | undefined>) => {
   });
 
   return latest;
+};
+
+const pickEarliestTimestamp = (...values: Array<string | null | undefined>) => {
+  let earliest: string | null = null;
+  let earliestMs = Number.POSITIVE_INFINITY;
+
+  values.forEach((value) => {
+    if (!value) return;
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed) || parsed >= earliestMs) return;
+    earliest = new Date(parsed).toISOString();
+    earliestMs = parsed;
+  });
+
+  return earliest;
 };
 
 const compareProfiles = <T extends GuestActivityProfile>(left: T, right: T) => {
@@ -201,6 +220,65 @@ export function mergeGuestActivity<T extends GuestActivityProfile>(
       live_connected_at: activity?.isLiveNow ? activity.lastSeenAt : null
     };
   });
+}
+
+type SessionBackfillProfile = GuestActivityProfile & {
+  first_seen_at: string | null;
+  is_live_now: boolean;
+  live_area: string | null;
+  live_connected_at: string | null;
+};
+
+const buildFallbackName = (session: GuestActivitySession) => {
+  const explicit = String(session.guest_name || '').trim();
+  if (explicit) return explicit;
+  const email = String(session.guest_email || '').trim();
+  if (email) return email.split('@')[0] || email;
+  const phone = String(session.guest_phone || '').trim();
+  if (phone) return phone;
+  return 'Guest';
+};
+
+export function buildSessionBackfillProfiles(
+  profiles: GuestActivityProfile[],
+  sessions: GuestActivitySession[]
+): SessionBackfillProfile[] {
+  const derived = new Map<string, SessionBackfillProfile>();
+
+  sessions.forEach((session) => {
+    const moment = getGuestSessionMoment(session);
+    const emailKey = normalizeGuestKey(session.guest_email);
+    const phoneKey = normalizeGuestKey(session.guest_phone);
+    const clientKey = normalizeGuestKey(session.client_mac);
+    const identityKey = emailKey || phoneKey || clientKey;
+    if (!identityKey || !moment) return;
+
+    const resolved = resolveProfileForIdentity(profiles, { email: session.guest_email, phone: session.guest_phone });
+    if (resolved.profile) return;
+
+    const existing = derived.get(identityKey);
+    const currentVisitCount = Number(existing?.visit_count ?? 0);
+
+    derived.set(identityKey, {
+      guest_id: `session:${identityKey}`,
+      email: session.guest_email || null,
+      full_name: buildFallbackName(session),
+      mobile: session.guest_phone || null,
+      postcode: session.guest_postcode || null,
+      segment: 'unknown',
+      visit_count: currentVisitCount + 1,
+      first_seen_at: pickEarliestTimestamp(existing?.first_seen_at, moment),
+      last_seen_at: pickLatestTimestamp(existing?.last_seen_at, moment),
+      is_live_now: false,
+      live_area: null,
+      live_connected_at: null
+    });
+  });
+
+  return Array.from(derived.values()).map((profile) => ({
+    ...profile,
+    first_seen_at: profile.first_seen_at || profile.last_seen_at
+  }));
 }
 
 export function sortProfilesByActivity<T extends { last_seen_at: string | null; is_live_now?: boolean }>(profiles: T[]) {
