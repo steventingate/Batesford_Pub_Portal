@@ -1139,7 +1139,7 @@ export default function Campaigns() {
         <Card className="max-w-3xl w-full">
           <div className="flex items-start justify-between mb-4">
             <div>
-              <h3 className="text-2xl font-display text-brand">{viewerTemplate.name}</h3>
+              <h3 className="text-2xl font-display">{viewerTemplate.name}</h3>
               <p className="text-sm text-muted">Type: {viewerTemplate.type}</p>
             </div>
             <Button
@@ -1197,7 +1197,7 @@ export default function Campaigns() {
             <Card className="max-w-xl w-full">
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <h3 className="text-xl font-semibold text-brand">Send to individual</h3>
+                  <h3 className="text-xl font-semibold">Send to individual</h3>
                   <p className="text-sm text-muted">{viewerTemplate.name}</p>
                 </div>
                 <Button variant="outline" onClick={resetSendModal}>Close</Button>
@@ -1256,7 +1256,7 @@ export default function Campaigns() {
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <h2 className="text-3xl font-display text-brand">Campaigns</h2>
+          <h2 className="text-3xl font-display">Campaigns</h2>
           <p className="text-muted">Fast, venue-first guest messaging.</p>
         </div>
         {activeTab === 'templates' && (
@@ -1478,7 +1478,7 @@ export default function Campaigns() {
                 <div className="space-y-3">
                   <div className="rounded-xl border border-slate-200 p-4 bg-white">
                     <p className="text-sm text-muted">Eligible recipients</p>
-                    <p className="text-2xl font-semibold text-brand">
+                    <p className="text-2xl font-semibold">
                       {loadingRecipients ? 'Loading...' : recipients.length}
                     </p>
                     {!loadingRecipients && !recipients.length && (
@@ -1531,7 +1531,7 @@ export default function Campaigns() {
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-6">
                 <div className="space-y-3">
                   <p className="text-sm text-muted">Subject</p>
-                  <p className="text-xl font-semibold text-brand">{previewSubject}</p>
+                  <p className="text-xl font-semibold">{previewSubject}</p>
                   <div className="rounded-xl border border-slate-200 p-4 bg-white max-w-[640px]">
                     <iframe title="Template preview" srcDoc={previewHtml} className="w-full min-h-[360px] border-0" />
                   </div>
@@ -1588,7 +1588,7 @@ export default function Campaigns() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <h3 className="text-2xl font-display text-brand">
+                  <h3 className="text-2xl font-display">
                     {sendResult.status === 'queued' ? 'Campaign queued' : 'Campaign scheduled'}
                   </h3>
                   <p className="text-sm text-muted">

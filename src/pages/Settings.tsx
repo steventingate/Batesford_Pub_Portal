@@ -410,7 +410,7 @@ export default function Settings() {
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <h2 className="text-3xl font-display text-brand">Settings</h2>
+          <h2 className="text-3xl font-display">Settings</h2>
           <p className="text-muted">Manage your profile and admin access.</p>
         </div>
       </div>
@@ -556,7 +556,7 @@ export default function Settings() {
       </Card>
 
       <div className="space-y-4">
-        <h3 className="text-2xl font-display text-brand">Local audience</h3>
+        <h3 className="text-2xl font-display">Local audience</h3>
         <p className="text-sm text-muted">Set the postcodes that define locals for segmentation.</p>
         <Card className="max-w-xl">
           <Input
@@ -570,7 +570,7 @@ export default function Settings() {
       </div>
 
       <div className="space-y-4">
-        <h3 className="text-2xl font-display text-brand">Email defaults</h3>
+        <h3 className="text-2xl font-display">Email defaults</h3>
         <p className="text-sm text-muted">Used in template variables and the footer.</p>
         <Card className="max-w-xl">
           <Input
@@ -596,7 +596,7 @@ export default function Settings() {
       </div>
 
       <div className="space-y-4">
-        <h3 className="text-2xl font-display text-brand">Social links</h3>
+        <h3 className="text-2xl font-display">Social links</h3>
         <p className="text-sm text-muted">Used in the email footer social icons.</p>
         <Card className="max-w-xl">
           <div className="space-y-4">
@@ -684,7 +684,7 @@ export default function Settings() {
       </div>
 
       <div className="space-y-4">
-        <h3 className="text-2xl font-display text-brand">Branding</h3>
+        <h3 className="text-2xl font-display">Branding</h3>
         <p className="text-sm text-muted">Upload Batesford Hotel imagery used across email templates.</p>
         <div className="grid gap-4 md:grid-cols-3">
           {[

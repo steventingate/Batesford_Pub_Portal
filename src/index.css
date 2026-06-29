@@ -117,6 +117,14 @@ a {
   backdrop-filter: blur(18px);
 }
 
+.admin-page .card,
+.admin-page .glass-panel {
+  background: var(--dashboard-card-bg);
+  border-color: var(--dashboard-card-border);
+  box-shadow: var(--dashboard-card-shadow);
+  backdrop-filter: blur(20px);
+}
+
 .badge {
   border-radius: 999px;
   padding: 5px 10px;
@@ -297,28 +305,37 @@ a {
 .content-area {
   flex: 1;
   padding: 28px;
+  min-width: 0;
 }
 
 .admin-page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 28px;
+  color: var(--dashboard-text);
+  min-width: 0;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 18px;
+  gap: 22px;
   margin-bottom: 0;
 }
 
 .page-header h2 {
   margin: 0;
+  color: var(--dashboard-text);
+  font-size: clamp(2.4rem, 2vw + 1.3rem, 3.6rem);
+  letter-spacing: -0.055em;
+  line-height: 0.98;
 }
 
 .page-header p {
   margin: 8px 0 0;
+  color: var(--dashboard-muted);
+  max-width: 62ch;
 }
 
 .glass-panel {
@@ -337,11 +354,12 @@ a {
 .admin-table {
   width: 100%;
   border-collapse: collapse;
+  color: var(--dashboard-text);
 }
 
 .admin-table thead th {
   text-align: left;
-  color: var(--color-muted);
+  color: var(--dashboard-muted);
   font-size: 12px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -351,12 +369,12 @@ a {
 
 .admin-table tbody td {
   padding: 16px 0;
-  border-top: 1px solid rgba(148, 195, 181, 0.1);
+  border-top: 1px solid var(--dashboard-card-border);
   vertical-align: top;
 }
 
 .admin-table tbody tr:hover {
-  background: rgba(17, 35, 29, 0.025);
+  background: rgba(34, 197, 94, 0.04);
 }
 
 .admin-scroll {
@@ -375,7 +393,8 @@ a {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(149, 175, 167, 0.72);
+  color: var(--dashboard-muted);
+  font-weight: 600;
 }
 
 .status-pill {
@@ -753,7 +772,7 @@ a {
 
 .dashboard-metrics {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 16px;
 }
 
@@ -1009,11 +1028,17 @@ a {
   align-items: center;
 }
 
-.status-card > :first-child,
-.consent-widget > :first-child {
+.consent-widget {
+  grid-template-columns: minmax(160px, 190px) minmax(0, 1fr);
+  align-items: center;
+}
+
+.status-chart-panel,
+.consent-chart-panel {
   display: grid;
   gap: 14px;
   justify-items: center;
+  align-content: start;
 }
 
 .status-donut,
@@ -1040,7 +1065,7 @@ a {
   display: block;
   font-size: 36px;
   line-height: 1;
-  color: #fff;
+  color: var(--dashboard-text);
 }
 
 .status-summary span,
@@ -1048,7 +1073,7 @@ a {
 .live-label,
 .live-section-title,
 .postcode-row-meta {
-  color: #8ca1b8;
+  color: var(--dashboard-muted);
   font-size: 13px;
 }
 
@@ -1061,7 +1086,7 @@ a {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #d7e1ec;
+  color: var(--dashboard-text);
   font-size: 14px;
   min-width: 0;
 }
@@ -1076,7 +1101,7 @@ a {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  color: #fff;
+  color: var(--dashboard-text);
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -1087,7 +1112,7 @@ a {
 }
 
 .status-legend-value span {
-  color: #8799ad;
+  color: var(--dashboard-muted);
   font-weight: 500;
   margin-left: 0;
 }
@@ -1422,7 +1447,9 @@ a {
 .dashboard-owner-pill span,
 .insight-item p,
 .consent-summary span,
-.status-legend-value span {
+.status-legend-value span,
+.page-header p,
+.muted-kicker {
   color: var(--dashboard-muted);
 }
 
@@ -1925,6 +1952,11 @@ a {
   }
 
   .status-card {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .consent-widget {
     grid-template-columns: 1fr;
     justify-items: center;
   }

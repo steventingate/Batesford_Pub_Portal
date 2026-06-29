@@ -187,6 +187,7 @@ export default function Dashboard() {
     const queryByMetric: Record<string, string> = {
       uniqueGuests: '/guests?view=unique',
       newGuests: '/guests?view=new',
+      newGuestsToday: '/guests?view=new-today',
       returningGuests: '/guests?view=returning',
       totalVisits: '/guests?view=recent',
       withEmail: '/guests?view=with-email',

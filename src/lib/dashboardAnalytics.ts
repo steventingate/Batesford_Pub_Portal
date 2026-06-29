@@ -644,6 +644,10 @@ export async function getDashboardAnalytics(preset: DashboardRangePreset = 'last
   const yesterday = startOfDay(subDays(range.end, 1));
   const todayNewGuests = currentProfiles.filter((profile) => profile.first_seen_at && isSameDay(new Date(profile.first_seen_at), today)).length;
   const yesterdayNewGuests = profiles.filter((profile) => profile.first_seen_at && isSameDay(new Date(profile.first_seen_at), yesterday)).length;
+  const newGuestsTodayTrend = visitsOverTime.map((point) => ({
+    isoDate: point.isoDate,
+    count: currentProfiles.filter((profile) => profile.first_seen_at && format(new Date(profile.first_seen_at), 'yyyy-MM-dd') === point.isoDate).length
+  }));
   const dormantRegulars = profiles.filter((profile) => Number(profile.visit_count ?? 0) >= 2 && profile.last_seen_at && new Date(profile.last_seen_at) < subDays(range.end, 30)).length;
 
   const withEmailPct = safePct(guestsWithEmail, uniqueGuests);
@@ -654,6 +658,7 @@ export async function getDashboardAnalytics(preset: DashboardRangePreset = 'last
     metrics: [
       { key: 'uniqueGuests', label: 'UNIQUE GUESTS', value: String(uniqueGuests), helper: `vs ${range.compareLabel.toLowerCase()}`, delta: safeDelta(uniqueGuests, previousUniqueGuests), accent: 'green', trend: visitsOverTime.map((point) => point.uniqueGuests) },
       { key: 'newGuests', label: 'NEW GUESTS', value: String(newGuests), helper: `vs ${range.compareLabel.toLowerCase()}`, delta: safeDelta(newGuests, previousNewGuests), accent: 'lime', trend: newVsReturning.map((point) => point.newGuests) },
+      { key: 'newGuestsToday', label: 'NEW GUESTS TODAY', value: String(todayNewGuests), helper: 'vs yesterday', delta: safeDelta(todayNewGuests, yesterdayNewGuests), accent: 'green', trend: newGuestsTodayTrend.map((point) => point.count) },
       { key: 'returningGuests', label: 'RETURNING GUESTS', value: String(returningGuests), helper: `vs ${range.compareLabel.toLowerCase()}`, delta: safeDelta(returningGuests, previousReturningGuests), accent: 'purple', trend: newVsReturning.map((point) => point.returningGuests) },
       { key: 'totalVisits', label: 'TOTAL VISITS', value: String(totalVisits), helper: `vs ${range.compareLabel.toLowerCase()}`, delta: safeDelta(totalVisits, previousTotalVisits), accent: 'blue', trend: visitsOverTime.map((point) => point.visits) },
       { key: 'withEmail', label: 'GUESTS WITH EMAIL', value: `${withEmailPct}%`, helper: `${guestsWithEmail} guests`, delta: safeDelta(guestsWithEmail, previousGuestsWithEmail), accent: 'amber', trend: visitsOverTime.map(() => withEmailPct) },

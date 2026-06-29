@@ -280,7 +280,7 @@ export default function ContactDetail() {
       <div className="page-header">
         <div>
           <Link to="/guests" className="text-sm text-muted">Back to guests</Link>
-          <h2 className="text-3xl font-display text-brand">{guest.full_name || 'Guest'}</h2>
+          <h2 className="text-3xl font-display">{guest.full_name || 'Guest'}</h2>
           <p className="text-muted">{guest.email || guest.mobile || 'No contact details'}</p>
           <p className="text-sm text-muted">
             {guest.postcode
@@ -297,7 +297,7 @@ export default function ContactDetail() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <p className="text-sm text-muted">Visit count</p>
-          <p className="text-2xl font-semibold text-brand">{Number(guest.visit_count ?? 0)}</p>
+          <p className="text-2xl font-semibold">{Number(guest.visit_count ?? 0)}</p>
         </Card>
         <Card>
           <p className="text-sm text-muted">First seen</p>

@@ -88,7 +88,7 @@ export default function CampaignDetail() {
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <h2 className="text-3xl font-display text-brand">{campaign.name}</h2>
+          <h2 className="text-3xl font-display">{campaign.name}</h2>
           <p className="text-muted">{campaign.subject}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -100,11 +100,11 @@ export default function CampaignDetail() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <p className="text-sm text-muted">Sent</p>
-          <p className="text-2xl font-semibold text-brand">{metrics.sent}</p>
+          <p className="text-2xl font-semibold">{metrics.sent}</p>
         </Card>
         <Card>
           <p className="text-sm text-muted">Failed</p>
-          <p className="text-2xl font-semibold text-brand">{metrics.failed}</p>
+          <p className="text-2xl font-semibold">{metrics.failed}</p>
         </Card>
         <Card>
           <p className="text-sm text-muted">Created</p>

@@ -99,7 +99,7 @@ export default function CampaignNew() {
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <h2 className="text-3xl font-display text-brand">New campaign</h2>
+          <h2 className="text-3xl font-display">New campaign</h2>
           <p className="text-muted">Build a guest marketing email.</p>
         </div>
         <div className="flex items-center gap-2">

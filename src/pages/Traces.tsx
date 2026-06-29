@@ -413,7 +413,7 @@ export default function Traces() {
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <h2 className="text-3xl font-display text-brand">Wi-Fi Traces</h2>
+          <h2 className="text-3xl font-display">Wi-Fi Traces</h2>
           <p className="text-muted">End-to-end auth timing for captive portal attempts.</p>
         </div>
         <div className="flex items-center gap-2">

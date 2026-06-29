@@ -101,6 +101,7 @@ export function MetricCards({ metrics, onSelect }: { metrics: Metric[]; onSelect
   const iconMap: Record<string, Parameters<typeof Icon>[0]['kind']> = {
     uniqueGuests: 'users',
     newGuests: 'user-plus',
+    newGuestsToday: 'bell',
     returningGuests: 'returning',
     totalVisits: 'wifi',
     withEmail: 'mail',
@@ -206,32 +207,34 @@ export function GuestsByStatus({ total, slices }: { total: number; slices: Statu
   return (
     <DashboardCard className="span-3" title={<><h3>Guests By Status</h3></>}>
       <div className="status-card">
-        <div className="status-donut-wrap">
-          <svg viewBox="0 0 180 180" className="status-donut">
-            <circle cx="90" cy="90" r="70" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="22" />
-            {visibleSlices.map((slice) => {
-              const dash = circumference * (slice.percentage / 100);
-              const circle = (
-                <circle
-                  key={slice.label}
-                  cx="90"
-                  cy="90"
-                  r="70"
-                  fill="none"
-                  stroke={slice.color}
-                  strokeWidth="22"
-                  strokeDasharray={`${dash} ${circumference - dash}`}
-                  strokeDashoffset={-offset}
-                />
-              );
-              offset += dash;
-              return circle;
-            })}
-          </svg>
-        </div>
-        <div className="status-summary">
-          <strong>{total}</strong>
-          <span>Total Guests</span>
+        <div className="status-chart-panel">
+          <div className="status-donut-wrap">
+            <svg viewBox="0 0 180 180" className="status-donut">
+              <circle cx="90" cy="90" r="70" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="22" />
+              {visibleSlices.map((slice) => {
+                const dash = circumference * (slice.percentage / 100);
+                const circle = (
+                  <circle
+                    key={slice.label}
+                    cx="90"
+                    cy="90"
+                    r="70"
+                    fill="none"
+                    stroke={slice.color}
+                    strokeWidth="22"
+                    strokeDasharray={`${dash} ${circumference - dash}`}
+                    strokeDashoffset={-offset}
+                  />
+                );
+                offset += dash;
+                return circle;
+              })}
+            </svg>
+          </div>
+          <div className="status-summary">
+            <strong>{total}</strong>
+            <span>Total Guests</span>
+          </div>
         </div>
         <div className="status-legend">
           {slices.map((slice) => (
@@ -376,15 +379,17 @@ export function ConsentRateWidget({ consent }: { consent: DashboardAnalyticsResu
   return (
     <DashboardCard className="span-2" title={<><h3>Consent Rate</h3></>}>
       <div className="consent-widget">
-        <div className="consent-ring-wrap">
-          <svg viewBox="0 0 144 144" className="consent-ring">
-            <circle cx="72" cy="72" r="56" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="16" />
-            <circle cx="72" cy="72" r="56" fill="none" stroke="#22c55e" strokeWidth="16" strokeDasharray={`${dash} ${circumference - dash}`} strokeLinecap="round" transform="rotate(-90 72 72)" />
-          </svg>
-        </div>
-        <div className="consent-summary">
-          <strong>{consent.rate}%</strong>
-          <span>Consented</span>
+        <div className="consent-chart-panel">
+          <div className="consent-ring-wrap">
+            <svg viewBox="0 0 144 144" className="consent-ring">
+              <circle cx="72" cy="72" r="56" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="16" />
+              <circle cx="72" cy="72" r="56" fill="none" stroke="#22c55e" strokeWidth="16" strokeDasharray={`${dash} ${circumference - dash}`} strokeLinecap="round" transform="rotate(-90 72 72)" />
+            </svg>
+          </div>
+          <div className="consent-summary">
+            <strong>{consent.rate}%</strong>
+            <span>Consented</span>
+          </div>
         </div>
         <div className="consent-detail-list">
           <div><span>Consented</span><strong>{consent.consented}</strong><em className={consent.consentedDelta >= 0 ? 'up' : 'down'}>{consent.consentedDelta >= 0 ? '+' : '-'}{Math.abs(consent.consentedDelta)}%</em></div>
@@ -448,7 +453,7 @@ export function DashboardSkeleton() {
   return (
     <div className="dashboard-skeleton">
       <div className="dashboard-metrics">
-        {Array.from({ length: 6 }, (_, index) => <div key={index} className="dashboard-skeleton-card" />)}
+        {Array.from({ length: 7 }, (_, index) => <div key={index} className="dashboard-skeleton-card" />)}
       </div>
       <div className="dashboard-grid">
         {Array.from({ length: 7 }, (_, index) => <div key={index} className="dashboard-skeleton-panel" />)}

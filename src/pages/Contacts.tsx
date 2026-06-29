@@ -200,6 +200,8 @@ export default function Contacts() {
     cutoff.setDate(cutoff.getDate() - Number(dateRange));
     const searchLower = search.toLowerCase();
     const liveOnly = searchParams.get('live') === '1';
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
 
     return sortProfilesByActivity(profiles.filter((guest) => {
       const matchesSearch =
@@ -221,6 +223,10 @@ export default function Contacts() {
       if (liveOnly && !guest.is_live_now) return false;
       if (metricView === 'new' && !guest.first_seen_at) return false;
       if (metricView === 'new' && dateRange !== 'all' && new Date(guest.first_seen_at!).getTime() < cutoff.getTime()) return false;
+      if (metricView === 'new-today') {
+        if (!guest.first_seen_at) return false;
+        if (new Date(guest.first_seen_at).getTime() < startOfToday.getTime()) return false;
+      }
       if (metricView === 'returning' && Number(guest.visit_count ?? 0) < 2) return false;
       if (metricView === 'with-email' && !guest.email) return false;
       if (metricView === 'with-mobile' && !guest.mobile) return false;
@@ -234,6 +240,8 @@ export default function Contacts() {
         return 'Showing all distinct guests in the current register.';
       case 'new':
         return 'Showing guests first seen inside the selected date range.';
+      case 'new-today':
+        return 'Showing guests first seen today, based on the latest register activity.';
       case 'returning':
         return 'Showing repeat guests with two or more visits.';
       case 'recent':
@@ -257,7 +265,17 @@ export default function Contacts() {
   const totals = useMemo(() => ({
     total: filtered.length,
     withEmail: filtered.filter((guest) => Boolean(guest.email)).length,
-    returning: filtered.filter((guest) => Number(guest.visit_count ?? 0) >= 2).length
+    returning: filtered.filter((guest) => Number(guest.visit_count ?? 0) >= 2).length,
+    newToday: filtered.filter((guest) => {
+      if (!guest.first_seen_at) return false;
+      const firstSeen = new Date(guest.first_seen_at);
+      const now = new Date();
+      return (
+        firstSeen.getFullYear() === now.getFullYear() &&
+        firstSeen.getMonth() === now.getMonth() &&
+        firstSeen.getDate() === now.getDate()
+      );
+    }).length
   }), [filtered]);
 
   const handleExport = () => {
@@ -354,7 +372,7 @@ export default function Contacts() {
         </div>
       </div>
 
-      <div className="admin-grid md:grid-cols-3">
+      <div className="admin-grid md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <div className="muted-kicker">Visible Guests</div>
           <p className="mt-3 font-display text-4xl text-white">{totals.total}</p>
@@ -369,6 +387,11 @@ export default function Contacts() {
           <div className="muted-kicker">Returning Guests</div>
           <p className="mt-3 font-display text-4xl text-white">{totals.returning}</p>
           <p className="mt-2 text-sm text-muted">Repeat visitors in this view.</p>
+        </Card>
+        <Card>
+          <div className="muted-kicker">New Guests Today</div>
+          <p className="mt-3 font-display text-4xl text-white">{totals.newToday}</p>
+          <p className="mt-2 text-sm text-muted">First-time guests captured since midnight.</p>
         </Card>
       </div>
 
