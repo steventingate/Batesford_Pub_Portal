@@ -1,5 +1,6 @@
 import { format, eachDayOfInterval, endOfDay, isWithinInterval, startOfDay, subDays } from 'date-fns';
 import { supabase } from './supabaseClient';
+import { getSessionIdentityKey, hasSessionIdentity } from './guestActivity';
 
 export type DatePreset = 'today' | 'last7' | 'last30' | 'month' | 'custom';
 
@@ -126,8 +127,7 @@ const normalize = (value: string | null | undefined) => String(value || '').trim
 const buildProfileKey = (profile: GuestSummaryRow) =>
   normalize(profile.email) || normalize(profile.mobile) || profile.guest_id;
 
-const buildSessionKey = (session: PortalSessionRow) =>
-  normalize(session.guest_email) || normalize(session.guest_phone) || normalize(session.client_mac) || session.id;
+const buildSessionKey = (session: PortalSessionRow) => getSessionIdentityKey(session) || session.id;
 
 const getSessionMoment = (session: PortalSessionRow) =>
   session.submitted_at || session.authorized_at || session.completed_at || session.updated_at;
@@ -163,6 +163,7 @@ export type VenueInsightsSummary = {
 };
 
 export const buildVenueInsightsSummary = (bundle: VenueInsightsBundle, range: InsightsRange): VenueInsightsSummary => {
+  const identifiedSessions = bundle.sessions.filter((session) => hasSessionIdentity(session));
   const profileByKey = new Map(bundle.profiles.map((profile) => [buildProfileKey(profile), profile]));
   const uniqueGuestKeys = new Set<string>();
   const activeProfilesById = new Map<string, GuestSummaryRow>();
@@ -172,7 +173,7 @@ export const buildVenueInsightsSummary = (bundle: VenueInsightsBundle, range: In
   const hourCounts = new Map<string, number>();
   const dayGuestSets = new Map<string, { newGuests: Set<string>; returningGuests: Set<string> }>();
 
-  bundle.sessions.forEach((session) => {
+  identifiedSessions.forEach((session) => {
     const key = buildSessionKey(session);
     const profile = profileByKey.get(key);
     uniqueGuestKeys.add(key);
@@ -216,7 +217,7 @@ export const buildVenueInsightsSummary = (bundle: VenueInsightsBundle, range: In
   const consented = activeGuests.filter((guest) => guest.marketing_consent === true).length;
   const unsubscribedCount = activeGuests.filter((guest) => guest.unsubscribe_status === true).length;
   const consentRate = activeGuests.length ? Math.round((consented / activeGuests.length) * 100) : 0;
-  const averageVisitsPerGuest = uniqueGuests ? Number((bundle.sessions.length / uniqueGuests).toFixed(1)) : 0;
+  const averageVisitsPerGuest = uniqueGuests ? Number((identifiedSessions.length / uniqueGuests).toFixed(1)) : 0;
 
   const topPostcodes = [...postcodeCounts.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -229,7 +230,7 @@ export const buildVenueInsightsSummary = (bundle: VenueInsightsBundle, range: In
   const intervalDays = eachDayOfInterval({ start: range.start, end: range.end });
   const visitSeries = intervalDays.map((day) => {
     const label = format(day, 'dd MMM');
-    const value = bundle.sessions.filter((session) => format(new Date(getSessionMoment(session)), 'dd MMM') === label).length;
+    const value = identifiedSessions.filter((session) => format(new Date(getSessionMoment(session)), 'dd MMM') === label).length;
     return { label, value };
   });
 
@@ -266,7 +267,7 @@ export const buildVenueInsightsSummary = (bundle: VenueInsightsBundle, range: In
     insights.push(`${peakDayOfWeek} around ${peakHourOfDay} was the busiest Wi-Fi window in ${range.label.toLowerCase()}.`);
   }
   if (topPostcode !== '-') {
-    const share = uniqueGuests ? Math.round(((topPostcodes[0]?.guests ?? 0) / Math.max(bundle.sessions.length, 1)) * 100) : 0;
+    const share = uniqueGuests ? Math.round(((topPostcodes[0]?.guests ?? 0) / Math.max(identifiedSessions.length, 1)) * 100) : 0;
     insights.push(`${topPostcode} was the strongest catchment, accounting for ${share}% of recorded visits.`);
   }
   insights.push(`${newGuests} guests visited for the first time during ${range.label.toLowerCase()}.`);
@@ -279,7 +280,7 @@ export const buildVenueInsightsSummary = (bundle: VenueInsightsBundle, range: In
     uniqueGuests,
     newGuests,
     returningGuests,
-    totalVisits: bundle.sessions.length,
+    totalVisits: identifiedSessions.length,
     guestsWithEmail,
     guestsWithMobile,
     consentRate,

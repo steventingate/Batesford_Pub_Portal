@@ -1,5 +1,5 @@
 import { eachDayOfInterval, endOfDay, format, isSameDay, startOfDay, subDays } from 'date-fns';
-import { buildSessionBackfillProfiles, resolveLiveGuests } from './guestActivity';
+import { buildSessionBackfillProfiles, getSessionIdentityKey, hasSessionIdentity, resolveLiveGuests } from './guestActivity';
 import { supabase } from './supabaseClient';
 
 export type DashboardRangePreset = 'last7' | 'last30';
@@ -182,8 +182,7 @@ const safePct = (value: number, total: number) => (total ? Math.round((value / t
 
 const normalizeKey = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
 
-const getSessionGuestKey = (row: PortalSessionRow) =>
-  normalizeKey(row.guest_email) || normalizeKey(row.guest_phone) || normalizeKey(row.client_mac) || row.id;
+const getSessionGuestKey = (row: PortalSessionRow) => getSessionIdentityKey(row) || row.id;
 
 const getSessionMoment = (row: PortalSessionRow) => {
   const timestamps = [row.submitted_at, row.authorized_at, row.completed_at, row.updated_at]
@@ -303,6 +302,7 @@ const buildActivityRows = (connections: WifiConnectionRow[], sessions: PortalSes
   );
 
   sessions.forEach((session) => {
+    if (!hasSessionIdentity(session)) return;
     const connectedAt = getSessionMoment(session);
     if (!connectedAt) return;
     const parsed = new Date(connectedAt);
@@ -352,6 +352,7 @@ const buildEmptyHeatmap = (): HeatmapCell[] => {
 const buildStatusBreakdown = (rows: PortalSessionRow[]) => {
   const latestByGuest = new Map<string, PortalSessionRow>();
   rows.forEach((row) => {
+    if (!hasSessionIdentity(row)) return;
     latestByGuest.set(getSessionGuestKey(row), row);
   });
   const total = latestByGuest.size;
@@ -470,6 +471,7 @@ const buildLiveNow = (rows: PortalSessionRow[], apRows: AccessPointRow[]) => {
   const areaLookup = new Map(apRows.map((row) => [normalizeKey(row.ap_mac), row.display_name || row.area_name]));
   const latestByGuest = new Map<string, PortalSessionRow>();
   rows.filter((row) => toStatusLabel(row) === 'Authorized').forEach((row) => {
+    if (!hasSessionIdentity(row)) return;
     latestByGuest.set(getSessionGuestKey(row), row);
   });
   const liveRows = Array.from(latestByGuest.values());

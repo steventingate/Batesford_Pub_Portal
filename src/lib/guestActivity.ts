@@ -48,6 +48,12 @@ export type ResolvedLiveGuest<T extends GuestActivityProfile> = {
 
 export const normalizeGuestKey = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
 
+export const getSessionIdentityKey = (session: Pick<GuestActivitySession, 'guest_email' | 'guest_phone'>) =>
+  normalizeGuestKey(session.guest_email) || normalizeGuestKey(session.guest_phone);
+
+export const hasSessionIdentity = (session: Pick<GuestActivitySession, 'guest_email' | 'guest_phone'>) =>
+  Boolean(getSessionIdentityKey(session));
+
 export const getGuestSessionMoment = (session: GuestActivitySession) =>
   pickLatestTimestamp(session.submitted_at, session.authorized_at, session.completed_at, session.updated_at);
 
@@ -247,10 +253,7 @@ export function buildSessionBackfillProfiles(
 
   sessions.forEach((session) => {
     const moment = getGuestSessionMoment(session);
-    const emailKey = normalizeGuestKey(session.guest_email);
-    const phoneKey = normalizeGuestKey(session.guest_phone);
-    const clientKey = normalizeGuestKey(session.client_mac);
-    const identityKey = emailKey || phoneKey || clientKey;
+    const identityKey = getSessionIdentityKey(session);
     if (!identityKey || !moment) return;
 
     const resolved = resolveProfileForIdentity(profiles, { email: session.guest_email, phone: session.guest_phone });
