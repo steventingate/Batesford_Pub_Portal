@@ -18,6 +18,7 @@ type Payload = {
   ap_mac?: string;
   ssid?: string;
   redirect_url?: string;
+  user_agent?: string;
   debug?: boolean;
   unifi_site?: string;
   unifi_ap?: string;
@@ -1693,7 +1694,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (action === "connect" && supabase) {
-    const userAgent = req.headers.get("user-agent");
+    const userAgent = payload.trace_context?.user_agent ?? payload.user_agent ?? req.headers.get("user-agent");
     const ipAddress = getRequestIp(req);
     const now = new Date();
     const weekday = now.getDay();

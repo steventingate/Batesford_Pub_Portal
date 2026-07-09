@@ -423,6 +423,7 @@ function buildConnectPayloadFromSession(session, siteConfig) {
     trace_id: session.trace_id,
     venue_slug: session.site_slug,
     website_url: session.website_url || siteConfig.websiteUrl,
+    user_agent: session.user_agent || undefined,
   };
 }
 
