@@ -58,6 +58,12 @@ const UNIFI_STATUS_TIMEOUT_MS = Math.max(
   1000,
   Number.parseInt(process.env.UNIFI_STATUS_TIMEOUT_MS || "2500", 10) || 2500,
 );
+const UNIFI_API_HEALTHCHECK_ENABLED = process.env.UNIFI_API_HEALTHCHECK_ENABLED !== "false";
+const UNIFI_API_HEALTHCHECK_INTERVAL_MS = Math.max(
+  30000,
+  Number.parseInt(process.env.UNIFI_API_HEALTHCHECK_INTERVAL_MS || "60000", 10) || 60000,
+);
+const UNIFI_API_HEALTHCHECK_SITE = (process.env.UNIFI_API_HEALTHCHECK_SITE || "").trim();
 const UNIFI_AUTH_MINUTES = Math.max(
   1,
   Number.parseInt(process.env.UNIFI_AUTH_MINUTES || "480", 10) || 480,
@@ -177,6 +183,17 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 });
 const scheduledSessionRefreshes = new Map();
 const pendingSessionAuthorizations = new Map();
+let unifiApiConnectivityTimer = null;
+let unifiApiConnectivityCheckRunning = false;
+let lastUnifiApiConnectivity = {
+  checked_at: null,
+  connected: false,
+  message: "UniFi API connectivity has not been checked yet.",
+  elapsed_ms: null,
+  status: null,
+  endpoint: null,
+  error: null,
+};
 
 function getBearerToken(req) {
   const raw = String(req.headers.authorization || "").trim();
@@ -1943,6 +1960,113 @@ async function directUnifiStatusV1({
   };
 }
 
+async function probeUnifiApiConnectivity() {
+  if (UNIFI_AUTH_BACKEND !== "direct") {
+    throw new Error(`UniFi direct API is not active; current backend is ${UNIFI_AUTH_BACKEND}.`);
+  }
+
+  if (UNIFI_AUTH_MODE === "v1") {
+    const site = UNIFI_API_HEALTHCHECK_SITE || UNIFI_SITE_NAME || "";
+    const endpoint = UNIFI_V1_SITE_ID
+      ? `${UNIFI_V1_BASE_PATH}/sites/${encodeURIComponent(UNIFI_V1_SITE_ID)}/clients`
+      : `${UNIFI_V1_BASE_PATH}/sites`;
+    const response = await unifiV1Request(endpoint, {
+      method: "GET",
+      timeoutMs: UNIFI_STATUS_TIMEOUT_MS,
+    });
+    if (!response.ok) {
+      throw new Error(`UniFi v1 API check failed status=${response.status} body=${response.body}`);
+    }
+    return {
+      status: response.status,
+      endpoint,
+      site: UNIFI_V1_SITE_ID || site || null,
+    };
+  }
+
+  const login = await directUnifiLogin();
+  return {
+    status: login.status,
+    endpoint: login.endpoint,
+    site: UNIFI_API_HEALTHCHECK_SITE || UNIFI_SITE_NAME || null,
+  };
+}
+
+async function checkUnifiApiConnectivity(reason = "periodic") {
+  const startedAt = Date.now();
+  let state;
+  try {
+    const result = await probeUnifiApiConnectivity();
+    state = {
+      checked_at: new Date().toISOString(),
+      connected: true,
+      message: "successfully connected to unifi controller via api",
+      elapsed_ms: Date.now() - startedAt,
+      status: result.status,
+      endpoint: result.endpoint,
+      site: result.site,
+      error: null,
+    };
+  } catch (error) {
+    state = {
+      checked_at: new Date().toISOString(),
+      connected: false,
+      message: "unable to connect to unifi controller via api",
+      elapsed_ms: Date.now() - startedAt,
+      status: null,
+      endpoint: null,
+      site: UNIFI_API_HEALTHCHECK_SITE || UNIFI_V1_SITE_ID || UNIFI_SITE_NAME || null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  lastUnifiApiConnectivity = state;
+  log("unifi_api_connectivity_check", {
+    reason,
+    connected: state.connected,
+    message: state.message,
+    elapsed_ms: state.elapsed_ms,
+    status: state.status,
+    endpoint: state.endpoint,
+    site: state.site,
+    auth_backend: UNIFI_AUTH_BACKEND,
+    auth_mode: UNIFI_AUTH_MODE,
+    unifi_base_url: UNIFI_AUTH_BACKEND === "direct" ? UNIFI_BASE_URL : null,
+    error: state.error,
+  });
+  return state;
+}
+
+function startUnifiApiConnectivityMonitor() {
+  if (!UNIFI_API_HEALTHCHECK_ENABLED) {
+    log("unifi_api_connectivity_monitor_disabled", {
+      interval_ms: UNIFI_API_HEALTHCHECK_INTERVAL_MS,
+    });
+    return;
+  }
+
+  const runCheck = (reason) => {
+    if (unifiApiConnectivityCheckRunning) {
+      log("unifi_api_connectivity_check_skipped", {
+        reason,
+        message: "previous UniFi API connectivity check is still running",
+      });
+      return;
+    }
+
+    unifiApiConnectivityCheckRunning = true;
+    checkUnifiApiConnectivity(reason).finally(() => {
+      unifiApiConnectivityCheckRunning = false;
+    });
+  };
+
+  runCheck("startup");
+  unifiApiConnectivityTimer = setInterval(() => runCheck("periodic"), UNIFI_API_HEALTHCHECK_INTERVAL_MS);
+  if (typeof unifiApiConnectivityTimer.unref === "function") {
+    unifiApiConnectivityTimer.unref();
+  }
+}
+
 function toIsoIfValid(value) {
   if (typeof value === "string" && value) {
     const parsed = Date.parse(value);
@@ -2307,6 +2431,20 @@ app.get("/api/admin/live-clients", async (req, res) => {
 
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true, service: "wifi-portal", ts: new Date().toISOString() });
+});
+
+app.get("/healthz/unifi", async (req, res) => {
+  const refresh = String(req.query.refresh || "").toLowerCase() === "true";
+  const state = refresh
+    ? await checkUnifiApiConnectivity("manual_healthz")
+    : lastUnifiApiConnectivity;
+
+  res.status(state.connected ? 200 : 503).json({
+    ok: state.connected,
+    service: "wifi-portal",
+    check: "unifi-api",
+    ...state,
+  });
 });
 
 app.get(["/", "/portal"], async (req, res) => {
@@ -3024,5 +3162,9 @@ app.listen(PORT, () => {
     release_retry_delay_ms: RELEASE_RETRY_DELAY_MS,
     wifi_connect_function_url: WIFI_CONNECT_FUNCTION_URL,
     configured_sites: Object.keys(SITE_MAP),
+    unifi_api_healthcheck_enabled: UNIFI_API_HEALTHCHECK_ENABLED,
+    unifi_api_healthcheck_interval_ms: UNIFI_API_HEALTHCHECK_INTERVAL_MS,
+    unifi_api_healthcheck_site: UNIFI_API_HEALTHCHECK_SITE || null,
   });
+  startUnifiApiConnectivityMonitor();
 });
