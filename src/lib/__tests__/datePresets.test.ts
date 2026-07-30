@@ -1,18 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   getDateRange,
   PRESET_LABELS,
   formatDateForQuery,
   DatePreset,
-  DateRange,
 } from '../datePresets';
-import {
-  startOfToday,
-  endOfToday,
-  startOfYesterday,
-  endOfYesterday,
-  subDays,
-} from 'date-fns';
+import { subDays } from 'date-fns';
 
 describe('datePresets', () => {
   describe('getDateRange', () => {
@@ -54,6 +47,16 @@ describe('datePresets', () => {
       expect(range.preset).toBe('custom');
       expect(formatDateForQuery(range.startDate)).toBe('2026-07-20');
       expect(formatDateForQuery(range.endDate)).toBe('2026-07-30');
+      // Verify endDate is at end-of-day (23:59:59.999)
+      expect(range.endDate.getHours()).toBe(23);
+      expect(range.endDate.getMinutes()).toBe(59);
+      expect(range.endDate.getSeconds()).toBe(59);
+    });
+
+    it('should throw when custom start date is after end date', () => {
+      expect(() => getDateRange('custom', '2026-07-30', '2026-07-20')).toThrow(
+        'Custom start date must be before or equal to end date',
+      );
     });
 
     it('should throw for invalid custom dates', () => {
@@ -63,6 +66,7 @@ describe('datePresets', () => {
 
     it('should handle thisWeek range', () => {
       const range = getDateRange('thisWeek');
+      const today = new Date();
 
       expect(range.preset).toBe('thisWeek');
       expect(range.label).toBe(PRESET_LABELS.thisWeek);
@@ -72,10 +76,15 @@ describe('datePresets', () => {
       expect(range.endDate.getTime()).toBeGreaterThanOrEqual(
         range.startDate.getTime(),
       );
+      // startDate should be at or before today
+      expect(range.startDate.getTime()).toBeLessThanOrEqual(today.getTime());
+      // endDate should be at or after today
+      expect(range.endDate.getTime()).toBeGreaterThanOrEqual(today.getTime());
     });
 
     it('should handle thisMonth range', () => {
       const range = getDateRange('thisMonth');
+      const today = new Date();
 
       expect(range.preset).toBe('thisMonth');
       expect(range.label).toBe(PRESET_LABELS.thisMonth);
@@ -84,6 +93,11 @@ describe('datePresets', () => {
       expect(range.endDate.getTime()).toBeGreaterThanOrEqual(
         range.startDate.getTime(),
       );
+      // startDate should be the first day of the month
+      expect(range.startDate.getDate()).toBe(1);
+      // endDate should be in the same month as today
+      expect(range.endDate.getMonth()).toBe(today.getMonth());
+      expect(range.endDate.getFullYear()).toBe(today.getFullYear());
     });
 
     it('should handle last7 range', () => {
@@ -139,15 +153,15 @@ describe('datePresets', () => {
 
   describe('formatDateForQuery', () => {
     it('should format dates as YYYY-MM-DD', () => {
-      const date = new Date('2026-07-30');
+      const date = new Date(2026, 6, 30); // July 30, 2026
       expect(formatDateForQuery(date)).toBe('2026-07-30');
     });
 
     it('should handle various dates correctly', () => {
       const testCases = [
-        { date: new Date('2026-01-01'), expected: '2026-01-01' },
-        { date: new Date('2026-12-31'), expected: '2026-12-31' },
-        { date: new Date('2025-06-15'), expected: '2025-06-15' },
+        { date: new Date(2026, 0, 1), expected: '2026-01-01' },
+        { date: new Date(2026, 11, 31), expected: '2026-12-31' },
+        { date: new Date(2025, 5, 15), expected: '2025-06-15' },
       ];
 
       testCases.forEach(({ date, expected }) => {
@@ -156,7 +170,7 @@ describe('datePresets', () => {
     });
 
     it('should pad single digit months and days', () => {
-      const date = new Date('2026-03-05');
+      const date = new Date(2026, 2, 5); // March 5, 2026
       expect(formatDateForQuery(date)).toBe('2026-03-05');
     });
   });

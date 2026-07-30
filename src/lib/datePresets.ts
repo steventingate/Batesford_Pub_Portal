@@ -7,6 +7,7 @@ import {
   endOfWeek,
   startOfMonth,
   endOfMonth,
+  endOfDay,
   subDays,
   parse,
   isValid,
@@ -118,7 +119,10 @@ export function getDateRange(
         );
       }
       startDate = parseDateString(customStart);
-      endDate = parseDateString(customEnd);
+      endDate = endOfDay(parseDateString(customEnd));
+      if (startDate > endDate) {
+        throw new Error('Custom start date must be before or equal to end date');
+      }
       break;
 
     default:
