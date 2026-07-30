@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import type { DashboardAnalyticsResult } from '../dashboardAnalytics';
+import type { SerializedDashboardAnalyticsResult } from '../dashboardAnalytics';
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
@@ -24,13 +24,13 @@ import {
 } from '../analyticsCache';
 
 /**
- * DashboardAnalyticsResult is a large structural type; tests only care about
+ * SerializedDashboardAnalyticsResult is a large structural type; tests only care about
  * round-tripping through JSON, so a marker object is cast to the type.
  */
-const makeResult = (marker: string): DashboardAnalyticsResult =>
-  ({ marker, metrics: [] } as unknown as DashboardAnalyticsResult);
+const makeResult = (marker: string): SerializedDashboardAnalyticsResult =>
+  ({ marker, metrics: [] } as unknown as SerializedDashboardAnalyticsResult);
 
-const markerOf = (result: DashboardAnalyticsResult | null): string | undefined =>
+const markerOf = (result: SerializedDashboardAnalyticsResult | null): string | undefined =>
   (result as unknown as { marker?: string } | null)?.marker;
 
 describe('analyticsCache', () => {

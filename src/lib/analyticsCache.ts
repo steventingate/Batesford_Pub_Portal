@@ -1,7 +1,17 @@
+/**
+ * Client-side cache for dashboard analytics.
+ *
+ * Everything stored and returned here is {@link SerializedDashboardAnalyticsResult}:
+ * `range.start` / `end` / `compareStart` / `compareEnd` are ISO-8601 strings,
+ * exactly as the `get-dashboard-analytics` Edge Function emits them. The cache
+ * stores the response verbatim and performs no date revival, so a cache hit and
+ * a fresh fetch are structurally identical. Consumers needing `Date` objects
+ * revive at the point of use: `new Date(data.range.start)`.
+ */
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { getDateRange, formatDateForQuery, type DatePreset } from './datePresets';
-import type { DashboardAnalyticsResult } from './dashboardAnalytics';
+import type { SerializedDashboardAnalyticsResult } from './dashboardAnalytics';
 
 /** Prefix applied to every dashboard analytics cache key in localStorage. */
 export const CACHE_KEY_PREFIX = 'dashboard_cache';
@@ -14,12 +24,12 @@ export const DASHBOARD_ANALYTICS_FUNCTION = 'get-dashboard-analytics';
 
 /** Internal shape of a stored cache entry. */
 interface CacheEntry {
-  data: DashboardAnalyticsResult;
+  data: SerializedDashboardAnalyticsResult;
   timestamp: number;
 }
 
 export interface UseDashboardCacheReturn {
-  data: DashboardAnalyticsResult | null;
+  data: SerializedDashboardAnalyticsResult | null;
   loading: boolean;
   error: Error | null;
 }
@@ -85,7 +95,7 @@ export function getCachedData(
   preset: DatePreset,
   customStart?: string,
   customEnd?: string,
-): DashboardAnalyticsResult | null {
+): SerializedDashboardAnalyticsResult | null {
   const storage = getStorage();
   if (!storage) return null;
 
@@ -129,7 +139,7 @@ export function getCachedData(
  */
 export function setCachedData(
   preset: DatePreset,
-  data: DashboardAnalyticsResult,
+  data: SerializedDashboardAnalyticsResult,
   customStart?: string,
   customEnd?: string,
 ): void {
@@ -232,7 +242,7 @@ export function useDashboardCache(
           throw toError(response.error);
         }
 
-        const result = response.data as DashboardAnalyticsResult | null;
+        const result = response.data as SerializedDashboardAnalyticsResult | null;
         if (!result) {
           throw new Error('Dashboard analytics returned no data.');
         }

@@ -1,6 +1,7 @@
 import { eachDayOfInterval, endOfDay, format, isSameDay, startOfDay, subDays } from 'date-fns';
 import { buildSessionBackfillProfiles, getSessionIdentityKey, hasSessionIdentity, resolveLiveGuests } from './guestActivity';
 import { supabase } from './supabaseClient';
+import type { DatePreset } from './datePresets';
 
 export type DashboardRangePreset = 'last7' | 'last30';
 
@@ -147,6 +148,32 @@ export type DashboardAnalyticsResult = {
   fallbacksUsed: string[];
   detectedTables: string[];
   detectedFields: string[];
+};
+
+/**
+ * Wire format returned by the `get-dashboard-analytics` Edge Function.
+ *
+ * Identical to {@link DashboardAnalyticsResult} except that the four `range`
+ * timestamps are ISO-8601 strings. JSON transport cannot carry `Date`, so this
+ * type states what actually arrives — over the network *and* out of the
+ * localStorage cache, which stores the response verbatim. That keeps cache
+ * hits and cache misses structurally identical; reviving dates inside the
+ * cache layer would make them diverge.
+ *
+ * Consumers needing real `Date` objects revive them at the point of use:
+ * `new Date(result.range.start)`.
+ *
+ * `preset` is widened to the full {@link DatePreset} union because the Edge
+ * Function accepts every preset the date picker offers, not just last7/last30.
+ */
+export type SerializedDashboardAnalyticsResult = Omit<DashboardAnalyticsResult, 'range'> & {
+  range: Omit<DashboardAnalyticsResult['range'], 'preset' | 'start' | 'end' | 'compareStart' | 'compareEnd'> & {
+    preset: DatePreset;
+    start: string;
+    end: string;
+    compareStart: string;
+    compareEnd: string;
+  };
 };
 
 export type LiveClientSnapshot = {
