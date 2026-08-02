@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { Button } from '../components/ui/Button';
+import { DatePresetSelector } from '../components/dashboard/DatePresetSelector';
 import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -18,16 +19,9 @@ import {
   TopPostcodesPanel,
   VisitsChart
 } from '../components/dashboard/DashboardWidgets';
-import { buildDashboardExportCsv, fetchLiveClients, getDashboardAnalytics, type DashboardAnalyticsResult, type DashboardRangePreset } from '../lib/dashboardAnalytics';
+import { buildDashboardExportCsv, fetchLiveClients, getDashboardAnalytics, type DashboardAnalyticsResult } from '../lib/dashboardAnalytics';
+import type { DatePreset, DateRange } from '../lib/datePresets';
 
-function CalendarIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M16 3v4M8 3v4M3 11h18" />
-    </svg>
-  );
-}
 
 const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -80,7 +74,9 @@ export default function Dashboard() {
   const { pushToast } = useToast();
   const { session, status, profile } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const [preset, setPreset] = useState<DashboardRangePreset>('last7');
+  const [preset, setPreset] = useState<DatePreset>('last7');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [analytics, setAnalytics] = useState<DashboardAnalyticsResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -92,7 +88,9 @@ export default function Dashboard() {
       setLoading(true);
       setErrorMessage('');
       try {
-        const result = await getDashboardAnalytics(preset);
+        // Map new presets to old backend types (last7 | last30)
+        const backendPreset = preset === 'last7' || preset === 'last30' ? preset : 'last7';
+        const result = await getDashboardAnalytics(backendPreset as 'last7' | 'last30');
         if (!cancelled) {
           setAnalytics(result);
         }
@@ -174,10 +172,22 @@ export default function Dashboard() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `batesford-dashboard-${preset}.csv`);
+    const sanitizedPreset = preset.replace(/[^a-zA-Z0-9]/g, '-');
+    link.setAttribute('download', `batesford-dashboard-${sanitizedPreset}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handlePresetChange = (newPreset: DatePreset, range: DateRange) => {
+    setPreset(newPreset);
+    if (newPreset === 'custom') {
+      setCustomStart(range.startDate.toISOString().split('T')[0]);
+      setCustomEnd(range.endDate.toISOString().split('T')[0]);
+    } else {
+      setCustomStart('');
+      setCustomEnd('');
+    }
   };
 
   const ownerName = profile?.full_name || 'James Mitchell';
@@ -240,13 +250,7 @@ export default function Dashboard() {
           {analytics ? <div className="dashboard-updated-at">Updated for {analytics.range.label}</div> : null}
         </div>
         <div className="dashboard-header-actions">
-          <label className="dashboard-select-pill">
-            <span className="dashboard-select-icon"><CalendarIcon /></span>
-            <select value={preset} onChange={(event) => setPreset(event.target.value as DashboardRangePreset)}>
-              <option value="last7">{analytics?.range.label || 'Last 7 days'}</option>
-              <option value="last30">Last 30 days</option>
-            </select>
-          </label>
+          <DatePresetSelector preset={preset} onPresetChange={handlePresetChange} customStart={customStart} customEnd={customEnd} />
           <div className="dashboard-select-pill compare-pill">Compare: {analytics?.range.compareLabel || 'Previous 7 days'}</div>
           <Button onClick={handleExport}>Export Report</Button>
         </div>
