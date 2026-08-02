@@ -1,0 +1,1903 @@
+diff --git a/src/lib/__tests__/analyticsCache.test.ts b/src/lib/__tests__/analyticsCache.test.ts
+index 1545b6b..c1a60df 100644
+--- a/src/lib/__tests__/analyticsCache.test.ts
++++ b/src/lib/__tests__/analyticsCache.test.ts
+@@ -1,14 +1,14 @@
+ // @vitest-environment jsdom
+ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+ import { renderHook, waitFor, act } from '@testing-library/react';
+-import type { DashboardAnalyticsResult } from '../dashboardAnalytics';
++import type { SerializedDashboardAnalyticsResult } from '../dashboardAnalytics';
+ 
+ const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+ 
+ vi.mock('../supabaseClient', () => ({
+   supabase: {
+     functions: {
+       invoke: invokeMock,
+     },
+   },
+ }));
+@@ -17,27 +17,27 @@ import {
+   getCachedData,
+   setCachedData,
+   invalidateCache,
+   buildCacheKey,
+   useDashboardCache,
+   CACHE_KEY_PREFIX,
+   CLIENT_CACHE_TTL,
+ } from '../analyticsCache';
+ 
+ /**
+- * DashboardAnalyticsResult is a large structural type; tests only care about
++ * SerializedDashboardAnalyticsResult is a large structural type; tests only care about
+  * round-tripping through JSON, so a marker object is cast to the type.
+  */
+-const makeResult = (marker: string): DashboardAnalyticsResult =>
+-  ({ marker, metrics: [] } as unknown as DashboardAnalyticsResult);
++const makeResult = (marker: string): SerializedDashboardAnalyticsResult =>
++  ({ marker, metrics: [] } as unknown as SerializedDashboardAnalyticsResult);
+ 
+-const markerOf = (result: DashboardAnalyticsResult | null): string | undefined =>
++const markerOf = (result: SerializedDashboardAnalyticsResult | null): string | undefined =>
+   (result as unknown as { marker?: string } | null)?.marker;
+ 
+ describe('analyticsCache', () => {
+   beforeEach(() => {
+     localStorage.clear();
+     invokeMock.mockReset();
+     vi.restoreAllMocks();
+   });
+ 
+   afterEach(() => {
+diff --git a/src/lib/analyticsCache.ts b/src/lib/analyticsCache.ts
+index 150cd6b..25b2ab3 100644
+--- a/src/lib/analyticsCache.ts
++++ b/src/lib/analyticsCache.ts
+@@ -1,32 +1,42 @@
++/**
++ * Client-side cache for dashboard analytics.
++ *
++ * Everything stored and returned here is {@link SerializedDashboardAnalyticsResult}:
++ * `range.start` / `end` / `compareStart` / `compareEnd` are ISO-8601 strings,
++ * exactly as the `get-dashboard-analytics` Edge Function emits them. The cache
++ * stores the response verbatim and performs no date revival, so a cache hit and
++ * a fresh fetch are structurally identical. Consumers needing `Date` objects
++ * revive at the point of use: `new Date(data.range.start)`.
++ */
+ import { useEffect, useRef, useState } from 'react';
+ import { supabase } from './supabaseClient';
+ import { getDateRange, formatDateForQuery, type DatePreset } from './datePresets';
+-import type { DashboardAnalyticsResult } from './dashboardAnalytics';
++import type { SerializedDashboardAnalyticsResult } from './dashboardAnalytics';
+ 
+ /** Prefix applied to every dashboard analytics cache key in localStorage. */
+ export const CACHE_KEY_PREFIX = 'dashboard_cache';
+ 
+ /** Client-side cache time-to-live: 5 minutes, in milliseconds. */
+ export const CLIENT_CACHE_TTL = 5 * 60 * 1000;
+ 
+ /** Name of the Supabase Edge Function backing the dashboard. */
+ export const DASHBOARD_ANALYTICS_FUNCTION = 'get-dashboard-analytics';
+ 
+ /** Internal shape of a stored cache entry. */
+ interface CacheEntry {
+-  data: DashboardAnalyticsResult;
++  data: SerializedDashboardAnalyticsResult;
+   timestamp: number;
+ }
+ 
+ export interface UseDashboardCacheReturn {
+-  data: DashboardAnalyticsResult | null;
++  data: SerializedDashboardAnalyticsResult | null;
+   loading: boolean;
+   error: Error | null;
+ }
+ 
+ export interface UseAnalyticsCacheOptions {
+   onError?: (error: Error) => void;
+ }
+ 
+ /**
+  * Builds the deterministic localStorage key for a preset / custom range pair.
+@@ -78,21 +88,21 @@ function isCacheEntry(value: unknown): value is CacheEntry {
+ 
+ /**
+  * Reads a cached analytics result. Returns null when the entry is missing,
+  * malformed, or older than {@link CLIENT_CACHE_TTL}. Expired and corrupt
+  * entries are evicted as a side effect. Never throws.
+  */
+ export function getCachedData(
+   preset: DatePreset,
+   customStart?: string,
+   customEnd?: string,
+-): DashboardAnalyticsResult | null {
++): SerializedDashboardAnalyticsResult | null {
+   const storage = getStorage();
+   if (!storage) return null;
+ 
+   const key = buildCacheKey(preset, customStart, customEnd);
+ 
+   let raw: string | null;
+   try {
+     raw = storage.getItem(key);
+   } catch (error) {
+     console.warn(`[analyticsCache] Unable to read cache key "${key}"`, error);
+@@ -122,21 +132,21 @@ export function getCachedData(
+ 
+   return parsed.data;
+ }
+ 
+ /**
+  * Writes an analytics result to the cache with the current timestamp.
+  * Quota and serialisation failures are logged and swallowed. Never throws.
+  */
+ export function setCachedData(
+   preset: DatePreset,
+-  data: DashboardAnalyticsResult,
++  data: SerializedDashboardAnalyticsResult,
+   customStart?: string,
+   customEnd?: string,
+ ): void {
+   const storage = getStorage();
+   if (!storage) return;
+ 
+   const key = buildCacheKey(preset, customStart, customEnd);
+   try {
+     const entry: CacheEntry = { data, timestamp: Date.now() };
+     storage.setItem(key, JSON.stringify(entry));
+@@ -225,21 +235,21 @@ export function useDashboardCache(
+             preset,
+           },
+         });
+ 
+         if (cancelled) return;
+ 
+         if (response.error) {
+           throw toError(response.error);
+         }
+ 
+-        const result = response.data as DashboardAnalyticsResult | null;
++        const result = response.data as SerializedDashboardAnalyticsResult | null;
+         if (!result) {
+           throw new Error('Dashboard analytics returned no data.');
+         }
+ 
+         setCachedData(preset, result, customStart, customEnd);
+         setState({ data: result, loading: false, error: null });
+       } catch (rawError) {
+         if (cancelled) return;
+         const error = toError(rawError);
+         setState({ data: null, loading: false, error });
+diff --git a/src/lib/dashboardAnalytics.ts b/src/lib/dashboardAnalytics.ts
+index 89bc742..5a89abd 100644
+--- a/src/lib/dashboardAnalytics.ts
++++ b/src/lib/dashboardAnalytics.ts
+@@ -1,13 +1,14 @@
+ import { eachDayOfInterval, endOfDay, format, isSameDay, startOfDay, subDays } from 'date-fns';
+ import { buildSessionBackfillProfiles, getSessionIdentityKey, hasSessionIdentity, resolveLiveGuests } from './guestActivity';
+ import { supabase } from './supabaseClient';
++import type { DatePreset } from './datePresets';
+ 
+ export type DashboardRangePreset = 'last7' | 'last30';
+ 
+ type GuestSummaryRow = {
+   guest_id: string;
+   email: string | null;
+   full_name: string | null;
+   mobile: string | null;
+   postcode: string | null;
+   segment?: string | null;
+@@ -142,20 +143,46 @@ export type DashboardAnalyticsResult = {
+     postcode: string;
+     guests: number;
+     percentage: number;
+   }[];
+   insights: Insight[];
+   fallbacksUsed: string[];
+   detectedTables: string[];
+   detectedFields: string[];
+ };
+ 
++/**
++ * Wire format returned by the `get-dashboard-analytics` Edge Function.
++ *
++ * Identical to {@link DashboardAnalyticsResult} except that the four `range`
++ * timestamps are ISO-8601 strings. JSON transport cannot carry `Date`, so this
++ * type states what actually arrives — over the network *and* out of the
++ * localStorage cache, which stores the response verbatim. That keeps cache
++ * hits and cache misses structurally identical; reviving dates inside the
++ * cache layer would make them diverge.
++ *
++ * Consumers needing real `Date` objects revive them at the point of use:
++ * `new Date(result.range.start)`.
++ *
++ * `preset` is widened to the full {@link DatePreset} union because the Edge
++ * Function accepts every preset the date picker offers, not just last7/last30.
++ */
++export type SerializedDashboardAnalyticsResult = Omit<DashboardAnalyticsResult, 'range'> & {
++  range: Omit<DashboardAnalyticsResult['range'], 'preset' | 'start' | 'end' | 'compareStart' | 'compareEnd'> & {
++    preset: DatePreset;
++    start: string;
++    end: string;
++    compareStart: string;
++    compareEnd: string;
++  };
++};
++
+ export type LiveClientSnapshot = {
+   key: string;
+   name: string;
+   contact: string;
+   area: string;
+   status: string;
+   timeLabel: string;
+   email?: string | null;
+   phone?: string | null;
+   mac?: string | null;
+diff --git a/supabase/functions/get-dashboard-analytics/index.ts b/supabase/functions/get-dashboard-analytics/index.ts
+new file mode 100644
+index 0000000..7e41642
+--- /dev/null
++++ b/supabase/functions/get-dashboard-analytics/index.ts
+@@ -0,0 +1,1319 @@
++/**
++ * get-dashboard-analytics
++ * ============================================================================
++ * Server-side dashboard analytics with a 10-minute HTTP cache TTL.
++ *
++ * POST { startDate: "YYYY-MM-DD", endDate: "YYYY-MM-DD", preset: DatePreset }
++ * ->   200 SerializedDashboardAnalyticsResult  (Cache-Control: public, max-age=600)
++ *      400 bad / missing input
++ *      401 missing or invalid JWT
++ *      405 wrong method
++ *      500 configuration or unexpected failure
++ *
++ * ---------------------------------------------------------------------------
++ * DATE SERIALIZATION CONTRACT  (Option A - read this before consuming)
++ * ---------------------------------------------------------------------------
++ * `DashboardAnalyticsResult.range` in src/lib/dashboardAnalytics.ts declares
++ * `start` / `end` / `compareStart` / `compareEnd` as `Date`. JSON transport
++ * cannot carry `Date`, so those fields arrive as ISO-8601 strings whether the
++ * caller reads a fresh response or a localStorage cache hit.
++ *
++ * Rather than pretend otherwise, this function's response type is
++ * `SerializedDashboardAnalyticsResult`: identical to `DashboardAnalyticsResult`
++ * except the four `range` timestamps are typed `string` (ISO-8601, UTC).
++ *
++ * Consumers that need real `Date` objects revive them locally, e.g.
++ *
++ *     const start = new Date(result.range.start);
++ *
++ * Deliberately NOT done in `getCachedData` / `setCachedData`: reviving inside
++ * the cache layer would make cache hits and cache misses return different
++ * runtime types, which is precisely the divergence this contract removes.
++ * Every path - fresh fetch, cache write, cache read - carries ISO strings.
++ *
++ * ---------------------------------------------------------------------------
++ * TIME ZONE
++ * ---------------------------------------------------------------------------
++ * Edge Functions run with TZ=UTC, but the dashboard describes a UK venue where
++ * "today" and "6PM" must mean local wall-clock time. All day bucketing, hour
++ * bucketing and label formatting therefore run against ANALYTICS_TIMEZONE
++ * (default "Europe/London") via Intl, not against the runtime's local zone.
++ * The `range` ISO strings remain absolute UTC instants.
++ */
++
++import "jsr:@supabase/functions-js/edge-runtime.d.ts";
++import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
++
++// ---------------------------------------------------------------------------
++// Constants
++// ---------------------------------------------------------------------------
++
++/** Server cache TTL advertised to clients and shared caches, in seconds. */
++const CACHE_TTL_SECONDS = 600;
++
++/** Rolling window treated as "connected right now". */
++const LIVE_WINDOW_MS = 3 * 60 * 60 * 1000;
++
++/** Widest range the function will compute, to bound query cost. */
++const MAX_RANGE_DAYS = 366;
++
++const TIME_ZONE = Deno.env.get("ANALYTICS_TIMEZONE") || "Europe/London";
++
++const DAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
++
++const MONTH_NAMES = [
++  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
++  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
++] as const;
++
++const WEEKDAY_NAMES = [
++  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
++] as const;
++
++const STATUS_LABELS = ["Authorized", "Failed Auth", "Closed Early", "Other"] as const;
++
++const STATUS_COLORS: Record<string, string> = {
++  "Authorized": "#22c55e",
++  "Failed Auth": "#ef4444",
++  "Closed Early": "#f59e0b",
++  "Other": "#94a3b8",
++};
++
++const PRESET_LABELS: Record<string, string> = {
++  today: "Today",
++  yesterday: "Yesterday",
++  thisWeek: "This Week",
++  thisMonth: "This Month",
++  last7: "Last 7 Days",
++  last30: "Last 30 Days",
++  custom: "Custom Range",
++};
++
++const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
++
++// ---------------------------------------------------------------------------
++// Types
++// ---------------------------------------------------------------------------
++
++type DatePreset =
++  | "today"
++  | "yesterday"
++  | "thisWeek"
++  | "thisMonth"
++  | "last7"
++  | "last30"
++  | "custom";
++
++type MetricAccent = "green" | "lime" | "purple" | "blue" | "amber" | "teal";
++type InsightAccent = "green" | "blue" | "amber" | "teal" | "gold";
++type InsightIcon = "trend" | "pin" | "clock" | "mail" | "star";
++
++type Metric = {
++  key: string;
++  label: string;
++  value: string;
++  helper: string;
++  delta: number;
++  accent: MetricAccent;
++  trend: number[];
++};
++
++type VisitsPoint = {
++  isoDate: string;
++  label: string;
++  shortLabel: string;
++  visits: number;
++  uniqueGuests: number;
++};
++
++type StatusSlice = { label: string; value: number; percentage: number; color: string };
++
++type HeatmapCell = { day: string; hour: number; label: string; value: number };
++
++type Insight = { title: string; detail: string; accent: InsightAccent; icon: InsightIcon };
++
++/**
++ * Wire format for the dashboard payload. Mirrors
++ * `DashboardAnalyticsResult` (src/lib/dashboardAnalytics.ts) except that the
++ * four `range` timestamps are ISO-8601 strings - see the Option A note above.
++ */
++type SerializedDashboardAnalyticsResult = {
++  range: {
++    preset: DatePreset;
++    /** ISO-8601 UTC instant. Revive with `new Date(...)` if a Date is needed. */
++    start: string;
++    /** ISO-8601 UTC instant. */
++    end: string;
++    /** ISO-8601 UTC instant. */
++    compareStart: string;
++    /** ISO-8601 UTC instant. */
++    compareEnd: string;
++    label: string;
++    compareLabel: string;
++  };
++  metrics: Metric[];
++  visitsOverTime: VisitsPoint[];
++  guestStatus: { total: number; slices: StatusSlice[] };
++  liveNow: {
++    count: number;
++    trend: number[];
++    areas: { label: string; value: number }[];
++    guests: {
++      key: string;
++      name: string;
++      contact: string;
++      area: string;
++      status: string;
++      timeLabel: string;
++    }[];
++    usesFallbackAreas: boolean;
++  };
++  peakTimes: { days: string[]; cells: HeatmapCell[]; peakWindowLabel: string };
++  newVsReturning: { label: string; newGuests: number; returningGuests: number }[];
++  consent: {
++    rate: number;
++    consented: number;
++    notConsented: number;
++    unsubscribed: number;
++    rateDelta: number;
++    consentedDelta: number;
++    notConsentedDelta: number;
++    unsubscribedDelta: number;
++  };
++  topPostcodes: { postcode: string; guests: number; percentage: number }[];
++  insights: Insight[];
++  fallbacksUsed: string[];
++  detectedTables: string[];
++  detectedFields: string[];
++};
++
++type GuestSummaryRow = {
++  guest_id: string;
++  email: string | null;
++  full_name: string | null;
++  mobile: string | null;
++  postcode: string | null;
++  segment?: string | null;
++  visit_count: number | null;
++  first_seen_at: string | null;
++  last_seen_at: string | null;
++  marketing_consent: boolean | null;
++  unsubscribe_status: boolean | null;
++};
++
++type WifiConnectionRow = { guest_id: string; connected_at: string };
++
++type PortalSessionRow = {
++  id: string;
++  session_key: string;
++  site_slug: string;
++  client_mac: string | null;
++  ap_mac: string | null;
++  guest_name: string | null;
++  guest_email: string | null;
++  guest_phone: string | null;
++  guest_postcode: string | null;
++  submitted_at: string | null;
++  authorized_at: string | null;
++  completed_at: string | null;
++  updated_at: string;
++  status: string | null;
++};
++
++type AccessPointRow = { ap_mac: string; area_name: string; display_name: string | null };
++
++type ActivityRow = { guestKey: string; connectedAt: string };
++
++type RequestPayload = { startDate?: unknown; endDate?: unknown; preset?: unknown };
++
++// ---------------------------------------------------------------------------
++// Time-zone aware date helpers
++//
++// `toZoned` returns a Date whose *UTC* getters read as ANALYTICS_TIMEZONE wall
++// clock, so every downstream bucket/format uses plain getUTC* accessors.
++// `fromZoned` is the inverse; it resolves twice so DST transitions land on the
++// correct absolute instant.
++// ---------------------------------------------------------------------------
++
++const zoneFormatter = new Intl.DateTimeFormat("en-US", {
++  timeZone: TIME_ZONE,
++  hour12: false,
++  year: "numeric",
++  month: "2-digit",
++  day: "2-digit",
++  hour: "2-digit",
++  minute: "2-digit",
++  second: "2-digit",
++});
++
++function zoneOffsetMs(instant: Date): number {
++  const parts = zoneFormatter.formatToParts(instant);
++  const read = (type: string) => {
++    const part = parts.find((candidate) => candidate.type === type);
++    return part ? Number(part.value) : 0;
++  };
++  const hour = read("hour") % 24; // some ICU builds emit 24 for midnight
++  const wallClock = Date.UTC(read("year"), read("month") - 1, read("day"), hour, read("minute"), read("second"));
++  // Drop sub-second precision on both sides so the difference is a clean offset.
++  return wallClock - Math.floor(instant.getTime() / 1000) * 1000;
++}
++
++/** Absolute instant -> Date whose UTC fields are the venue's wall clock. */
++function toZoned(instant: Date): Date {
++  return new Date(instant.getTime() + zoneOffsetMs(instant));
++}
++
++/** Wall-clock Date (UTC fields) -> the absolute instant it represents. */
++function fromZoned(wallClock: Date): Date {
++  const target = wallClock.getTime();
++  let instant = target - zoneOffsetMs(new Date(target));
++  instant = target - zoneOffsetMs(new Date(instant));
++  return new Date(instant);
++}
++
++function startOfZonedDay(instant: Date): Date {
++  const zoned = toZoned(instant);
++  return fromZoned(new Date(Date.UTC(zoned.getUTCFullYear(), zoned.getUTCMonth(), zoned.getUTCDate(), 0, 0, 0, 0)));
++}
++
++function endOfZonedDay(instant: Date): Date {
++  const zoned = toZoned(instant);
++  return fromZoned(new Date(Date.UTC(zoned.getUTCFullYear(), zoned.getUTCMonth(), zoned.getUTCDate(), 23, 59, 59, 999)));
++}
++
++function addDays(instant: Date, days: number): Date {
++  const zoned = toZoned(instant);
++  const shifted = new Date(Date.UTC(
++    zoned.getUTCFullYear(),
++    zoned.getUTCMonth(),
++    zoned.getUTCDate() + days,
++    zoned.getUTCHours(),
++    zoned.getUTCMinutes(),
++    zoned.getUTCSeconds(),
++    zoned.getUTCMilliseconds(),
++  ));
++  return fromZoned(shifted);
++}
++
++const pad2 = (value: number) => String(value).padStart(2, "0");
++
++/** "2026-07-30" in venue-local time. */
++function formatIsoDay(instant: Date): string {
++  const zoned = toZoned(instant);
++  return `${zoned.getUTCFullYear()}-${pad2(zoned.getUTCMonth() + 1)}-${pad2(zoned.getUTCDate())}`;
++}
++
++/** "30 Jul" in venue-local time. */
++function formatDayMonth(instant: Date): string {
++  const zoned = toZoned(instant);
++  return `${pad2(zoned.getUTCDate())} ${MONTH_NAMES[zoned.getUTCMonth()]}`;
++}
++
++/** "30 Jul 2026" in venue-local time. */
++function formatDayMonthYear(instant: Date): string {
++  const zoned = toZoned(instant);
++  return `${pad2(zoned.getUTCDate())} ${MONTH_NAMES[zoned.getUTCMonth()]} ${zoned.getUTCFullYear()}`;
++}
++
++/** "Wednesday" in venue-local time. */
++function formatWeekday(instant: Date): string {
++  return WEEKDAY_NAMES[toZoned(instant).getUTCDay()];
++}
++
++/** 18 -> "6PM". Pure hour-of-day formatting; no zone conversion needed. */
++function formatHour(hour: number): string {
++  const normalized = ((hour % 24) + 24) % 24;
++  const display = normalized % 12 === 0 ? 12 : normalized % 12;
++  return `${display}${normalized < 12 ? "AM" : "PM"}`;
++}
++
++/** Mon=0 ... Sun=6, matching DAY_ORDER. */
++function zonedDayIndex(instant: Date): number {
++  return (toZoned(instant).getUTCDay() + 6) % 7;
++}
++
++function zonedHour(instant: Date): number {
++  return toZoned(instant).getUTCHours();
++}
++
++function isSameZonedDay(left: Date, right: Date): boolean {
++  return formatIsoDay(left) === formatIsoDay(right);
++}
++
++function parseTimestamp(value: string | null | undefined): Date | null {
++  if (!value) return null;
++  const parsed = Date.parse(value);
++  return Number.isFinite(parsed) ? new Date(parsed) : null;
++}
++
++// ---------------------------------------------------------------------------
++// Small numeric / string helpers (ported verbatim from dashboardAnalytics.ts)
++// ---------------------------------------------------------------------------
++
++const safeDelta = (current: number, previous: number) => {
++  if (current === 0 && previous === 0) return 0;
++  if (previous === 0) return 100;
++  return Number((((current - previous) / previous) * 100).toFixed(1));
++};
++
++const safePct = (value: number, total: number) => (total ? Math.round((value / total) * 100) : 0);
++
++const normalizeKey = (value: string | null | undefined) => String(value || "").trim().toLowerCase();
++
++// ---------------------------------------------------------------------------
++// Session identity helpers (ported from src/lib/guestActivity.ts)
++// ---------------------------------------------------------------------------
++
++const getSessionIdentityKey = (session: { guest_email: string | null; guest_phone: string | null }) =>
++  normalizeKey(session.guest_email) || normalizeKey(session.guest_phone);
++
++const hasSessionIdentity = (session: { guest_email: string | null; guest_phone: string | null }) =>
++  Boolean(getSessionIdentityKey(session));
++
++const getSessionGuestKey = (row: PortalSessionRow) => getSessionIdentityKey(row) || row.id;
++
++/** Latest of the session's timestamps, as ISO-8601, or null when none parse. */
++function getSessionMoment(row: PortalSessionRow): string | null {
++  const stamps = [row.submitted_at, row.authorized_at, row.completed_at, row.updated_at]
++    .map((value) => (value ? Date.parse(String(value)) : Number.NaN))
++    .filter((value) => Number.isFinite(value));
++  if (!stamps.length) return null;
++  return new Date(Math.max(...stamps)).toISOString();
++}
++
++function pickEarliestIso(...values: Array<string | null | undefined>): string | null {
++  let earliest: string | null = null;
++  let earliestMs = Number.POSITIVE_INFINITY;
++  for (const value of values) {
++    if (!value) continue;
++    const parsed = Date.parse(value);
++    if (!Number.isFinite(parsed) || parsed >= earliestMs) continue;
++    earliest = new Date(parsed).toISOString();
++    earliestMs = parsed;
++  }
++  return earliest;
++}
++
++function pickLatestIso(...values: Array<string | null | undefined>): string | null {
++  let latest: string | null = null;
++  let latestMs = -1;
++  for (const value of values) {
++    if (!value) continue;
++    const parsed = Date.parse(value);
++    if (!Number.isFinite(parsed) || parsed <= latestMs) continue;
++    latest = new Date(parsed).toISOString();
++    latestMs = parsed;
++  }
++  return latest;
++}
++
++function compareProfiles(left: GuestSummaryRow, right: GuestSummaryRow): number {
++  const visitDelta = Number(right.visit_count ?? 0) - Number(left.visit_count ?? 0);
++  if (visitDelta !== 0) return visitDelta;
++  const rightSeen = right.last_seen_at ? Date.parse(right.last_seen_at) : 0;
++  const leftSeen = left.last_seen_at ? Date.parse(left.last_seen_at) : 0;
++  return rightSeen - leftSeen;
++}
++
++type ProfileIndexes = { byEmail: Map<string, GuestSummaryRow>; byPhone: Map<string, GuestSummaryRow[]> };
++
++function buildProfileIndexes(profiles: GuestSummaryRow[]): ProfileIndexes {
++  const byEmail = new Map<string, GuestSummaryRow>();
++  const byPhone = new Map<string, GuestSummaryRow[]>();
++
++  for (const profile of profiles) {
++    const emailKey = normalizeKey(profile.email);
++    const phoneKey = normalizeKey(profile.mobile);
++    if (emailKey) byEmail.set(emailKey, profile);
++    if (phoneKey) {
++      const bucket = byPhone.get(phoneKey) ?? [];
++      bucket.push(profile);
++      byPhone.set(phoneKey, bucket);
++    }
++  }
++
++  for (const [key, bucket] of byPhone) {
++    byPhone.set(key, [...bucket].sort(compareProfiles));
++  }
++
++  return { byEmail, byPhone };
++}
++
++function resolveProfileForIdentity(
++  indexes: ProfileIndexes,
++  identity: { email?: string | null; phone?: string | null },
++): GuestSummaryRow | null {
++  const emailKey = normalizeKey(identity.email);
++  if (emailKey && indexes.byEmail.has(emailKey)) return indexes.byEmail.get(emailKey) ?? null;
++  const phoneKey = normalizeKey(identity.phone);
++  if (phoneKey) return (indexes.byPhone.get(phoneKey) ?? [])[0] ?? null;
++  return null;
++}
++
++function buildFallbackName(session: PortalSessionRow): string {
++  const explicit = String(session.guest_name || "").trim();
++  if (explicit) return explicit;
++  const email = String(session.guest_email || "").trim();
++  if (email) return email.split("@")[0] || email;
++  const phone = String(session.guest_phone || "").trim();
++  if (phone) return phone;
++  return "Guest";
++}
++
++/**
++ * Synthesises profile rows for portal sessions that have no matching entry in
++ * guest_summary_view, so the dashboard still counts those guests.
++ */
++function buildSessionBackfillProfiles(
++  profiles: GuestSummaryRow[],
++  sessions: PortalSessionRow[],
++): GuestSummaryRow[] {
++  const indexes = buildProfileIndexes(profiles);
++  const derived = new Map<string, GuestSummaryRow>();
++
++  for (const session of sessions) {
++    const moment = getSessionMoment(session);
++    const identityKey = getSessionIdentityKey(session);
++    if (!identityKey || !moment) continue;
++    if (resolveProfileForIdentity(indexes, { email: session.guest_email, phone: session.guest_phone })) continue;
++
++    const existing = derived.get(identityKey);
++    derived.set(identityKey, {
++      guest_id: `session:${identityKey}`,
++      email: session.guest_email || null,
++      full_name: buildFallbackName(session),
++      mobile: session.guest_phone || null,
++      postcode: session.guest_postcode || null,
++      segment: "unknown",
++      visit_count: Number(existing?.visit_count ?? 0) + 1,
++      first_seen_at: pickEarliestIso(existing?.first_seen_at, moment),
++      last_seen_at: pickLatestIso(existing?.last_seen_at, moment),
++      marketing_consent: null,
++      unsubscribe_status: null,
++    });
++  }
++
++  return Array.from(derived.values()).map((profile) => ({
++    ...profile,
++    first_seen_at: profile.first_seen_at || profile.last_seen_at,
++  }));
++}
++
++// ---------------------------------------------------------------------------
++// Presentation helpers
++// ---------------------------------------------------------------------------
++
++function toStatusLabel(row: PortalSessionRow): string {
++  const status = String(row.status || "").trim().toLowerCase();
++  if (row.authorized_at || row.completed_at || status.includes("authorized") || status.includes("complete")) {
++    return "Authorized";
++  }
++  if (status.includes("fail") || status.includes("error") || status.includes("reject") || status.includes("den")) {
++    return "Failed Auth";
++  }
++  if (
++    status.includes("present") || status.includes("close") || status.includes("abandon") ||
++    status.includes("dismiss") || status.includes("timeout")
++  ) {
++    return "Closed Early";
++  }
++  return "Other";
++}
++
++function getGuestName(row: PortalSessionRow): string {
++  const name = String(row.guest_name || "").trim();
++  if (name) return name;
++  if (row.guest_email) return row.guest_email;
++  if (row.guest_phone) return row.guest_phone;
++  return "Guest";
++}
++
++function formatRelativeMinutes(timestamp: string, now: number): string {
++  const diffMinutes = Math.max(1, Math.round((now - Date.parse(timestamp)) / 60000));
++  if (diffMinutes < 60) return `${diffMinutes} min ago`;
++  return `${Math.round(diffMinutes / 60)} hr ago`;
++}
++
++// ---------------------------------------------------------------------------
++// Range construction
++// ---------------------------------------------------------------------------
++
++type AnalyticsRange = {
++  preset: DatePreset;
++  start: Date;
++  end: Date;
++  compareStart: Date;
++  compareEnd: Date;
++  label: string;
++  compareLabel: string;
++};
++
++/**
++ * Number of venue-local days covered by [start, end], where `end` is an
++ * end-of-day instant. 07-30..07-30 -> 1; 07-20..07-30 -> 11.
++ */
++function inclusiveDayCount(start: Date, end: Date): number {
++  return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
++}
++
++/**
++ * Builds the requested window plus the immediately preceding window of the
++ * same length, following `buildRange` in src/lib/dashboardAnalytics.ts.
++ *
++ * Deliberate divergence: the original computes the compare offset from
++ * `Math.round((end - start) / 86400000)`, which is already the *inclusive* day
++ * count, then steps back that many days from `compareEnd` - yielding a compare
++ * window one day longer than the current window (8 days against 7 for
++ * `last7`). That skewed every `delta` slightly. Here the offset is
++ * `inclusiveDays - 1`, so both windows always span the same number of days.
++ */
++function buildRange(preset: DatePreset, startDate: string, endDate: string): AnalyticsRange {
++  const start = startOfZonedDay(new Date(`${startDate}T12:00:00Z`));
++  const end = endOfZonedDay(new Date(`${endDate}T12:00:00Z`));
++  const inclusiveDays = inclusiveDayCount(start, end);
++  const compareEnd = endOfZonedDay(addDays(start, -1));
++  const compareStart = startOfZonedDay(addDays(compareEnd, -(inclusiveDays - 1)));
++
++  return {
++    preset,
++    start,
++    end,
++    compareStart,
++    compareEnd,
++    label: `${formatDayMonth(start)} - ${formatDayMonthYear(end)}`,
++    compareLabel: inclusiveDays === 1 ? "Previous day" : `Previous ${inclusiveDays} days`,
++  };
++}
++
++/** Every venue-local day in [start, end], as start-of-day instants. */
++function eachZonedDay(start: Date, end: Date): Date[] {
++  const days: Date[] = [];
++  let cursor = startOfZonedDay(start);
++  const limit = end.getTime();
++  while (cursor.getTime() <= limit && days.length <= MAX_RANGE_DAYS) {
++    days.push(cursor);
++    cursor = startOfZonedDay(addDays(cursor, 1));
++  }
++  return days;
++}
++
++// ---------------------------------------------------------------------------
++// Queries
++//
++// All reads go through a client bound to the caller's JWT, so row-level
++// security applies exactly as it does for the browser-side implementation.
++// No service-role key is used - this endpoint must not widen access.
++// ---------------------------------------------------------------------------
++
++async function queryProfiles(client: SupabaseClient): Promise<GuestSummaryRow[]> {
++  const { data, error } = await client
++    .from("guest_summary_view")
++    .select(
++      "guest_id, email, full_name, mobile, postcode, segment, visit_count, first_seen_at, last_seen_at, marketing_consent, unsubscribe_status",
++    )
++    .order("last_seen_at", { ascending: false });
++  if (error) throw error;
++  return (data as GuestSummaryRow[]) ?? [];
++}
++
++async function queryConnections(client: SupabaseClient, start: Date, end: Date): Promise<WifiConnectionRow[]> {
++  const { data, error } = await client
++    .from("wifi_connections")
++    .select("guest_id, connected_at")
++    .gte("connected_at", start.toISOString())
++    .lte("connected_at", end.toISOString())
++    .order("connected_at", { ascending: true });
++  if (error) throw error;
++  return (data as WifiConnectionRow[]) ?? [];
++}
++
++const PORTAL_SESSION_COLUMNS =
++  "id, session_key, site_slug, client_mac, ap_mac, guest_name, guest_email, guest_phone, guest_postcode, submitted_at, authorized_at, completed_at, updated_at, status";
++
++async function queryPortalSessions(client: SupabaseClient, start: Date, end: Date): Promise<PortalSessionRow[]> {
++  const { data, error } = await client
++    .from("portal_sessions")
++    .select(PORTAL_SESSION_COLUMNS)
++    .gte("updated_at", start.toISOString())
++    .lte("updated_at", end.toISOString())
++    .order("updated_at", { ascending: true });
++  if (error) throw error;
++  return (data as PortalSessionRow[]) ?? [];
++}
++
++async function queryLivePortalSessions(client: SupabaseClient, now: Date): Promise<PortalSessionRow[]> {
++  const windowStart = new Date(now.getTime() - LIVE_WINDOW_MS);
++  const { data, error } = await client
++    .from("portal_sessions")
++    .select(PORTAL_SESSION_COLUMNS)
++    .gte("updated_at", windowStart.toISOString())
++    .order("updated_at", { ascending: false });
++  if (error) throw error;
++  return (data as PortalSessionRow[]) ?? [];
++}
++
++async function queryAccessPoints(client: SupabaseClient): Promise<AccessPointRow[]> {
++  const { data, error } = await client
++    .from("wifi_access_points")
++    .select("ap_mac, area_name, display_name")
++    .eq("is_active", true)
++    .order("area_name", { ascending: true });
++  if (error) throw error;
++  return (data as AccessPointRow[]) ?? [];
++}
++
++// ---------------------------------------------------------------------------
++// Aggregation
++// ---------------------------------------------------------------------------
++
++/**
++ * Merges wifi_connections with portal_sessions, dropping any session that
++ * falls in an hour bucket already covered by a wifi connection so a single
++ * visit is not double counted.
++ */
++function buildActivityRows(connections: WifiConnectionRow[], sessions: PortalSessionRow[]): ActivityRow[] {
++  const rows: ActivityRow[] = connections
++    .filter((row) => Boolean(row.connected_at))
++    .map((row) => ({ guestKey: row.guest_id, connectedAt: row.connected_at }));
++
++  const hourBucket = (instant: Date) => `${formatIsoDay(instant)}-${pad2(zonedHour(instant))}`;
++
++  const wifiBuckets = new Set<string>();
++  for (const row of rows) {
++    const parsed = parseTimestamp(row.connectedAt);
++    if (parsed) wifiBuckets.add(hourBucket(parsed));
++  }
++
++  for (const session of sessions) {
++    if (!hasSessionIdentity(session)) continue;
++    const connectedAt = getSessionMoment(session);
++    if (!connectedAt) continue;
++    const parsed = parseTimestamp(connectedAt);
++    if (!parsed) continue;
++    if (wifiBuckets.has(hourBucket(parsed))) continue;
++    rows.push({ guestKey: getSessionGuestKey(session), connectedAt });
++  }
++
++  return rows.sort((a, b) => Date.parse(a.connectedAt) - Date.parse(b.connectedAt));
++}
++
++function buildVisitsSeries(rangeStart: Date, rangeEnd: Date, rows: ActivityRow[]): VisitsPoint[] {
++  const byDay = new Map<string, ActivityRow[]>();
++  for (const row of rows) {
++    const parsed = parseTimestamp(row.connectedAt);
++    if (!parsed) continue;
++    const key = formatIsoDay(parsed);
++    const bucket = byDay.get(key) ?? [];
++    bucket.push(row);
++    byDay.set(key, bucket);
++  }
++
++  return eachZonedDay(rangeStart, rangeEnd).map((day) => {
++    const isoDate = formatIsoDay(day);
++    const matches = byDay.get(isoDate) ?? [];
++    return {
++      isoDate,
++      label: formatDayMonth(day),
++      shortLabel: formatDayMonth(day),
++      visits: matches.length,
++      uniqueGuests: new Set(matches.map((row) => row.guestKey)).size,
++    };
++  });
++}
++
++function buildEmptyHeatmapCells(): HeatmapCell[] {
++  const cells: HeatmapCell[] = [];
++  for (const day of DAY_ORDER) {
++    for (let hour = 0; hour < 24; hour += 1) {
++      cells.push({ day, hour, label: formatHour(hour), value: 0 });
++    }
++  }
++  return cells;
++}
++
++function buildHeatmap(rows: ActivityRow[]) {
++  if (!rows.length) {
++    return { days: [...DAY_ORDER], cells: buildEmptyHeatmapCells(), peakWindowLabel: "No peak data yet" };
++  }
++
++  const counts = new Map<string, number>();
++  const hourlyTotals = new Map<number, number>();
++
++  for (const row of rows) {
++    const parsed = parseTimestamp(row.connectedAt);
++    if (!parsed) continue;
++    const day = DAY_ORDER[zonedDayIndex(parsed)];
++    const hour = zonedHour(parsed);
++    counts.set(`${day}-${hour}`, (counts.get(`${day}-${hour}`) ?? 0) + 1);
++    hourlyTotals.set(hour, (hourlyTotals.get(hour) ?? 0) + 1);
++  }
++
++  const cells: HeatmapCell[] = [];
++  for (const day of DAY_ORDER) {
++    for (let hour = 0; hour < 24; hour += 1) {
++      cells.push({ day, hour, label: formatHour(hour), value: counts.get(`${day}-${hour}`) ?? 0 });
++    }
++  }
++
++  let peakHour = 18;
++  let peakValue = -1;
++  for (let hour = 0; hour < 24; hour += 1) {
++    const windowValue = (hourlyTotals.get(hour) ?? 0) + (hourlyTotals.get((hour + 1) % 24) ?? 0);
++    if (windowValue > peakValue) {
++      peakValue = windowValue;
++      peakHour = hour;
++    }
++  }
++
++  return {
++    days: [...DAY_ORDER],
++    cells,
++    peakWindowLabel: `${formatHour(peakHour)} - ${formatHour(peakHour + 2)}`,
++  };
++}
++
++function buildStatusBreakdown(rows: PortalSessionRow[]) {
++  const latestByGuest = new Map<string, PortalSessionRow>();
++  for (const row of rows) {
++    if (!hasSessionIdentity(row)) continue;
++    latestByGuest.set(getSessionGuestKey(row), row);
++  }
++
++  const total = latestByGuest.size;
++  const counts = new Map<string, number>();
++  for (const row of latestByGuest.values()) {
++    const label = toStatusLabel(row);
++    counts.set(label, (counts.get(label) ?? 0) + 1);
++  }
++
++  return {
++    total,
++    slices: STATUS_LABELS.map((label) => {
++      const value = counts.get(label) ?? 0;
++      return { label, value, percentage: safePct(value, total), color: STATUS_COLORS[label] };
++    }),
++  };
++}
++
++function buildNewVsReturning(
++  series: VisitsPoint[],
++  rows: ActivityRow[],
++  profileLookup: Map<string, GuestSummaryRow>,
++) {
++  const guestsByDay = new Map<string, Set<string>>();
++  for (const row of rows) {
++    const parsed = parseTimestamp(row.connectedAt);
++    if (!parsed) continue;
++    const key = formatIsoDay(parsed);
++    const bucket = guestsByDay.get(key) ?? new Set<string>();
++    bucket.add(row.guestKey);
++    guestsByDay.set(key, bucket);
++  }
++
++  return series.map((point) => {
++    let newGuests = 0;
++    let returningGuests = 0;
++    for (const guestId of guestsByDay.get(point.isoDate) ?? []) {
++      const firstSeen = parseTimestamp(profileLookup.get(guestId)?.first_seen_at);
++      if (firstSeen && formatIsoDay(firstSeen) === point.isoDate) newGuests += 1;
++      else returningGuests += 1;
++    }
++    return { label: point.label, newGuests, returningGuests };
++  });
++}
++
++function buildTopPostcodes(profiles: GuestSummaryRow[]) {
++  const counts = new Map<string, number>();
++  for (const profile of profiles) {
++    const postcode = String(profile.postcode || "").trim();
++    if (postcode) counts.set(postcode, (counts.get(postcode) ?? 0) + 1);
++  }
++
++  const total = profiles.length || 1;
++  const rows = Array.from(counts.entries())
++    .sort((a, b) => b[1] - a[1])
++    .slice(0, 4)
++    .map(([postcode, guests]) => ({ postcode, guests, percentage: safePct(guests, total) }));
++
++  const used = rows.reduce((sum, row) => sum + row.guests, 0);
++  if (profiles.length > used) {
++    rows.push({
++      postcode: "Others",
++      guests: profiles.length - used,
++      percentage: safePct(profiles.length - used, total),
++    });
++  }
++  return rows;
++}
++
++function buildLiveNow(rows: PortalSessionRow[], apRows: AccessPointRow[], now: number) {
++  const areaLookup = new Map(apRows.map((row) => [normalizeKey(row.ap_mac), row.display_name || row.area_name]));
++
++  const latestByGuest = new Map<string, PortalSessionRow>();
++  for (const row of rows) {
++    if (toStatusLabel(row) !== "Authorized") continue;
++    if (!hasSessionIdentity(row)) continue;
++    latestByGuest.set(getSessionGuestKey(row), row);
++  }
++
++  const liveRows = Array.from(latestByGuest.values());
++  const areaCounts = new Map<string, number>();
++  for (const row of liveRows) {
++    const label = areaLookup.get(normalizeKey(row.ap_mac)) || "Venue Floor";
++    areaCounts.set(label, (areaCounts.get(label) ?? 0) + 1);
++  }
++
++  return {
++    count: liveRows.length,
++    trend: Array.from({ length: 15 }, (_, index) =>
++      liveRows.length ? Math.max(0, liveRows.length - 2 + Math.round((index / 14) * 2)) : 0),
++    areas: Array.from(areaCounts.entries())
++      .map(([label, value]) => ({ label, value }))
++      .sort((a, b) => b.value - a.value)
++      .slice(0, 4),
++    guests: liveRows.slice(0, 6).map((row) => ({
++      key: row.id,
++      name: getGuestName(row),
++      contact: row.guest_email || row.guest_phone || row.client_mac || "No contact",
++      area: areaLookup.get(normalizeKey(row.ap_mac)) || "Venue Floor",
++      status: "Connected",
++      timeLabel: formatRelativeMinutes(getSessionMoment(row) || row.updated_at, now),
++    })),
++    usesFallbackAreas: !apRows.length,
++  };
++}
++
++function buildInsights(
++  visitsSeries: VisitsPoint[],
++  postcodes: { postcode: string; guests: number; percentage: number }[],
++  peakWindowLabel: string,
++  todayNewGuests: number,
++  yesterdayNewGuests: number,
++  dormantRegulars: number,
++): Insight[] {
++  const busiest = visitsSeries.reduce<VisitsPoint | undefined>(
++    (best, point) => (!best || point.visits > best.visits ? point : best),
++    undefined,
++  );
++  const busiestVisits = busiest?.visits ?? 0;
++  const weekday = busiest?.isoDate ? formatWeekday(new Date(`${busiest.isoDate}T12:00:00Z`)) : "No day";
++  const postcode = postcodes[0];
++  const deltaBase = Math.max(1, Math.round(busiestVisits * 0.82));
++  const busiestDelta = safeDelta(busiestVisits, deltaBase);
++  const todayDelta = safeDelta(todayNewGuests, yesterdayNewGuests);
++
++  return [
++    {
++      title: busiestVisits > 0 ? `${weekday} was your busiest day` : "No visit activity yet",
++      detail: busiestVisits > 0
++        ? `${busiestVisits} visits, ${busiestDelta >= 0 ? "+" : ""}${busiestDelta}% vs previous ${weekday}`
++        : "The selected window has not recorded any guest visits yet.",
++      accent: "green",
++      icon: "trend",
++    },
++    {
++      title: postcode ? `${postcode.postcode} is your top postcode` : "No postcode capture yet",
++      detail: postcode
++        ? `${postcode.guests} guests, ${postcode.percentage}% of total`
++        : "Postcode insights will appear once guests submit postcode data.",
++      accent: "teal",
++      icon: "pin",
++    },
++    {
++      title: `Peak time is ${peakWindowLabel}`,
++      detail: peakWindowLabel === "No peak data yet"
++        ? "Peak-time insights will appear after more visits are recorded."
++        : "Busiest period across all days",
++      accent: "amber",
++      icon: "clock",
++    },
++    {
++      title: `${todayNewGuests} new guests today`,
++      detail: `${todayDelta >= 0 ? "+" : ""}${todayDelta}% vs yesterday`,
++      accent: "blue",
++      icon: "mail",
++    },
++    {
++      title: `${dormantRegulars} regulars haven't visited`,
++      detail: "in the last 30 days",
++      accent: "gold",
++      icon: "star",
++    },
++  ];
++}
++
++// ---------------------------------------------------------------------------
++// Orchestration
++// ---------------------------------------------------------------------------
++
++async function computeAnalytics(
++  client: SupabaseClient,
++  range: AnalyticsRange,
++): Promise<SerializedDashboardAnalyticsResult> {
++  const now = new Date();
++  const fallbacksUsed: string[] = [];
++
++  const [
++    profilesResult,
++    currentConnectionsResult,
++    previousConnectionsResult,
++    portalSessionsResult,
++    previousPortalSessionsResult,
++    liveSessionsResult,
++    accessPointsResult,
++  ] = await Promise.allSettled([
++    queryProfiles(client),
++    queryConnections(client, range.start, range.end),
++    queryConnections(client, range.compareStart, range.compareEnd),
++    queryPortalSessions(client, range.start, range.end),
++    queryPortalSessions(client, range.compareStart, range.compareEnd),
++    queryLivePortalSessions(client, now),
++    queryAccessPoints(client),
++  ]);
++
++  const settled = <T>(result: PromiseSettledResult<T>, label: string, fallback: T): T => {
++    if (result.status === "fulfilled") return result.value;
++    console.error(`[get-dashboard-analytics] query failed: ${label}`, result.reason);
++    fallbacksUsed.push(`${label} unavailable`);
++    return fallback;
++  };
++
++  const profiles = settled(profilesResult, "guest_summary_view", [] as GuestSummaryRow[]);
++  const currentConnections = settled(currentConnectionsResult, "wifi_connections (current)", [] as WifiConnectionRow[]);
++  const previousConnections = settled(previousConnectionsResult, "wifi_connections (compare)", [] as WifiConnectionRow[]);
++  const portalSessions = settled(portalSessionsResult, "portal_sessions (current)", [] as PortalSessionRow[]);
++  const previousPortalSessions = settled(previousPortalSessionsResult, "portal_sessions (compare)", [] as PortalSessionRow[]);
++  const liveSessions = settled(liveSessionsResult, "portal_sessions (live)", [] as PortalSessionRow[]);
++  const accessPoints = settled(accessPointsResult, "wifi_access_points mapping", [] as AccessPointRow[]);
++
++  const mergedProfiles = [...profiles, ...buildSessionBackfillProfiles(profiles, portalSessions)];
++  const mergedPreviousProfiles = [...profiles, ...buildSessionBackfillProfiles(profiles, previousPortalSessions)];
++
++  const indexProfiles = (rows: GuestSummaryRow[]) => {
++    const lookup = new Map<string, GuestSummaryRow>();
++    for (const profile of rows) {
++      lookup.set(profile.guest_id, profile);
++      if (profile.email) lookup.set(normalizeKey(profile.email), profile);
++      if (profile.mobile) lookup.set(normalizeKey(profile.mobile), profile);
++    }
++    return lookup;
++  };
++
++  const profileLookup = indexProfiles(mergedProfiles);
++  const previousProfileLookup = indexProfiles(mergedPreviousProfiles);
++
++  const activityRows = buildActivityRows(currentConnections, portalSessions);
++  const previousActivityRows = buildActivityRows(previousConnections, previousPortalSessions);
++  const currentGuestIds = new Set(activityRows.map((row) => row.guestKey));
++  const previousGuestIds = new Set(previousActivityRows.map((row) => row.guestKey));
++
++  const currentProfiles = Array.from(currentGuestIds)
++    .map((id) => profileLookup.get(id))
++    .filter((profile): profile is GuestSummaryRow => Boolean(profile));
++  const previousProfiles = Array.from(previousGuestIds)
++    .map((id) => previousProfileLookup.get(id))
++    .filter((profile): profile is GuestSummaryRow => Boolean(profile));
++
++  const inWindow = (value: string | null, from: Date, to: Date) => {
++    const parsed = parseTimestamp(value);
++    return Boolean(parsed && parsed >= from && parsed <= to);
++  };
++
++  const uniqueGuests = currentGuestIds.size;
++  const previousUniqueGuests = previousGuestIds.size;
++  const newGuests = currentProfiles.filter((p) => inWindow(p.first_seen_at, range.start, range.end)).length;
++  const previousNewGuests =
++    previousProfiles.filter((p) => inWindow(p.first_seen_at, range.compareStart, range.compareEnd)).length;
++  const returningGuests = Math.max(uniqueGuests - newGuests, 0);
++  const previousReturningGuests = Math.max(previousUniqueGuests - previousNewGuests, 0);
++  const totalVisits = activityRows.length;
++  const previousTotalVisits = previousActivityRows.length;
++  const guestsWithEmail = currentProfiles.filter((p) => Boolean(p.email)).length;
++  const previousGuestsWithEmail = previousProfiles.filter((p) => Boolean(p.email)).length;
++  const guestsWithMobile = currentProfiles.filter((p) => Boolean(p.mobile)).length;
++  const previousGuestsWithMobile = previousProfiles.filter((p) => Boolean(p.mobile)).length;
++
++  const visitsOverTime = buildVisitsSeries(range.start, range.end, activityRows);
++  const guestStatus = buildStatusBreakdown(portalSessions);
++  const liveNow = buildLiveNow(liveSessions, accessPoints, now.getTime());
++  if (liveNow.usesFallbackAreas) fallbacksUsed.push("top active areas using fallback labels");
++
++  const peakTimes = buildHeatmap(activityRows);
++  const newVsReturning = buildNewVsReturning(visitsOverTime, activityRows, profileLookup);
++
++  const consented = currentProfiles.filter((p) => p.marketing_consent === true && p.unsubscribe_status !== true).length;
++  const previousConsented =
++    previousProfiles.filter((p) => p.marketing_consent === true && p.unsubscribe_status !== true).length;
++  const unsubscribed = currentProfiles.filter((p) => p.unsubscribe_status === true).length;
++  const previousUnsubscribed = previousProfiles.filter((p) => p.unsubscribe_status === true).length;
++  const notConsented = Math.max(currentProfiles.length - consented - unsubscribed, 0);
++  const previousNotConsented = Math.max(previousProfiles.length - previousConsented - previousUnsubscribed, 0);
++  const consentRate = safePct(consented, currentProfiles.length);
++  const previousConsentRate = safePct(previousConsented, previousProfiles.length);
++
++  const topPostcodes = buildTopPostcodes(currentProfiles);
++
++  const today = range.end;
++  const yesterday = addDays(range.end, -1);
++  const todayNewGuests = currentProfiles.filter((p) => {
++    const seen = parseTimestamp(p.first_seen_at);
++    return Boolean(seen && isSameZonedDay(seen, today));
++  }).length;
++  const yesterdayNewGuests = profiles.filter((p) => {
++    const seen = parseTimestamp(p.first_seen_at);
++    return Boolean(seen && isSameZonedDay(seen, yesterday));
++  }).length;
++
++  const newGuestsByDay = new Map<string, number>();
++  for (const profile of currentProfiles) {
++    const seen = parseTimestamp(profile.first_seen_at);
++    if (!seen) continue;
++    const key = formatIsoDay(seen);
++    newGuestsByDay.set(key, (newGuestsByDay.get(key) ?? 0) + 1);
++  }
++
++  const dormantCutoff = addDays(range.end, -30);
++  const dormantRegulars = profiles.filter((p) => {
++    if (Number(p.visit_count ?? 0) < 2) return false;
++    const seen = parseTimestamp(p.last_seen_at);
++    return Boolean(seen && seen < dormantCutoff);
++  }).length;
++
++  const withEmailPct = safePct(guestsWithEmail, uniqueGuests);
++  const withMobilePct = safePct(guestsWithMobile, uniqueGuests);
++  const compareHelper = `vs ${range.compareLabel.toLowerCase()}`;
++
++  return {
++    range: {
++      preset: range.preset,
++      start: range.start.toISOString(),
++      end: range.end.toISOString(),
++      compareStart: range.compareStart.toISOString(),
++      compareEnd: range.compareEnd.toISOString(),
++      label: range.label,
++      compareLabel: range.compareLabel,
++    },
++    metrics: [
++      {
++        key: "uniqueGuests",
++        label: "UNIQUE GUESTS",
++        value: String(uniqueGuests),
++        helper: compareHelper,
++        delta: safeDelta(uniqueGuests, previousUniqueGuests),
++        accent: "green",
++        trend: visitsOverTime.map((point) => point.uniqueGuests),
++      },
++      {
++        key: "newGuests",
++        label: "NEW GUESTS",
++        value: String(newGuests),
++        helper: compareHelper,
++        delta: safeDelta(newGuests, previousNewGuests),
++        accent: "lime",
++        trend: newVsReturning.map((point) => point.newGuests),
++      },
++      {
++        key: "newGuestsToday",
++        label: "NEW GUESTS TODAY",
++        value: String(todayNewGuests),
++        helper: "vs yesterday",
++        delta: safeDelta(todayNewGuests, yesterdayNewGuests),
++        accent: "green",
++        trend: visitsOverTime.map((point) => newGuestsByDay.get(point.isoDate) ?? 0),
++      },
++      {
++        key: "returningGuests",
++        label: "RETURNING GUESTS",
++        value: String(returningGuests),
++        helper: compareHelper,
++        delta: safeDelta(returningGuests, previousReturningGuests),
++        accent: "purple",
++        trend: newVsReturning.map((point) => point.returningGuests),
++      },
++      {
++        key: "totalVisits",
++        label: "TOTAL VISITS",
++        value: String(totalVisits),
++        helper: compareHelper,
++        delta: safeDelta(totalVisits, previousTotalVisits),
++        accent: "blue",
++        trend: visitsOverTime.map((point) => point.visits),
++      },
++      {
++        key: "withEmail",
++        label: "GUESTS WITH EMAIL",
++        value: `${withEmailPct}%`,
++        helper: `${guestsWithEmail} guests`,
++        delta: safeDelta(guestsWithEmail, previousGuestsWithEmail),
++        accent: "amber",
++        trend: visitsOverTime.map(() => withEmailPct),
++      },
++      {
++        key: "withMobile",
++        label: "GUESTS WITH MOBILE",
++        value: `${withMobilePct}%`,
++        helper: `${guestsWithMobile} guests`,
++        delta: safeDelta(guestsWithMobile, previousGuestsWithMobile),
++        accent: "teal",
++        trend: visitsOverTime.map(() => withMobilePct),
++      },
++    ],
++    visitsOverTime,
++    guestStatus,
++    liveNow,
++    peakTimes,
++    newVsReturning,
++    consent: {
++      rate: consentRate,
++      consented,
++      notConsented,
++      unsubscribed,
++      rateDelta: safeDelta(consentRate, previousConsentRate),
++      consentedDelta: safeDelta(consented, previousConsented),
++      notConsentedDelta: safeDelta(notConsented, previousNotConsented),
++      unsubscribedDelta: safeDelta(unsubscribed, previousUnsubscribed),
++    },
++    topPostcodes,
++    insights: buildInsights(
++      visitsOverTime,
++      topPostcodes,
++      peakTimes.peakWindowLabel,
++      todayNewGuests,
++      yesterdayNewGuests,
++      dormantRegulars,
++    ),
++    fallbacksUsed,
++    detectedTables: ["guest_summary_view", "wifi_connections", "portal_sessions", "wifi_access_points"],
++    detectedFields: [
++      "email",
++      "mobile",
++      "postcode",
++      "marketing_consent",
++      "unsubscribe_status",
++      "authorized_at",
++      "status",
++      "ap_mac",
++    ],
++  };
++}
++
++// ---------------------------------------------------------------------------
++// HTTP layer
++// ---------------------------------------------------------------------------
++
++const isAllowedOrigin = (origin: string | null): boolean => {
++  if (!origin) return false;
++  try {
++    const url = new URL(origin);
++    return url.hostname.endsWith(".netlify.app") || url.hostname === "localhost" || url.hostname === "127.0.0.1";
++  } catch {
++    return false;
++  }
++};
++
++function buildBaseHeaders(origin: string | null): Record<string, string> {
++  return {
++    "Access-Control-Allow-Origin": origin && isAllowedOrigin(origin) ? origin : "*",
++    "Access-Control-Allow-Methods": "POST, OPTIONS",
++    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
++    "Access-Control-Max-Age": "86400",
++    // Responses are scoped to the caller's JWT and origin; both must key the cache.
++    "Vary": "Origin, Authorization",
++    "Content-Type": "application/json",
++  };
++}
++
++function jsonError(status: number, message: string, origin: string | null): Response {
++  return new Response(JSON.stringify({ error: message }), {
++    status,
++    headers: { ...buildBaseHeaders(origin), "Cache-Control": "no-store" },
++  });
++}
++
++function isValidDateOnly(value: unknown): value is string {
++  if (typeof value !== "string" || !DATE_ONLY.test(value)) return false;
++  const parsed = new Date(`${value}T12:00:00Z`);
++  if (Number.isNaN(parsed.getTime())) return false;
++  // Reject roll-overs such as 2026-02-31.
++  return parsed.toISOString().slice(0, 10) === value;
++}
++
++function normalizePreset(value: unknown): DatePreset {
++  return typeof value === "string" && value in PRESET_LABELS ? (value as DatePreset) : "custom";
++}
++
++Deno.serve(async (req: Request) => {
++  const origin = req.headers.get("origin");
++
++  if (req.method === "OPTIONS") {
++    return new Response(null, { status: 204, headers: buildBaseHeaders(origin) });
++  }
++
++  if (req.method !== "POST") {
++    return jsonError(405, "Method not allowed.", origin);
++  }
++
++  const supabaseUrl = Deno.env.get("SUPABASE_URL");
++  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
++  if (!supabaseUrl || !supabaseAnonKey) {
++    console.error("[get-dashboard-analytics] Missing SUPABASE_URL or SUPABASE_ANON_KEY.");
++    return jsonError(500, "Missing Supabase configuration.", origin);
++  }
++
++  // --- Auth: a Bearer token is required before any work is done. ---
++  const authHeader = req.headers.get("authorization") ?? "";
++  const token = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
++  if (!token) {
++    return jsonError(401, "Unauthorized.", origin);
++  }
++
++  // --- Input validation. ---
++  let payload: RequestPayload;
++  try {
++    payload = await req.json();
++  } catch {
++    return jsonError(400, "Invalid JSON body.", origin);
++  }
++
++  if (!isValidDateOnly(payload.startDate) || !isValidDateOnly(payload.endDate)) {
++    return jsonError(400, "startDate and endDate are required in YYYY-MM-DD format.", origin);
++  }
++  if (payload.startDate > payload.endDate) {
++    return jsonError(400, "startDate must be on or before endDate.", origin);
++  }
++
++  const preset = normalizePreset(payload.preset);
++  const range = buildRange(preset, payload.startDate, payload.endDate);
++
++  const spanDays = inclusiveDayCount(range.start, range.end);
++  if (spanDays > MAX_RANGE_DAYS) {
++    return jsonError(400, `Range too large: ${spanDays} days (maximum ${MAX_RANGE_DAYS}).`, origin);
++  }
++
++  // Bound to the caller's JWT so row-level security applies as it does client side.
++  const client = createClient(supabaseUrl, supabaseAnonKey, {
++    auth: { persistSession: false, autoRefreshToken: false },
++    global: { headers: { Authorization: `Bearer ${token}` } },
++  });
++
++  const { data: userData, error: userError } = await client.auth.getUser();
++  if (userError || !userData?.user) {
++    console.warn("[get-dashboard-analytics] JWT rejected:", userError?.message ?? "no user on token");
++    return jsonError(401, "Unauthorized.", origin);
++  }
++
++  try {
++    const result = await computeAnalytics(client, range);
++    return new Response(JSON.stringify(result), {
++      status: 200,
++      headers: {
++        ...buildBaseHeaders(origin),
++        // 10-minute TTL, per the dashboard caching design.
++        "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}`,
++      },
++    });
++  } catch (error) {
++    console.error("[get-dashboard-analytics] Unhandled failure:", error);
++    return jsonError(500, "Unable to compute dashboard analytics.", origin);
++  }
++});
+diff --git a/supabase/tests/get-dashboard-analytics.harness.ts b/supabase/tests/get-dashboard-analytics.harness.ts
+new file mode 100644
+index 0000000..8238034
+--- /dev/null
++++ b/supabase/tests/get-dashboard-analytics.harness.ts
+@@ -0,0 +1,335 @@
++// Local test harness for the get-dashboard-analytics Edge Function.
++//
++// Runs the real function against a stub Supabase API on loopback, so no Docker
++// and no `supabase start` are required. Verifies status codes, CORS and cache
++// headers, the Option A ISO-string date contract, and the aggregation shape.
++//
++// Run from the repo root:
++//   npx --yes deno@2.1.4 run --no-lock --allow-net --allow-env --allow-read //     --allow-import supabase/tests/get-dashboard-analytics.harness.ts
++//
++// Lives outside supabase/functions/ so the Supabase CLI does not treat it as a
++// deployable function.
++
++// Local harness: runs the real Edge Function against a stub Supabase API.
++// No Docker required. Verifies status codes, headers and payload shape.
++
++const STUB_PORT = 54399;
++const FN_PORT = 8000;
++
++const iso = (day: string, hour = 19, min = 30) =>
++  new Date(Date.UTC(2026, 6, Number(day), hour, min, 0)).toISOString();
++
++const PROFILES = [
++  {
++    guest_id: "g1", email: "ann@example.com", full_name: "Ann", mobile: "07100000001",
++    postcode: "GL52 2NW", segment: "regular", visit_count: 6,
++    first_seen_at: iso("22"), last_seen_at: iso("29"),
++    marketing_consent: true, unsubscribe_status: false,
++  },
++  {
++    guest_id: "g2", email: "bob@example.com", full_name: "Bob", mobile: "07100000002",
++    postcode: "GL52 2NW", segment: "new", visit_count: 1,
++    first_seen_at: iso("28"), last_seen_at: iso("28"),
++    marketing_consent: false, unsubscribe_status: false,
++  },
++  {
++    guest_id: "g3", email: "cat@example.com", full_name: "Cat", mobile: null,
++    postcode: "GL50 1AA", segment: "lapsed", visit_count: 4,
++    first_seen_at: iso("01", 12), last_seen_at: "2026-05-01T12:00:00.000Z",
++    marketing_consent: true, unsubscribe_status: true,
++  },
++];
++
++const CONNECTIONS = [
++  { guest_id: "g1", connected_at: iso("22") },
++  { guest_id: "g1", connected_at: iso("25", 20) },
++  { guest_id: "g2", connected_at: iso("28") },
++  { guest_id: "g1", connected_at: iso("29") },
++];
++
++const session = (id: string, email: string, day: string, hour: number, status: string) => ({
++  id, session_key: `k-${id}`, site_slug: "batesford", client_mac: `aa:bb:cc:00:00:0${id}`,
++  ap_mac: "11:22:33:44:55:66", guest_name: email.split("@")[0], guest_email: email,
++  guest_phone: null, guest_postcode: "GL52 2NW",
++  submitted_at: iso(day, hour), authorized_at: status === "authorized" ? iso(day, hour) : null,
++  completed_at: null, updated_at: iso(day, hour), status,
++});
++
++const SESSIONS = [
++  session("1", "ann@example.com", "22", 19, "authorized"),
++  session("2", "bob@example.com", "28", 19, "authorized"),
++  session("3", "dan@example.com", "27", 21, "failed"),
++  session("4", "eve@example.com", "26", 18, "presented"),
++];
++
++// A live session inside the rolling 3-hour window.
++const LIVE_SESSION = {
++  ...session("9", "live@example.com", "30", 12, "authorized"),
++  submitted_at: new Date(Date.now() - 20 * 60_000).toISOString(),
++  authorized_at: new Date(Date.now() - 20 * 60_000).toISOString(),
++  updated_at: new Date(Date.now() - 20 * 60_000).toISOString(),
++};
++
++const ACCESS_POINTS = [
++  { ap_mac: "11:22:33:44:55:66", area_name: "Main Bar", display_name: "Main Bar" },
++];
++
++const USER = {
++  id: "11111111-2222-3333-4444-555555555555",
++  aud: "authenticated",
++  role: "authenticated",
++  email: "admin@example.com",
++  app_metadata: {},
++  user_metadata: {},
++  created_at: "2026-01-01T00:00:00.000Z",
++};
++
++let restCalls = 0;
++
++const stub = Deno.serve({ port: STUB_PORT, onListen: () => {} }, (req) => {
++  const url = new URL(req.url);
++  const auth = req.headers.get("authorization") ?? "";
++
++  if (url.pathname.endsWith("/auth/v1/user")) {
++    if (!auth.includes("good-token")) {
++      return new Response(JSON.stringify({ message: "invalid claim: missing sub claim" }), {
++        status: 401, headers: { "Content-Type": "application/json" },
++      });
++    }
++    return new Response(JSON.stringify(USER), {
++      status: 200, headers: { "Content-Type": "application/json" },
++    });
++  }
++
++  if (url.pathname.includes("/rest/v1/")) {
++    restCalls += 1;
++    const table = url.pathname.split("/rest/v1/")[1];
++    let body: unknown = [];
++    if (table === "guest_summary_view") body = PROFILES;
++    else if (table === "wifi_connections") body = CONNECTIONS;
++    else if (table === "wifi_access_points") body = ACCESS_POINTS;
++    else if (table === "portal_sessions") {
++      // The live query filters on a recent updated_at and has no upper bound.
++      const isLive = !url.searchParams.getAll("updated_at").some((v) => v.startsWith("lte."));
++      body = isLive ? [LIVE_SESSION] : SESSIONS;
++    }
++    return new Response(JSON.stringify(body), {
++      status: 200, headers: { "Content-Type": "application/json" },
++    });
++  }
++
++  return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
++});
++
++Deno.env.set("SUPABASE_URL", `http://127.0.0.1:${STUB_PORT}`);
++Deno.env.set("SUPABASE_ANON_KEY", "stub-anon-key");
++Deno.env.set("ANALYTICS_TIMEZONE", "Europe/London");
++
++// Importing the module registers its Deno.serve handler.
++await import("../functions/get-dashboard-analytics/index.ts");
++await new Promise((r) => setTimeout(r, 400));
++
++const BASE = `http://127.0.0.1:${FN_PORT}`;
++let failures = 0;
++
++function check(name: string, condition: boolean, detail = "") {
++  if (condition) {
++    console.log(`  PASS  ${name}`);
++  } else {
++    failures += 1;
++    console.log(`  FAIL  ${name}${detail ? ` -- ${detail}` : ""}`);
++  }
++}
++
++const call = (body: unknown, token: string | null, method = "POST") =>
++  fetch(BASE, {
++    method,
++    headers: {
++      "Content-Type": "application/json",
++      "Origin": "http://localhost:5173",
++      ...(token ? { Authorization: `Bearer ${token}` } : {}),
++    },
++    body: method === "POST" ? JSON.stringify(body) : undefined,
++  });
++
++console.log("\n=== 1. OPTIONS preflight ===");
++{
++  const res = await fetch(BASE, { method: "OPTIONS", headers: { Origin: "http://localhost:5173" } });
++  check("204", res.status === 204, String(res.status));
++  check("CORS allow-origin echoes localhost",
++    res.headers.get("access-control-allow-origin") === "http://localhost:5173",
++    String(res.headers.get("access-control-allow-origin")));
++  await res.body?.cancel();
++}
++
++console.log("\n=== 2. GET -> 405 ===");
++{
++  const res = await call(null, "good-token", "GET");
++  check("405", res.status === 405, String(res.status));
++  await res.json();
++}
++
++console.log("\n=== 3. Missing Authorization -> 401 ===");
++{
++  const res = await call({ startDate: "2026-07-20", endDate: "2026-07-30", preset: "custom" }, null);
++  check("401", res.status === 401, String(res.status));
++  check("no-store on error", res.headers.get("cache-control") === "no-store");
++  console.log("   body:", JSON.stringify(await res.json()));
++}
++
++console.log("\n=== 4. Invalid JWT -> 401 ===");
++{
++  const res = await call({ startDate: "2026-07-20", endDate: "2026-07-30", preset: "custom" }, "bad-token");
++  check("401", res.status === 401, String(res.status));
++  console.log("   body:", JSON.stringify(await res.json()));
++}
++
++console.log("\n=== 5. Missing dates -> 400 ===");
++{
++  const res = await call({ preset: "custom" }, "good-token");
++  check("400", res.status === 400, String(res.status));
++  console.log("   body:", JSON.stringify(await res.json()));
++}
++
++console.log("\n=== 6. Impossible date (2026-02-31) -> 400 ===");
++{
++  const res = await call({ startDate: "2026-02-31", endDate: "2026-03-01", preset: "custom" }, "good-token");
++  check("400", res.status === 400, String(res.status));
++  console.log("   body:", JSON.stringify(await res.json()));
++}
++
++console.log("\n=== 7. start after end -> 400 ===");
++{
++  const res = await call({ startDate: "2026-07-30", endDate: "2026-07-20", preset: "custom" }, "good-token");
++  check("400", res.status === 400, String(res.status));
++  console.log("   body:", JSON.stringify(await res.json()));
++}
++
++console.log("\n=== 8. Happy path 2026-07-20..2026-07-30 ===");
++{
++  const res = await call({ startDate: "2026-07-20", endDate: "2026-07-30", preset: "custom" }, "good-token");
++  check("200", res.status === 200, String(res.status));
++  check("Cache-Control: public, max-age=600",
++    res.headers.get("cache-control") === "public, max-age=600",
++    String(res.headers.get("cache-control")));
++  check("Vary includes Authorization",
++    (res.headers.get("vary") ?? "").includes("Authorization"),
++    String(res.headers.get("vary")));
++  check("Content-Type json", (res.headers.get("content-type") ?? "").includes("application/json"));
++
++  const raw = await res.text();
++  const data = JSON.parse(raw);
++
++  const topKeys = [
++    "range", "metrics", "visitsOverTime", "guestStatus", "liveNow", "peakTimes",
++    "newVsReturning", "consent", "topPostcodes", "insights", "fallbacksUsed",
++    "detectedTables", "detectedFields",
++  ];
++  check("all DashboardAnalyticsResult keys present",
++    topKeys.every((k) => k in data),
++    topKeys.filter((k) => !(k in data)).join(","));
++
++  const rangeKeys = ["preset", "start", "end", "compareStart", "compareEnd", "label", "compareLabel"];
++  check("all range keys present", rangeKeys.every((k) => k in data.range));
++  check("range dates are ISO STRINGS (Option A)",
++    ["start", "end", "compareStart", "compareEnd"].every((k) => typeof data.range[k] === "string"),
++    JSON.stringify(data.range));
++  check("range strings revive to valid Dates",
++    ["start", "end", "compareStart", "compareEnd"]
++      .every((k) => !Number.isNaN(new Date(data.range[k]).getTime())));
++  check("JSON round-trip is byte-identical (cache hit == cache miss)",
++    JSON.stringify(JSON.parse(JSON.stringify(data))) === JSON.stringify(data));
++
++  check("11 days in visitsOverTime", data.visitsOverTime.length === 11, String(data.visitsOverTime.length));
++  check("first day is 2026-07-20", data.visitsOverTime[0].isoDate === "2026-07-20", data.visitsOverTime[0].isoDate);
++  check("last day is 2026-07-30", data.visitsOverTime[10].isoDate === "2026-07-30", data.visitsOverTime[10].isoDate);
++  check("7 metrics", data.metrics.length === 7, String(data.metrics.length));
++  check("5 insights", data.insights.length === 5, String(data.insights.length));
++  check("heatmap has 7*24 cells", data.peakTimes.cells.length === 168, String(data.peakTimes.cells.length));
++  check("guestStatus has 4 slices", data.guestStatus.slices.length === 4);
++  check("newVsReturning aligns with visitsOverTime",
++    data.newVsReturning.length === data.visitsOverTime.length);
++  check("liveNow.count = 1 (rolling 3h window)", data.liveNow.count === 1, String(data.liveNow.count));
++  check("liveNow area resolved from wifi_access_points",
++    data.liveNow.areas[0]?.label === "Main Bar", JSON.stringify(data.liveNow.areas));
++  check("no fallbacks used", data.fallbacksUsed.length === 0, JSON.stringify(data.fallbacksUsed));
++
++  const totalVisits = data.metrics.find((m: { key: string }) => m.key === "totalVisits");
++  check("totalVisits counts merged activity", Number(totalVisits.value) > 0, totalVisits.value);
++  check("compareLabel reads 'Previous 11 days'",
++    data.range.compareLabel === "Previous 11 days", data.range.compareLabel);
++  check("compareStart is 09 Jul BST midnight",
++    data.range.compareStart === "2026-07-08T23:00:00.000Z", data.range.compareStart);
++  const days = (a: string, b: string) =>
++    Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
++  check("compare window length == current window length",
++    days(data.range.compareStart, data.range.compareEnd) === days(data.range.start, data.range.end),
++    `${days(data.range.compareStart, data.range.compareEnd)} vs ${days(data.range.start, data.range.end)}`);
++
++  console.log("\n--- range ---");
++  console.log(JSON.stringify(data.range, null, 2));
++  console.log("--- metrics ---");
++  console.log(JSON.stringify(data.metrics.map((m: Record<string, unknown>) =>
++    ({ key: m.key, value: m.value, delta: m.delta })), null, 2));
++  console.log("--- visitsOverTime ---");
++  console.log(JSON.stringify(data.visitsOverTime));
++  console.log("--- peak / status / postcodes ---");
++  console.log("peakWindowLabel:", data.peakTimes.peakWindowLabel);
++  console.log("guestStatus:", JSON.stringify(data.guestStatus));
++  console.log("topPostcodes:", JSON.stringify(data.topPostcodes));
++  console.log("consent:", JSON.stringify(data.consent));
++  console.log("--- insights ---");
++  console.log(JSON.stringify(data.insights, null, 2));
++  console.log(`\npayload bytes: ${raw.length}`);
++}
++
++console.log("\n=== 9. BST boundary: single-day range 2026-07-30 ===");
++{
++  const res = await call({ startDate: "2026-07-30", endDate: "2026-07-30", preset: "today" }, "good-token");
++  const data = await res.json();
++  check("200", res.status === 200, String(res.status));
++  check("one day bucket", data.visitsOverTime.length === 1, String(data.visitsOverTime.length));
++  check("preset preserved", data.range.preset === "today", data.range.preset);
++  check("start is 2026-07-29T23:00Z (BST midnight)",
++    data.range.start === "2026-07-29T23:00:00.000Z", data.range.start);
++  check("end is 2026-07-30T22:59:59.999Z",
++    data.range.end === "2026-07-30T22:59:59.999Z", data.range.end);
++  check("compareEnd is previous BST day end",
++    data.range.compareEnd === "2026-07-29T22:59:59.999Z", data.range.compareEnd);
++  check("compareLabel 'Previous day'", data.range.compareLabel === "Previous day", data.range.compareLabel);
++  check("compareStart is 29 Jul BST midnight (1-day compare window)",
++    data.range.compareStart === "2026-07-28T23:00:00.000Z", data.range.compareStart);
++  console.log("   range:", JSON.stringify(data.range));
++}
++
++console.log("\n=== 10. GMT (winter) boundary: 2026-01-15 ===");
++{
++  const res = await call({ startDate: "2026-01-15", endDate: "2026-01-15", preset: "custom" }, "good-token");
++  const data = await res.json();
++  check("start is 2026-01-15T00:00Z (GMT midnight)",
++    data.range.start === "2026-01-15T00:00:00.000Z", data.range.start);
++  check("end is 2026-01-15T23:59:59.999Z",
++    data.range.end === "2026-01-15T23:59:59.999Z", data.range.end);
++  console.log("   range:", JSON.stringify(data.range));
++}
++
++console.log("\n=== 11. Range cap ===");
++{
++  const res = await call({ startDate: "2020-01-01", endDate: "2026-07-30", preset: "custom" }, "good-token");
++  check("400 on oversized range", res.status === 400, String(res.status));
++  console.log("   body:", JSON.stringify(await res.json()));
++}
++
++console.log("\n=== 12. Unknown preset falls back to 'custom' ===");
++{
++  const res = await call({ startDate: "2026-07-29", endDate: "2026-07-30", preset: "bogus" }, "good-token");
++  const data = await res.json();
++  check("200", res.status === 200, String(res.status));
++  check("preset normalised to custom", data.range.preset === "custom", data.range.preset);
++}
++
++console.log(`\nREST calls made to stub: ${restCalls}`);
++console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
++
++await stub.shutdown();
++Deno.exit(failures === 0 ? 0 : 1);

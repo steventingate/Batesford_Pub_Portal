@@ -1,0 +1,193 @@
+diff --git a/src/lib/__tests__/datePresets.test.ts b/src/lib/__tests__/datePresets.test.ts
+index 48cd5fc..3ad2c2c 100644
+--- a/src/lib/__tests__/datePresets.test.ts
++++ b/src/lib/__tests__/datePresets.test.ts
+@@ -1,25 +1,18 @@
+-import { describe, it, expect, beforeEach } from 'vitest';
++import { describe, it, expect } from 'vitest';
+ import {
+   getDateRange,
+   PRESET_LABELS,
+   formatDateForQuery,
+   DatePreset,
+-  DateRange,
+ } from '../datePresets';
+-import {
+-  startOfToday,
+-  endOfToday,
+-  startOfYesterday,
+-  endOfYesterday,
+-  subDays,
+-} from 'date-fns';
++import { subDays } from 'date-fns';
+ 
+ describe('datePresets', () => {
+   describe('getDateRange', () => {
+     it('should return today range for today preset', () => {
+       const range = getDateRange('today');
+       const today = new Date();
+ 
+       expect(range.preset).toBe('today');
+       expect(range.startDate.toDateString()).toBe(today.toDateString());
+       expect(range.endDate.toDateString()).toBe(today.toDateString());
+@@ -47,50 +40,71 @@ describe('datePresets', () => {
+     it('should throw for custom preset with only end date', () => {
+       expect(() => getDateRange('custom', undefined, '2026-07-30')).toThrow();
+     });
+ 
+     it('should parse custom dates correctly', () => {
+       const range = getDateRange('custom', '2026-07-20', '2026-07-30');
+ 
+       expect(range.preset).toBe('custom');
+       expect(formatDateForQuery(range.startDate)).toBe('2026-07-20');
+       expect(formatDateForQuery(range.endDate)).toBe('2026-07-30');
++      // Verify endDate is at end-of-day (23:59:59.999)
++      expect(range.endDate.getHours()).toBe(23);
++      expect(range.endDate.getMinutes()).toBe(59);
++      expect(range.endDate.getSeconds()).toBe(59);
++    });
++
++    it('should throw when custom start date is after end date', () => {
++      expect(() => getDateRange('custom', '2026-07-30', '2026-07-20')).toThrow(
++        'Custom start date must be before or equal to end date',
++      );
+     });
+ 
+     it('should throw for invalid custom dates', () => {
+       expect(() => getDateRange('custom', 'invalid', '2026-07-30')).toThrow();
+       expect(() => getDateRange('custom', '2026-07-20', 'invalid')).toThrow();
+     });
+ 
+     it('should handle thisWeek range', () => {
+       const range = getDateRange('thisWeek');
++      const today = new Date();
+ 
+       expect(range.preset).toBe('thisWeek');
+       expect(range.label).toBe(PRESET_LABELS.thisWeek);
+       // startDate should be a date and endDate should be after startDate
+       expect(range.startDate).toBeInstanceOf(Date);
+       expect(range.endDate).toBeInstanceOf(Date);
+       expect(range.endDate.getTime()).toBeGreaterThanOrEqual(
+         range.startDate.getTime(),
+       );
++      // startDate should be at or before today
++      expect(range.startDate.getTime()).toBeLessThanOrEqual(today.getTime());
++      // endDate should be at or after today
++      expect(range.endDate.getTime()).toBeGreaterThanOrEqual(today.getTime());
+     });
+ 
+     it('should handle thisMonth range', () => {
+       const range = getDateRange('thisMonth');
++      const today = new Date();
+ 
+       expect(range.preset).toBe('thisMonth');
+       expect(range.label).toBe(PRESET_LABELS.thisMonth);
+       expect(range.startDate).toBeInstanceOf(Date);
+       expect(range.endDate).toBeInstanceOf(Date);
+       expect(range.endDate.getTime()).toBeGreaterThanOrEqual(
+         range.startDate.getTime(),
+       );
++      // startDate should be the first day of the month
++      expect(range.startDate.getDate()).toBe(1);
++      // endDate should be in the same month as today
++      expect(range.endDate.getMonth()).toBe(today.getMonth());
++      expect(range.endDate.getFullYear()).toBe(today.getFullYear());
+     });
+ 
+     it('should handle last7 range', () => {
+       const range = getDateRange('last7');
+ 
+       expect(range.preset).toBe('last7');
+       expect(range.label).toBe(PRESET_LABELS.last7);
+       expect(range.startDate).toBeInstanceOf(Date);
+       expect(range.endDate).toBeInstanceOf(Date);
+       // Should be 7 days apart (approximately)
+@@ -132,32 +146,32 @@ describe('datePresets', () => {
+       presets.forEach((preset) => {
+         expect(PRESET_LABELS[preset]).toBeDefined();
+         expect(typeof PRESET_LABELS[preset]).toBe('string');
+         expect(PRESET_LABELS[preset].length).toBeGreaterThan(0);
+       });
+     });
+   });
+ 
+   describe('formatDateForQuery', () => {
+     it('should format dates as YYYY-MM-DD', () => {
+-      const date = new Date('2026-07-30');
++      const date = new Date(2026, 6, 30); // July 30, 2026
+       expect(formatDateForQuery(date)).toBe('2026-07-30');
+     });
+ 
+     it('should handle various dates correctly', () => {
+       const testCases = [
+-        { date: new Date('2026-01-01'), expected: '2026-01-01' },
+-        { date: new Date('2026-12-31'), expected: '2026-12-31' },
+-        { date: new Date('2025-06-15'), expected: '2025-06-15' },
++        { date: new Date(2026, 0, 1), expected: '2026-01-01' },
++        { date: new Date(2026, 11, 31), expected: '2026-12-31' },
++        { date: new Date(2025, 5, 15), expected: '2025-06-15' },
+       ];
+ 
+       testCases.forEach(({ date, expected }) => {
+         expect(formatDateForQuery(date)).toBe(expected);
+       });
+     });
+ 
+     it('should pad single digit months and days', () => {
+-      const date = new Date('2026-03-05');
++      const date = new Date(2026, 2, 5); // March 5, 2026
+       expect(formatDateForQuery(date)).toBe('2026-03-05');
+     });
+   });
+ });
+diff --git a/src/lib/datePresets.ts b/src/lib/datePresets.ts
+index 1558a56..734820e 100644
+--- a/src/lib/datePresets.ts
++++ b/src/lib/datePresets.ts
+@@ -1,19 +1,20 @@
+ import {
+   startOfToday,
+   endOfToday,
+   startOfYesterday,
+   endOfYesterday,
+   startOfWeek,
+   endOfWeek,
+   startOfMonth,
+   endOfMonth,
++  endOfDay,
+   subDays,
+   parse,
+   isValid,
+   format,
+ } from 'date-fns';
+ 
+ /**
+  * Supported date preset types
+  */
+ export type DatePreset =
+@@ -111,21 +112,24 @@ export function getDateRange(
+       startDate = subDays(startDate, 29); // 30 days inclusive
+       break;
+ 
+     case 'custom':
+       if (!customStart || !customEnd) {
+         throw new Error(
+           'Custom preset requires both customStart and customEnd in YYYY-MM-DD format',
+         );
+       }
+       startDate = parseDateString(customStart);
+-      endDate = parseDateString(customEnd);
++      endDate = endOfDay(parseDateString(customEnd));
++      if (startDate > endDate) {
++        throw new Error('Custom start date must be before or equal to end date');
++      }
+       break;
+ 
+     default:
+       const _exhaustive: never = preset;
+       throw new Error(`Unknown preset: ${_exhaustive}`);
+   }
+ 
+   return {
+     startDate,
+     endDate,

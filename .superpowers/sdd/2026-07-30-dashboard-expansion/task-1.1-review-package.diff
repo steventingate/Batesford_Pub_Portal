@@ -1,0 +1,366 @@
+diff --git a/package.json b/package.json
+index 4e52a7b..926b543 100644
+--- a/package.json
++++ b/package.json
+@@ -1,19 +1,21 @@
+ {
+   "name": "batesford-wifi-admin",
+   "private": true,
+   "version": "0.1.0",
+   "type": "module",
+   "scripts": {
+     "dev": "vite",
+     "build": "node ./node_modules/typescript/lib/tsc.js -b && node ./node_modules/vite/bin/vite.js build",
+     "preview": "vite preview",
++    "test": "vitest run",
++    "test:watch": "vitest",
+     "portal:dev": "node portal-server/server.mjs",
+     "portal:start": "node portal-server/server.mjs"
+   },
+   "dependencies": {
+     "@supabase/supabase-js": "^2.49.1",
+     "clsx": "^2.1.1",
+     "date-fns": "^3.6.0",
+     "express": "^5.2.1",
+     "leaflet": "^1.9.4",
+     "leaflet.markercluster": "^1.5.3",
+@@ -25,13 +27,14 @@
+     "@netlify/functions": "^2.8.1",
+     "@types/leaflet": "^1.9.12",
+     "@types/node": "^22.13.1",
+     "@types/react": "^18.3.5",
+     "@types/react-dom": "^18.3.0",
+     "@vitejs/plugin-react": "^4.3.2",
+     "autoprefixer": "^10.4.20",
+     "postcss": "^8.4.47",
+     "tailwindcss": "^3.4.14",
+     "typescript": "^5.6.3",
+-    "vite": "^5.4.10"
++    "vite": "^5.4.10",
++    "vitest": "^4.1.10"
+   }
+ }
+diff --git a/src/lib/__tests__/datePresets.test.ts b/src/lib/__tests__/datePresets.test.ts
+new file mode 100644
+index 0000000..48cd5fc
+--- /dev/null
++++ b/src/lib/__tests__/datePresets.test.ts
+@@ -0,0 +1,163 @@
++import { describe, it, expect, beforeEach } from 'vitest';
++import {
++  getDateRange,
++  PRESET_LABELS,
++  formatDateForQuery,
++  DatePreset,
++  DateRange,
++} from '../datePresets';
++import {
++  startOfToday,
++  endOfToday,
++  startOfYesterday,
++  endOfYesterday,
++  subDays,
++} from 'date-fns';
++
++describe('datePresets', () => {
++  describe('getDateRange', () => {
++    it('should return today range for today preset', () => {
++      const range = getDateRange('today');
++      const today = new Date();
++
++      expect(range.preset).toBe('today');
++      expect(range.startDate.toDateString()).toBe(today.toDateString());
++      expect(range.endDate.toDateString()).toBe(today.toDateString());
++      expect(range.label).toBe(PRESET_LABELS.today);
++    });
++
++    it('should return yesterday range for yesterday preset', () => {
++      const range = getDateRange('yesterday');
++      const yesterday = subDays(new Date(), 1);
++
++      expect(range.preset).toBe('yesterday');
++      expect(range.startDate.toDateString()).toBe(yesterday.toDateString());
++      expect(range.endDate.toDateString()).toBe(yesterday.toDateString());
++      expect(range.label).toBe(PRESET_LABELS.yesterday);
++    });
++
++    it('should throw for custom preset without dates', () => {
++      expect(() => getDateRange('custom')).toThrow();
++    });
++
++    it('should throw for custom preset with only start date', () => {
++      expect(() => getDateRange('custom', '2026-07-20')).toThrow();
++    });
++
++    it('should throw for custom preset with only end date', () => {
++      expect(() => getDateRange('custom', undefined, '2026-07-30')).toThrow();
++    });
++
++    it('should parse custom dates correctly', () => {
++      const range = getDateRange('custom', '2026-07-20', '2026-07-30');
++
++      expect(range.preset).toBe('custom');
++      expect(formatDateForQuery(range.startDate)).toBe('2026-07-20');
++      expect(formatDateForQuery(range.endDate)).toBe('2026-07-30');
++    });
++
++    it('should throw for invalid custom dates', () => {
++      expect(() => getDateRange('custom', 'invalid', '2026-07-30')).toThrow();
++      expect(() => getDateRange('custom', '2026-07-20', 'invalid')).toThrow();
++    });
++
++    it('should handle thisWeek range', () => {
++      const range = getDateRange('thisWeek');
++
++      expect(range.preset).toBe('thisWeek');
++      expect(range.label).toBe(PRESET_LABELS.thisWeek);
++      // startDate should be a date and endDate should be after startDate
++      expect(range.startDate).toBeInstanceOf(Date);
++      expect(range.endDate).toBeInstanceOf(Date);
++      expect(range.endDate.getTime()).toBeGreaterThanOrEqual(
++        range.startDate.getTime(),
++      );
++    });
++
++    it('should handle thisMonth range', () => {
++      const range = getDateRange('thisMonth');
++
++      expect(range.preset).toBe('thisMonth');
++      expect(range.label).toBe(PRESET_LABELS.thisMonth);
++      expect(range.startDate).toBeInstanceOf(Date);
++      expect(range.endDate).toBeInstanceOf(Date);
++      expect(range.endDate.getTime()).toBeGreaterThanOrEqual(
++        range.startDate.getTime(),
++      );
++    });
++
++    it('should handle last7 range', () => {
++      const range = getDateRange('last7');
++
++      expect(range.preset).toBe('last7');
++      expect(range.label).toBe(PRESET_LABELS.last7);
++      expect(range.startDate).toBeInstanceOf(Date);
++      expect(range.endDate).toBeInstanceOf(Date);
++      // Should be 7 days apart (approximately)
++      const diffInDays = Math.floor(
++        (range.endDate.getTime() - range.startDate.getTime()) /
++          (1000 * 60 * 60 * 24),
++      );
++      expect(diffInDays).toBe(6); // 7 days inclusive means 6 days difference
++    });
++
++    it('should handle last30 range', () => {
++      const range = getDateRange('last30');
++
++      expect(range.preset).toBe('last30');
++      expect(range.label).toBe(PRESET_LABELS.last30);
++      expect(range.startDate).toBeInstanceOf(Date);
++      expect(range.endDate).toBeInstanceOf(Date);
++      // Should be 30 days apart (approximately)
++      const diffInDays = Math.floor(
++        (range.endDate.getTime() - range.startDate.getTime()) /
++          (1000 * 60 * 60 * 24),
++      );
++      expect(diffInDays).toBe(29); // 30 days inclusive means 29 days difference
++    });
++  });
++
++  describe('PRESET_LABELS', () => {
++    it('should return correct labels for each preset', () => {
++      const presets: DatePreset[] = [
++        'today',
++        'yesterday',
++        'thisWeek',
++        'thisMonth',
++        'last7',
++        'last30',
++        'custom',
++      ];
++
++      presets.forEach((preset) => {
++        expect(PRESET_LABELS[preset]).toBeDefined();
++        expect(typeof PRESET_LABELS[preset]).toBe('string');
++        expect(PRESET_LABELS[preset].length).toBeGreaterThan(0);
++      });
++    });
++  });
++
++  describe('formatDateForQuery', () => {
++    it('should format dates as YYYY-MM-DD', () => {
++      const date = new Date('2026-07-30');
++      expect(formatDateForQuery(date)).toBe('2026-07-30');
++    });
++
++    it('should handle various dates correctly', () => {
++      const testCases = [
++        { date: new Date('2026-01-01'), expected: '2026-01-01' },
++        { date: new Date('2026-12-31'), expected: '2026-12-31' },
++        { date: new Date('2025-06-15'), expected: '2025-06-15' },
++      ];
++
++      testCases.forEach(({ date, expected }) => {
++        expect(formatDateForQuery(date)).toBe(expected);
++      });
++    });
++
++    it('should pad single digit months and days', () => {
++      const date = new Date('2026-03-05');
++      expect(formatDateForQuery(date)).toBe('2026-03-05');
++    });
++  });
++});
+diff --git a/src/lib/datePresets.ts b/src/lib/datePresets.ts
+new file mode 100644
+index 0000000..1558a56
+--- /dev/null
++++ b/src/lib/datePresets.ts
+@@ -0,0 +1,135 @@
++import {
++  startOfToday,
++  endOfToday,
++  startOfYesterday,
++  endOfYesterday,
++  startOfWeek,
++  endOfWeek,
++  startOfMonth,
++  endOfMonth,
++  subDays,
++  parse,
++  isValid,
++  format,
++} from 'date-fns';
++
++/**
++ * Supported date preset types
++ */
++export type DatePreset =
++  | 'today'
++  | 'yesterday'
++  | 'thisWeek'
++  | 'thisMonth'
++  | 'last7'
++  | 'last30'
++  | 'custom';
++
++/**
++ * Date range with metadata
++ */
++export interface DateRange {
++  startDate: Date;
++  endDate: Date;
++  label: string;
++  preset: DatePreset;
++}
++
++/**
++ * Human-readable labels for each preset
++ */
++export const PRESET_LABELS: Record<DatePreset, string> = {
++  today: 'Today',
++  yesterday: 'Yesterday',
++  thisWeek: 'This Week',
++  thisMonth: 'This Month',
++  last7: 'Last 7 Days',
++  last30: 'Last 30 Days',
++  custom: 'Custom Range',
++};
++
++/**
++ * Formats a Date object to 'YYYY-MM-DD' format for queries
++ */
++export function formatDateForQuery(date: Date): string {
++  return format(date, 'yyyy-MM-dd');
++}
++
++/**
++ * Parses a date string in 'YYYY-MM-DD' format
++ */
++function parseDateString(dateString: string): Date {
++  const parsed = parse(dateString, 'yyyy-MM-dd', new Date());
++  if (!isValid(parsed)) {
++    throw new Error(`Invalid date format: ${dateString}. Expected YYYY-MM-DD`);
++  }
++  return parsed;
++}
++
++/**
++ * Gets the date range for a given preset
++ * For 'custom' preset, both customStart and customEnd must be provided in 'YYYY-MM-DD' format
++ */
++export function getDateRange(
++  preset: DatePreset,
++  customStart?: string,
++  customEnd?: string,
++): DateRange {
++  let startDate: Date;
++  let endDate: Date;
++
++  switch (preset) {
++    case 'today':
++      startDate = startOfToday();
++      endDate = endOfToday();
++      break;
++
++    case 'yesterday':
++      startDate = startOfYesterday();
++      endDate = endOfYesterday();
++      break;
++
++    case 'thisWeek':
++      startDate = startOfWeek(new Date());
++      endDate = endOfWeek(new Date());
++      break;
++
++    case 'thisMonth':
++      startDate = startOfMonth(new Date());
++      endDate = endOfMonth(new Date());
++      break;
++
++    case 'last7':
++      endDate = endOfToday();
++      startDate = startOfToday();
++      startDate = subDays(startDate, 6); // 7 days inclusive
++      break;
++
++    case 'last30':
++      endDate = endOfToday();
++      startDate = startOfToday();
++      startDate = subDays(startDate, 29); // 30 days inclusive
++      break;
++
++    case 'custom':
++      if (!customStart || !customEnd) {
++        throw new Error(
++          'Custom preset requires both customStart and customEnd in YYYY-MM-DD format',
++        );
++      }
++      startDate = parseDateString(customStart);
++      endDate = parseDateString(customEnd);
++      break;
++
++    default:
++      const _exhaustive: never = preset;
++      throw new Error(`Unknown preset: ${_exhaustive}`);
++  }
++
++  return {
++    startDate,
++    endDate,
++    label: PRESET_LABELS[preset],
++    preset,
++  };
++}
+diff --git a/vitest.config.ts b/vitest.config.ts
+new file mode 100644
+index 0000000..8e730d5
+--- /dev/null
++++ b/vitest.config.ts
+@@ -0,0 +1,8 @@
++import { defineConfig } from 'vitest/config';
++
++export default defineConfig({
++  test: {
++    globals: true,
++    environment: 'node',
++  },
++});
