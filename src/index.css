@@ -2478,3 +2478,172 @@ a {
     width: 100%;
   }
 }
+
+/* ── VisitsOverTimeChart (Recharts) ─────────────────────────────────────── */
+
+:root {
+  --visits-chart-grid: rgba(17, 35, 29, 0.1);
+  --visits-chart-axis: #61756d;
+  --visits-chart-cursor: rgba(17, 35, 29, 0.18);
+  --visits-chart-dot-ring: #ffffff;
+  --visits-chart-frame-border: rgba(17, 35, 29, 0.08);
+  --visits-chart-frame-bg: rgba(34, 197, 94, 0.03);
+}
+
+:root[data-theme='dark'] {
+  --visits-chart-grid: rgba(255, 255, 255, 0.08);
+  --visits-chart-axis: #8ca1b8;
+  --visits-chart-cursor: rgba(255, 255, 255, 0.14);
+  --visits-chart-dot-ring: #0b1620;
+  --visits-chart-frame-border: rgba(255, 255, 255, 0.08);
+  --visits-chart-frame-bg: rgba(34, 197, 94, 0.04);
+}
+
+/* Frames the plot as a distinct "viewport" inside the dashboard card. */
+.visits-chart-container {
+  border: 1px solid var(--visits-chart-frame-border);
+  border-radius: 16px;
+  background: var(--visits-chart-frame-bg);
+  padding: 8px 4px 4px;
+}
+
+.visits-chart-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--visits-chart-grid) transparent;
+}
+
+.visits-chart-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.visits-chart-scroll::-webkit-scrollbar-thumb {
+  background: var(--visits-chart-grid);
+  border-radius: 999px;
+}
+
+/* Grows past the viewport for 30+ day ranges via an inline min-width. */
+.visits-chart-inner {
+  width: 100%;
+}
+
+.visits-chart-scroll-hint {
+  margin: 6px 10px 2px;
+  font-size: 11px;
+  color: var(--dashboard-muted);
+}
+
+.visits-chart-legend-label {
+  font-size: 12px;
+  color: var(--dashboard-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Recharts sets inline fill on legend text; override for theme awareness. */
+.visits-chart-container .recharts-legend-item-text {
+  color: var(--dashboard-muted) !important;
+}
+
+.visits-chart-container .recharts-surface {
+  overflow: visible;
+}
+
+/* Tooltip: dark card, white text, green accent per metric. */
+.visits-chart-tooltip {
+  min-width: 168px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.visits-chart-tooltip-date {
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.visits-chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.visits-chart-tooltip-row + .visits-chart-tooltip-row {
+  margin-top: 4px;
+}
+
+.visits-chart-tooltip-swatch {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+}
+
+.visits-chart-tooltip-name {
+  flex: 1;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.visits-chart-tooltip-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.visits-chart-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 220px;
+  text-align: center;
+}
+
+.visits-chart-error {
+  border: 1px solid rgba(239, 68, 68, 0.24);
+  border-radius: 16px;
+  background: rgba(239, 68, 68, 0.06);
+  padding: 16px;
+}
+
+.visits-chart-error-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ef4444;
+}
+
+.visits-chart-error-message {
+  font-size: 12px;
+  color: var(--dashboard-muted);
+}
+
+@media (max-width: 640px) {
+  .visits-chart-container {
+    padding: 4px 0 0;
+    border-radius: 12px;
+  }
+
+  .visits-chart-state {
+    min-height: 160px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .visits-chart-container * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
