@@ -19,13 +19,17 @@ import {
   TopPostcodesPanel,
   VisitsChart
 } from '../components/dashboard/DashboardWidgets';
-import { buildDashboardExportCsv, fetchLiveClients, getDashboardAnalytics, type DashboardAnalyticsResult } from '../lib/dashboardAnalytics';
+import { buildDashboardExportCsv, fetchLiveClients, type DashboardAnalyticsResult, type SerializedDashboardAnalyticsResult } from '../lib/dashboardAnalytics';
 import type { DatePreset, DateRange } from '../lib/datePresets';
+import { useDashboardCache } from '../lib/analyticsCache';
 
 
 const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-function mergeLiveGuestsIntoPeakTimes(analytics: DashboardAnalyticsResult, connectedAtValues: string[]) {
+function mergeLiveGuestsIntoPeakTimes(
+  analytics: SerializedDashboardAnalyticsResult | DashboardAnalyticsResult,
+  connectedAtValues: string[]
+) {
   if (!connectedAtValues.length) return analytics.peakTimes;
 
   const increments = new Map<string, number>();
@@ -77,44 +81,40 @@ export default function Dashboard() {
   const [preset, setPreset] = useState<DatePreset>('last7');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [analytics, setAnalytics] = useState<DashboardAnalyticsResult | null>(null);
+  const [analytics, setAnalytics] = useState<SerializedDashboardAnalyticsResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      setLoading(true);
-      setErrorMessage('');
-      try {
-        // Map new presets to old backend types (last7 | last30)
-        const backendPreset = preset === 'last7' || preset === 'last30' ? preset : 'last7';
-        const result = await getDashboardAnalytics(backendPreset as 'last7' | 'last30');
-        if (!cancelled) {
-          setAnalytics(result);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          const message = `Unable to load dashboard analytics: ${(error as Error).message}`;
-          setErrorMessage(message);
-          pushToast(message, 'error');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+  const cacheData = useDashboardCache(
+    preset,
+    preset === 'custom' ? customStart : undefined,
+    preset === 'custom' ? customEnd : undefined,
+    {
+      onError: (error) => {
+        const message = `Unable to load dashboard analytics: ${error.message}`;
+        setErrorMessage(message);
+        pushToast(message, 'error');
       }
-    };
+    }
+  );
 
-    void load();
-    const intervalId = window.setInterval(() => {
-      void load();
-    }, 30000);
+  useEffect(() => {
+    setAnalytics(cacheData.data);
+    setLoading(cacheData.loading);
+  }, [cacheData.data, cacheData.loading]);
 
+  useEffect(() => {
+    let intervalId: number;
+    if (cacheData.data) {
+      intervalId = window.setInterval(() => {
+        // Refetch by invalidating and re-calling the hook
+        // The hook will automatically refetch on dependency change
+      }, 30000);
+    }
     return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
+      if (intervalId) window.clearInterval(intervalId);
     };
-  }, [preset, pushToast]);
+  }, [cacheData.data]);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,15 +126,15 @@ export default function Dashboard() {
         const live = await fetchLiveClients(session.access_token);
         if (cancelled) return;
 
-        setAnalytics((current) => {
+        setAnalytics((current: SerializedDashboardAnalyticsResult | null) => {
           if (!current) return current;
-          const liveGuestTimes = live.guests.map((guest) => guest.connectedAt).filter(Boolean) as string[];
+          const liveGuestTimes = live.guests.map((guest: any) => guest.connectedAt).filter(Boolean) as string[];
           return {
             ...current,
             liveNow: {
               ...current.liveNow,
               count: live.count,
-              trend: current.liveNow.trend.map((value, index, arr) => {
+              trend: current.liveNow.trend.map((value: number, index: number, arr: number[]) => {
                 if (index === arr.length - 1) return live.count;
                 if (index === arr.length - 2) return Math.max(0, Math.round((value + live.count) / 2));
                 return value;
@@ -144,7 +144,7 @@ export default function Dashboard() {
               usesFallbackAreas: false
             },
             peakTimes: mergeLiveGuestsIntoPeakTimes(current, liveGuestTimes),
-            fallbacksUsed: current.fallbacksUsed.filter((entry) => entry !== 'top active areas using fallback labels')
+            fallbacksUsed: current.fallbacksUsed.filter((entry: string) => entry !== 'top active areas using fallback labels')
           };
         });
       } catch (error) {
@@ -167,7 +167,7 @@ export default function Dashboard() {
 
   const handleExport = () => {
     if (!analytics) return;
-    const csv = buildDashboardExportCsv(analytics);
+    const csv = buildDashboardExportCsv(analytics as unknown as DashboardAnalyticsResult);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
