@@ -1,0 +1,1387 @@
+diff --git a/package-lock.json b/package-lock.json
+index 0d6abb7..cdf5d5a 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -9,21 +9,22 @@
+       "version": "0.1.0",
+       "dependencies": {
+         "@supabase/supabase-js": "^2.49.1",
+         "clsx": "^2.1.1",
+         "date-fns": "^3.6.0",
+         "express": "^5.2.1",
+         "leaflet": "^1.9.4",
+         "leaflet.markercluster": "^1.5.3",
+         "react": "^18.3.1",
+         "react-dom": "^18.3.1",
+-        "react-router-dom": "^6.26.2"
++        "react-router-dom": "^6.26.2",
++        "recharts": "^3.10.1"
+       },
+       "devDependencies": {
+         "@netlify/functions": "^2.8.1",
+         "@testing-library/dom": "^10.4.1",
+         "@testing-library/react": "^16.3.2",
+         "@testing-library/user-event": "^14.6.1",
+         "@types/leaflet": "^1.9.12",
+         "@types/node": "^22.13.1",
+         "@types/react": "^18.3.5",
+         "@types/react-dom": "^18.3.0",
+@@ -1141,20 +1142,46 @@
+     "node_modules/@oxc-project/types": {
+       "version": "0.139.0",
+       "resolved": "https://registry.npmjs.org/@oxc-project/types/-/types-0.139.0.tgz",
+       "integrity": "sha512-r9gHphtCs+1M7J0pw6Sn/hh/Wpa/iQrOOkrNAlVLF/gHq+/CJmHIWKKUUhdWjcD6CIa8idarspCsASiXCXvFUw==",
+       "dev": true,
+       "license": "MIT",
+       "funding": {
+         "url": "https://github.com/sponsors/Boshen"
+       }
+     },
++    "node_modules/@reduxjs/toolkit": {
++      "version": "2.12.0",
++      "resolved": "https://registry.npmjs.org/@reduxjs/toolkit/-/toolkit-2.12.0.tgz",
++      "integrity": "sha512-KiT+RzZbp6mQET+Mg+h2c97+9j1sNflUxQkIHI7Yuzf6Peu+OYpmkn6nbHWmLLWj+1ZODUJFwGZ7gx3L9R9EOw==",
++      "license": "MIT",
++      "dependencies": {
++        "@standard-schema/spec": "^1.0.0",
++        "@standard-schema/utils": "^0.3.0",
++        "immer": "^11.0.0",
++        "redux": "^5.0.1",
++        "redux-thunk": "^3.1.0",
++        "reselect": "^5.1.0"
++      },
++      "peerDependencies": {
++        "react": "^16.9.0 || ^17.0.0 || ^18 || ^19",
++        "react-redux": "^7.2.1 || ^8.1.3 || ^9.0.0"
++      },
++      "peerDependenciesMeta": {
++        "react": {
++          "optional": true
++        },
++        "react-redux": {
++          "optional": true
++        }
++      }
++    },
+     "node_modules/@remix-run/router": {
+       "version": "1.23.2",
+       "resolved": "https://registry.npmjs.org/@remix-run/router/-/router-1.23.2.tgz",
+       "integrity": "sha512-Ic6m2U/rMjTkhERIa/0ZtXJP17QUi2CbWE7cqx4J58M8aA3QTfW+2UlQ4psvTX9IO1RfNVhK3pcpdjej7L+t2w==",
+       "license": "MIT",
+       "engines": {
+         "node": ">=14.0.0"
+       }
+     },
+     "node_modules/@rolldown/binding-android-arm64": {
+@@ -1786,21 +1813,26 @@
+       "license": "MIT",
+       "optional": true,
+       "os": [
+         "win32"
+       ]
+     },
+     "node_modules/@standard-schema/spec": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmjs.org/@standard-schema/spec/-/spec-1.1.0.tgz",
+       "integrity": "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==",
+-      "dev": true,
++      "license": "MIT"
++    },
++    "node_modules/@standard-schema/utils": {
++      "version": "0.3.0",
++      "resolved": "https://registry.npmjs.org/@standard-schema/utils/-/utils-0.3.0.tgz",
++      "integrity": "sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==",
+       "license": "MIT"
+     },
+     "node_modules/@supabase/auth-js": {
+       "version": "2.101.1",
+       "resolved": "https://registry.npmjs.org/@supabase/auth-js/-/auth-js-2.101.1.tgz",
+       "integrity": "sha512-Kd0Wey+RkFHgyVep7adS6UOE2pN6MJ3mZ32PAXSvfw6IjUkFRC7IQpdZZjUOcUe5pXr1ejufCRgF6lsGINe4Tw==",
+       "license": "MIT",
+       "dependencies": {
+         "tslib": "2.8.1"
+       },
+@@ -2011,20 +2043,83 @@
+       "version": "5.2.3",
+       "resolved": "https://registry.npmjs.org/@types/chai/-/chai-5.2.3.tgz",
+       "integrity": "sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "@types/deep-eql": "*",
+         "assertion-error": "^2.0.1"
+       }
+     },
++    "node_modules/@types/d3-array": {
++      "version": "3.2.2",
++      "resolved": "https://registry.npmjs.org/@types/d3-array/-/d3-array-3.2.2.tgz",
++      "integrity": "sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==",
++      "license": "MIT"
++    },
++    "node_modules/@types/d3-color": {
++      "version": "3.1.3",
++      "resolved": "https://registry.npmjs.org/@types/d3-color/-/d3-color-3.1.3.tgz",
++      "integrity": "sha512-iO90scth9WAbmgv7ogoq57O9YpKmFBbmoEoCHDB2xMBY0+/KVrqAaCDyCE16dUspeOvIxFFRI+0sEtqDqy2b4A==",
++      "license": "MIT"
++    },
++    "node_modules/@types/d3-ease": {
++      "version": "3.0.2",
++      "resolved": "https://registry.npmjs.org/@types/d3-ease/-/d3-ease-3.0.2.tgz",
++      "integrity": "sha512-NcV1JjO5oDzoK26oMzbILE6HW7uVXOHLQvHshBUW4UMdZGfiY6v5BeQwh9a9tCzv+CeefZQHJt5SRgK154RtiA==",
++      "license": "MIT"
++    },
++    "node_modules/@types/d3-interpolate": {
++      "version": "3.0.4",
++      "resolved": "https://registry.npmjs.org/@types/d3-interpolate/-/d3-interpolate-3.0.4.tgz",
++      "integrity": "sha512-mgLPETlrpVV1YRJIglr4Ez47g7Yxjl1lj7YKsiMCb27VJH9W8NVM6Bb9d8kkpG/uAQS5AmbA48q2IAolKKo1MA==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/d3-color": "*"
++      }
++    },
++    "node_modules/@types/d3-path": {
++      "version": "3.1.1",
++      "resolved": "https://registry.npmjs.org/@types/d3-path/-/d3-path-3.1.1.tgz",
++      "integrity": "sha512-VMZBYyQvbGmWyWVea0EHs/BwLgxc+MKi1zLDCONksozI4YJMcTt8ZEuIR4Sb1MMTE8MMW49v0IwI5+b7RmfWlg==",
++      "license": "MIT"
++    },
++    "node_modules/@types/d3-scale": {
++      "version": "4.0.9",
++      "resolved": "https://registry.npmjs.org/@types/d3-scale/-/d3-scale-4.0.9.tgz",
++      "integrity": "sha512-dLmtwB8zkAeO/juAMfnV+sItKjlsw2lKdZVVy6LRr0cBmegxSABiLEpGVmSJJ8O08i4+sGR6qQtb6WtuwJdvVw==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/d3-time": "*"
++      }
++    },
++    "node_modules/@types/d3-shape": {
++      "version": "3.1.8",
++      "resolved": "https://registry.npmjs.org/@types/d3-shape/-/d3-shape-3.1.8.tgz",
++      "integrity": "sha512-lae0iWfcDeR7qt7rA88BNiqdvPS5pFVPpo5OfjElwNaT2yyekbM0C9vK+yqBqEmHr6lDkRnYNoTBYlAgJa7a4w==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/d3-path": "*"
++      }
++    },
++    "node_modules/@types/d3-time": {
++      "version": "3.0.4",
++      "resolved": "https://registry.npmjs.org/@types/d3-time/-/d3-time-3.0.4.tgz",
++      "integrity": "sha512-yuzZug1nkAAaBlBBikKZTgzCeA+k1uy4ZFwWANOfKw5z5LRhV0gNA7gNkKm7HoK+HRN0wX3EkxGk0fpbWhmB7g==",
++      "license": "MIT"
++    },
++    "node_modules/@types/d3-timer": {
++      "version": "3.0.2",
++      "resolved": "https://registry.npmjs.org/@types/d3-timer/-/d3-timer-3.0.2.tgz",
++      "integrity": "sha512-Ps3T8E8dZDam6fUyNiMkekK3XUsaUEik+idO9/YjPtfj2qruF8tFBXS7XhtE4iIXBLxhmLjP3SXpLhVf21I9Lw==",
++      "license": "MIT"
++    },
+     "node_modules/@types/deep-eql": {
+       "version": "4.0.2",
+       "resolved": "https://registry.npmjs.org/@types/deep-eql/-/deep-eql-4.0.2.tgz",
+       "integrity": "sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==",
+       "dev": true,
+       "license": "MIT"
+     },
+     "node_modules/@types/estree": {
+       "version": "1.0.8",
+       "resolved": "https://registry.npmjs.org/@types/estree/-/estree-1.0.8.tgz",
+@@ -2079,20 +2174,26 @@
+     "node_modules/@types/react-dom": {
+       "version": "18.3.7",
+       "resolved": "https://registry.npmjs.org/@types/react-dom/-/react-dom-18.3.7.tgz",
+       "integrity": "sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ==",
+       "dev": true,
+       "license": "MIT",
+       "peerDependencies": {
+         "@types/react": "^18.0.0"
+       }
+     },
++    "node_modules/@types/use-sync-external-store": {
++      "version": "0.0.6",
++      "resolved": "https://registry.npmjs.org/@types/use-sync-external-store/-/use-sync-external-store-0.0.6.tgz",
++      "integrity": "sha512-zFDAD+tlpf2r4asuHEj0XH6pY6i0g5NeAHPn+15wk3BV6JA69eERFXC1gyGThDkVa1zCyKr5jox1+2LbV/AMLg==",
++      "license": "MIT"
++    },
+     "node_modules/@types/ws": {
+       "version": "8.18.1",
+       "resolved": "https://registry.npmjs.org/@types/ws/-/ws-8.18.1.tgz",
+       "integrity": "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==",
+       "license": "MIT",
+       "dependencies": {
+         "@types/node": "*"
+       }
+     },
+     "node_modules/@vitejs/plugin-react": {
+@@ -2667,20 +2768,141 @@
+         "node": ">=4"
+       }
+     },
+     "node_modules/csstype": {
+       "version": "3.2.3",
+       "resolved": "https://registry.npmjs.org/csstype/-/csstype-3.2.3.tgz",
+       "integrity": "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==",
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/d3-array": {
++      "version": "3.2.4",
++      "resolved": "https://registry.npmjs.org/d3-array/-/d3-array-3.2.4.tgz",
++      "integrity": "sha512-tdQAmyA18i4J7wprpYq8ClcxZy3SC31QMeByyCFyRt7BVHdREQZ5lpzoe5mFEYZUWe+oq8HBvk9JjpibyEV4Jg==",
++      "license": "ISC",
++      "dependencies": {
++        "internmap": "1 - 2"
++      },
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/d3-color": {
++      "version": "3.1.0",
++      "resolved": "https://registry.npmjs.org/d3-color/-/d3-color-3.1.0.tgz",
++      "integrity": "sha512-zg/chbXyeBtMQ1LbD/WSoW2DpC3I0mpmPdW+ynRTj/x2DAWYrIY7qeZIHidozwV24m4iavr15lNwIwLxRmOxhA==",
++      "license": "ISC",
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/d3-ease": {
++      "version": "3.0.1",
++      "resolved": "https://registry.npmjs.org/d3-ease/-/d3-ease-3.0.1.tgz",
++      "integrity": "sha512-wR/XK3D3XcLIZwpbvQwQ5fK+8Ykds1ip7A2Txe0yxncXSdq1L9skcG7blcedkOX+ZcgxGAmLX1FrRGbADwzi0w==",
++      "license": "BSD-3-Clause",
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/d3-format": {
++      "version": "3.1.2",
++      "resolved": "https://registry.npmjs.org/d3-format/-/d3-format-3.1.2.tgz",
++      "integrity": "sha512-AJDdYOdnyRDV5b6ArilzCPPwc1ejkHcoyFarqlPqT7zRYjhavcT3uSrqcMvsgh2CgoPbK3RCwyHaVyxYcP2Arg==",
++      "license": "ISC",
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/d3-interpolate": {
++      "version": "3.0.1",
++      "resolved": "https://registry.npmjs.org/d3-interpolate/-/d3-interpolate-3.0.1.tgz",
++      "integrity": "sha512-3bYs1rOD33uo8aqJfKP3JWPAibgw8Zm2+L9vBKEHJ2Rg+viTR7o5Mmv5mZcieN+FRYaAOWX5SJATX6k1PWz72g==",
++      "license": "ISC",
++      "dependencies": {
++        "d3-color": "1 - 3"
++      },
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/d3-path": {
++      "version": "3.1.0",
++      "resolved": "https://registry.npmjs.org/d3-path/-/d3-path-3.1.0.tgz",
++      "integrity": "sha512-p3KP5HCf/bvjBSSKuXid6Zqijx7wIfNW+J/maPs+iwR35at5JCbLUT0LzF1cnjbCHWhqzQTIN2Jpe8pRebIEFQ==",
++      "license": "ISC",
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/d3-scale": {
++      "version": "4.0.2",
++      "resolved": "https://registry.npmjs.org/d3-scale/-/d3-scale-4.0.2.tgz",
++      "integrity": "sha512-GZW464g1SH7ag3Y7hXjf8RoUuAFIqklOAq3MRl4OaWabTFJY9PN/E1YklhXLh+OQ3fM9yS2nOkCoS+WLZ6kvxQ==",
++      "license": "ISC",
++      "dependencies": {
++        "d3-array": "2.10.0 - 3",
++        "d3-format": "1 - 3",
++        "d3-interpolate": "1.2.0 - 3",
++        "d3-time": "2.1.1 - 3",
++        "d3-time-format": "2 - 4"
++      },
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/d3-shape": {
++      "version": "3.2.0",
++      "resolved": "https://registry.npmjs.org/d3-shape/-/d3-shape-3.2.0.tgz",
++      "integrity": "sha512-SaLBuwGm3MOViRq2ABk3eLoxwZELpH6zhl3FbAoJ7Vm1gofKx6El1Ib5z23NUEhF9AsGl7y+dzLe5Cw2AArGTA==",
++      "license": "ISC",
++      "dependencies": {
++        "d3-path": "^3.1.0"
++      },
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/d3-time": {
++      "version": "3.1.0",
++      "resolved": "https://registry.npmjs.org/d3-time/-/d3-time-3.1.0.tgz",
++      "integrity": "sha512-VqKjzBLejbSMT4IgbmVgDjpkYrNWUYJnbCGo874u7MMKIWsILRX+OpX/gTk8MqjpT1A/c6HY2dCA77ZN0lkQ2Q==",
++      "license": "ISC",
++      "dependencies": {
++        "d3-array": "2 - 3"
++      },
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/d3-time-format": {
++      "version": "4.1.0",
++      "resolved": "https://registry.npmjs.org/d3-time-format/-/d3-time-format-4.1.0.tgz",
++      "integrity": "sha512-dJxPBlzC7NugB2PDLwo9Q8JiTR3M3e4/XANkreKSUxF8vvXKqm1Yfq4Q5dl8budlunRVlUUaDUgFt7eA8D6NLg==",
++      "license": "ISC",
++      "dependencies": {
++        "d3-time": "1 - 3"
++      },
++      "engines": {
++        "node": ">=12"
++      }
++    },
++    "node_modules/d3-timer": {
++      "version": "3.0.1",
++      "resolved": "https://registry.npmjs.org/d3-timer/-/d3-timer-3.0.1.tgz",
++      "integrity": "sha512-ndfJ/JxxMd3nw31uyKoY2naivF+r29V+Lc0svZxe1JvvIRmi8hUsrMvdOwgS1o6uBHmiz91geQ0ylPP0aj1VUA==",
++      "license": "ISC",
++      "engines": {
++        "node": ">=12"
++      }
++    },
+     "node_modules/data-urls": {
+       "version": "7.0.0",
+       "resolved": "https://registry.npmjs.org/data-urls/-/data-urls-7.0.0.tgz",
+       "integrity": "sha512-23XHcCF+coGYevirZceTVD7NdJOqVn+49IHyxgszm+JIiHLoB2TkmPtsYkNWT1pvRSGkc35L6NHs0yHkN2SumA==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "whatwg-mimetype": "^5.0.0",
+         "whatwg-url": "^16.0.0"
+       },
+@@ -2730,20 +2952,26 @@
+         }
+       }
+     },
+     "node_modules/decimal.js": {
+       "version": "10.6.0",
+       "resolved": "https://registry.npmjs.org/decimal.js/-/decimal.js-10.6.0.tgz",
+       "integrity": "sha512-YpgQiITW3JXGntzdUmyUR1V812Hn8T1YVXhCu+wO3OpS4eU9l4YdD3qjyiKdV6mvV29zapkMeD390UVEf2lkUg==",
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/decimal.js-light": {
++      "version": "2.5.1",
++      "resolved": "https://registry.npmjs.org/decimal.js-light/-/decimal.js-light-2.5.1.tgz",
++      "integrity": "sha512-qIMFpTMZmny+MMIitAB6D7iVPEorVw6YQRWkvarTkT4tBeSLLiHzcwj6q0MmYSFCiVpiqPJTJEYIrpcPzVEIvg==",
++      "license": "MIT"
++    },
+     "node_modules/depd": {
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/depd/-/depd-2.0.0.tgz",
+       "integrity": "sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw==",
+       "license": "MIT",
+       "engines": {
+         "node": ">= 0.8"
+       }
+     },
+     "node_modules/dequal": {
+@@ -2866,20 +3094,31 @@
+       "resolved": "https://registry.npmjs.org/es-object-atoms/-/es-object-atoms-1.1.1.tgz",
+       "integrity": "sha512-FGgH2h8zKNim9ljj7dankFPcICIK9Cp5bm+c2gQSYePhpaG5+esrLODihIorn+Pe6FGJzWhXQotPv73jTaldXA==",
+       "license": "MIT",
+       "dependencies": {
+         "es-errors": "^1.3.0"
+       },
+       "engines": {
+         "node": ">= 0.4"
+       }
+     },
++    "node_modules/es-toolkit": {
++      "version": "1.50.0",
++      "resolved": "https://registry.npmjs.org/es-toolkit/-/es-toolkit-1.50.0.tgz",
++      "integrity": "sha512-OyZKhUVvEep9ITEiwHn8GKnMRQIVqoSIX7WnRbkWgJkllCujilqP2rD0u979tkl8wqyc8ICwlc1UBVv/Sl1G6w==",
++      "license": "MIT",
++      "workspaces": [
++        "docs",
++        "benchmarks",
++        "tests/types"
++      ]
++    },
+     "node_modules/esbuild": {
+       "version": "0.21.5",
+       "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.21.5.tgz",
+       "integrity": "sha512-mg3OPMV4hXywwpoDxu3Qda5xCKQi+vCTZq8S9J/EpkhB2HzKXq4SNFZE3+NK93JYxc8VMSep+lOUSC/RVKaBqw==",
+       "dev": true,
+       "hasInstallScript": true,
+       "license": "MIT",
+       "bin": {
+         "esbuild": "bin/esbuild"
+       },
+@@ -2940,20 +3179,26 @@
+     },
+     "node_modules/etag": {
+       "version": "1.8.1",
+       "resolved": "https://registry.npmjs.org/etag/-/etag-1.8.1.tgz",
+       "integrity": "sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==",
+       "license": "MIT",
+       "engines": {
+         "node": ">= 0.6"
+       }
+     },
++    "node_modules/eventemitter3": {
++      "version": "5.0.4",
++      "resolved": "https://registry.npmjs.org/eventemitter3/-/eventemitter3-5.0.4.tgz",
++      "integrity": "sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==",
++      "license": "MIT"
++    },
+     "node_modules/expect-type": {
+       "version": "1.4.0",
+       "resolved": "https://registry.npmjs.org/expect-type/-/expect-type-1.4.0.tgz",
+       "integrity": "sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==",
+       "dev": true,
+       "license": "Apache-2.0",
+       "engines": {
+         "node": ">=12.0.0"
+       }
+     },
+@@ -3277,26 +3522,45 @@
+         "safer-buffer": ">= 2.1.2 < 3.0.0"
+       },
+       "engines": {
+         "node": ">=0.10.0"
+       },
+       "funding": {
+         "type": "opencollective",
+         "url": "https://opencollective.com/express"
+       }
+     },
++    "node_modules/immer": {
++      "version": "11.1.15",
++      "resolved": "https://registry.npmjs.org/immer/-/immer-11.1.15.tgz",
++      "integrity": "sha512-VrNANlmnWQnh5COXIIOQXM9oOJw7naGKlBT74ZOOR6lpVXc3gFEu9FJLDFcpCJ2j+NWr8TIwtWD//T6ZX6TKiQ==",
++      "license": "MIT",
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/immer"
++      }
++    },
+     "node_modules/inherits": {
+       "version": "2.0.4",
+       "resolved": "https://registry.npmjs.org/inherits/-/inherits-2.0.4.tgz",
+       "integrity": "sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==",
+       "license": "ISC"
+     },
++    "node_modules/internmap": {
++      "version": "2.0.3",
++      "resolved": "https://registry.npmjs.org/internmap/-/internmap-2.0.3.tgz",
++      "integrity": "sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg==",
++      "license": "ISC",
++      "engines": {
++        "node": ">=12"
++      }
++    },
+     "node_modules/ipaddr.js": {
+       "version": "1.9.1",
+       "resolved": "https://registry.npmjs.org/ipaddr.js/-/ipaddr.js-1.9.1.tgz",
+       "integrity": "sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==",
+       "license": "MIT",
+       "engines": {
+         "node": ">= 0.10"
+       }
+     },
+     "node_modules/is-binary-path": {
+@@ -4405,20 +4669,43 @@
+         "react": "^18.3.1"
+       }
+     },
+     "node_modules/react-is": {
+       "version": "17.0.2",
+       "resolved": "https://registry.npmjs.org/react-is/-/react-is-17.0.2.tgz",
+       "integrity": "sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w==",
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/react-redux": {
++      "version": "9.3.0",
++      "resolved": "https://registry.npmjs.org/react-redux/-/react-redux-9.3.0.tgz",
++      "integrity": "sha512-KQopgqFo/p/fgmAs5qz6p5RWaNAzq40WAu7fJIXnQpYxFPbJYtsJPWvGeF2rOBaY/kEuV77AVsX8TsQzKm+A/g==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/use-sync-external-store": "^0.0.6",
++        "use-sync-external-store": "^1.4.0"
++      },
++      "peerDependencies": {
++        "@types/react": "^18.2.25 || ^19",
++        "react": "^18.0 || ^19",
++        "redux": "^5.0.0"
++      },
++      "peerDependenciesMeta": {
++        "@types/react": {
++          "optional": true
++        },
++        "redux": {
++          "optional": true
++        }
++      }
++    },
+     "node_modules/react-refresh": {
+       "version": "0.17.0",
+       "resolved": "https://registry.npmjs.org/react-refresh/-/react-refresh-0.17.0.tgz",
+       "integrity": "sha512-z6F7K9bV85EfseRCp2bzrpyQ0Gkw1uLoCel9XBVWPg/TjRj94SkJzUTGfOa4bs7iJvBWtQG0Wq7wnI0syw3EBQ==",
+       "dev": true,
+       "license": "MIT",
+       "engines": {
+         "node": ">=0.10.0"
+       }
+     },
+@@ -4470,30 +4757,81 @@
+       "integrity": "sha512-hOS089on8RduqdbhvQ5Z37A0ESjsqz6qnRcffsMU3495FuTdqSm+7bhJ29JvIOsBDEEnan5DPu9t3To9VRlMzA==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "picomatch": "^2.2.1"
+       },
+       "engines": {
+         "node": ">=8.10.0"
+       }
+     },
++    "node_modules/recharts": {
++      "version": "3.10.1",
++      "resolved": "https://registry.npmjs.org/recharts/-/recharts-3.10.1.tgz",
++      "integrity": "sha512-QXFrvt6IVcw7eeZCoyXTwkIJAX3Dv1nyVhMicXJ47GsGDDpcN8z6o644DibE9XjpBTThtsomLKnTV6lc+cVFUA==",
++      "license": "MIT",
++      "workspaces": [
++        "www"
++      ],
++      "dependencies": {
++        "@reduxjs/toolkit": "^1.9.0 || 2.x.x",
++        "clsx": "^2.1.1",
++        "decimal.js-light": "^2.5.1",
++        "es-toolkit": "^1.39.3",
++        "eventemitter3": "^5.0.1",
++        "immer": "^11.1.8",
++        "react-redux": "8.x.x || 9.x.x",
++        "reselect": "5.2.0",
++        "tiny-invariant": "^1.3.3",
++        "use-sync-external-store": "^1.2.2",
++        "victory-vendor": "^37.0.2"
++      },
++      "engines": {
++        "node": ">=18"
++      },
++      "peerDependencies": {
++        "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0",
++        "react-dom": "^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0",
++        "react-is": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0"
++      }
++    },
++    "node_modules/redux": {
++      "version": "5.0.1",
++      "resolved": "https://registry.npmjs.org/redux/-/redux-5.0.1.tgz",
++      "integrity": "sha512-M9/ELqF6fy8FwmkpnF0S3YKOqMyoWJ4+CS5Efg2ct3oY9daQvd/Pc71FpGZsVsbl3Cpb+IIcjBDUnnyBdQbq4w==",
++      "license": "MIT"
++    },
++    "node_modules/redux-thunk": {
++      "version": "3.1.0",
++      "resolved": "https://registry.npmjs.org/redux-thunk/-/redux-thunk-3.1.0.tgz",
++      "integrity": "sha512-NW2r5T6ksUKXCabzhL9z+h206HQw/NJkcLm1GPImRQ8IzfXwRGqjVhKJGauHirT0DAuyy6hjdnMZaRoAcy0Klw==",
++      "license": "MIT",
++      "peerDependencies": {
++        "redux": "^5.0.0"
++      }
++    },
+     "node_modules/require-from-string": {
+       "version": "2.0.2",
+       "resolved": "https://registry.npmjs.org/require-from-string/-/require-from-string-2.0.2.tgz",
+       "integrity": "sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==",
+       "dev": true,
+       "license": "MIT",
+       "engines": {
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/reselect": {
++      "version": "5.2.0",
++      "resolved": "https://registry.npmjs.org/reselect/-/reselect-5.2.0.tgz",
++      "integrity": "sha512-AgZ3UOZm3YndfrJ4OYjgrT7bmCm/1iqkjvEfH/oYjzh6PD2qw4QuT3jjnXIrpdt4MTpMXclMT3lXbmRY+XRakw==",
++      "license": "MIT"
++    },
+     "node_modules/resolve": {
+       "version": "1.22.11",
+       "resolved": "https://registry.npmjs.org/resolve/-/resolve-1.22.11.tgz",
+       "integrity": "sha512-RfqAvLnMl313r7c9oclB1HhUEAezcpLjz95wFH4LVuhk9JF/r22qmVP9AMmOU4vMX7Q8pN8jwNg/CSpdFnMjTQ==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "is-core-module": "^2.16.1",
+         "path-parse": "^1.0.7",
+         "supports-preserve-symlinks-flag": "^1.0.0"
+@@ -4943,20 +5281,26 @@
+       "integrity": "sha512-RNxQH/qI8/t3thXJDwcstUO4zeqo64+Uy/+sNVRBx4Xn2OX+OZ9oP+iJnNFqplFra2ZUVeKCSa2oVWi3T4uVmA==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "thenify": ">= 3.1.0 < 4"
+       },
+       "engines": {
+         "node": ">=0.8"
+       }
+     },
++    "node_modules/tiny-invariant": {
++      "version": "1.3.3",
++      "resolved": "https://registry.npmjs.org/tiny-invariant/-/tiny-invariant-1.3.3.tgz",
++      "integrity": "sha512-+FbBPE1o9QAYvviau/qC5SE3caw21q3xkvWKBtja5vgqOWIHHJ3ioaq1VPfn/Szqctz2bU/oYeKd9/z5BL+PVg==",
++      "license": "MIT"
++    },
+     "node_modules/tinybench": {
+       "version": "2.9.0",
+       "resolved": "https://registry.npmjs.org/tinybench/-/tinybench-2.9.0.tgz",
+       "integrity": "sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==",
+       "dev": true,
+       "license": "MIT"
+     },
+     "node_modules/tinyexec": {
+       "version": "1.2.4",
+       "resolved": "https://registry.npmjs.org/tinyexec/-/tinyexec-1.2.4.tgz",
+@@ -5207,36 +5551,67 @@
+         "browserslist": ">= 4.21.0"
+       }
+     },
+     "node_modules/urlpattern-polyfill": {
+       "version": "8.0.2",
+       "resolved": "https://registry.npmjs.org/urlpattern-polyfill/-/urlpattern-polyfill-8.0.2.tgz",
+       "integrity": "sha512-Qp95D4TPJl1kC9SKigDcqgyM2VDVO4RiJc2d4qe5GrYm+zbIQCWWKAFaJNQ4BhdFeDGwBmAxqJBwWSJDb9T3BQ==",
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/use-sync-external-store": {
++      "version": "1.6.0",
++      "resolved": "https://registry.npmjs.org/use-sync-external-store/-/use-sync-external-store-1.6.0.tgz",
++      "integrity": "sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==",
++      "license": "MIT",
++      "peerDependencies": {
++        "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0"
++      }
++    },
+     "node_modules/util-deprecate": {
+       "version": "1.0.2",
+       "resolved": "https://registry.npmjs.org/util-deprecate/-/util-deprecate-1.0.2.tgz",
+       "integrity": "sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==",
+       "dev": true,
+       "license": "MIT"
+     },
+     "node_modules/vary": {
+       "version": "1.1.2",
+       "resolved": "https://registry.npmjs.org/vary/-/vary-1.1.2.tgz",
+       "integrity": "sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==",
+       "license": "MIT",
+       "engines": {
+         "node": ">= 0.8"
+       }
+     },
++    "node_modules/victory-vendor": {
++      "version": "37.3.6",
++      "resolved": "https://registry.npmjs.org/victory-vendor/-/victory-vendor-37.3.6.tgz",
++      "integrity": "sha512-SbPDPdDBYp+5MJHhBCAyI7wKM3d5ivekigc2Dk2s7pgbZ9wIgIBYGVw4zGHBml/qTFbexrofXW6Gu4noGxrOwQ==",
++      "license": "MIT AND ISC",
++      "dependencies": {
++        "@types/d3-array": "^3.0.3",
++        "@types/d3-ease": "^3.0.0",
++        "@types/d3-interpolate": "^3.0.1",
++        "@types/d3-scale": "^4.0.2",
++        "@types/d3-shape": "^3.1.0",
++        "@types/d3-time": "^3.0.0",
++        "@types/d3-timer": "^3.0.0",
++        "d3-array": "^3.1.6",
++        "d3-ease": "^3.0.1",
++        "d3-interpolate": "^3.0.1",
++        "d3-scale": "^4.0.2",
++        "d3-shape": "^3.1.0",
++        "d3-time": "^3.0.0",
++        "d3-timer": "^3.0.1"
++      }
++    },
+     "node_modules/vite": {
+       "version": "5.4.21",
+       "resolved": "https://registry.npmjs.org/vite/-/vite-5.4.21.tgz",
+       "integrity": "sha512-o5a9xKjbtuhY6Bi5S3+HvbRERmouabWbyUcpXXUA1u+GNUKoROi9byOJ8M0nHbHYHkYICiMlqxkg1KkYmm25Sw==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "esbuild": "^0.21.3",
+         "postcss": "^8.4.43",
+         "rollup": "^4.20.0"
+diff --git a/package.json b/package.json
+index a6ceeb7..bf23be5 100644
+--- a/package.json
++++ b/package.json
+@@ -14,21 +14,22 @@
+   },
+   "dependencies": {
+     "@supabase/supabase-js": "^2.49.1",
+     "clsx": "^2.1.1",
+     "date-fns": "^3.6.0",
+     "express": "^5.2.1",
+     "leaflet": "^1.9.4",
+     "leaflet.markercluster": "^1.5.3",
+     "react": "^18.3.1",
+     "react-dom": "^18.3.1",
+-    "react-router-dom": "^6.26.2"
++    "react-router-dom": "^6.26.2",
++    "recharts": "^3.10.1"
+   },
+   "devDependencies": {
+     "@netlify/functions": "^2.8.1",
+     "@testing-library/dom": "^10.4.1",
+     "@testing-library/react": "^16.3.2",
+     "@testing-library/user-event": "^14.6.1",
+     "@types/leaflet": "^1.9.12",
+     "@types/node": "^22.13.1",
+     "@types/react": "^18.3.5",
+     "@types/react-dom": "^18.3.0",
+diff --git a/src/components/dashboard/VisitsOverTimeChart.tsx b/src/components/dashboard/VisitsOverTimeChart.tsx
+new file mode 100644
+index 0000000..b3cd0a0
+--- /dev/null
++++ b/src/components/dashboard/VisitsOverTimeChart.tsx
+@@ -0,0 +1,253 @@
++import { useCallback, useEffect, useMemo, useState } from 'react';
++import {
++  Area,
++  CartesianGrid,
++  ComposedChart,
++  Legend,
++  Line,
++  ResponsiveContainer,
++  Tooltip,
++  XAxis,
++  YAxis
++} from 'recharts';
++import { Spinner } from '../ui/Spinner';
++import type { DashboardAnalyticsResult } from '../../lib/dashboardAnalytics';
++
++export type VisitPoint = DashboardAnalyticsResult['visitsOverTime'][number];
++
++const VISITS_COLOR = '#22c55e';
++const UNIQUE_GUESTS_COLOR = '#4ade80';
++const GRADIENT_ID = 'visitsUniqueGuestsGradient';
++
++const SERIES = {
++  visits: { key: 'visits', name: 'Visits', color: VISITS_COLOR },
++  uniqueGuests: { key: 'uniqueGuests', name: 'Unique Guests', color: UNIQUE_GUESTS_COLOR }
++} as const;
++
++/** Breakpoint past which a range is wide enough to need horizontal scrolling. */
++const SCROLL_THRESHOLD_DAYS = 30;
++/** Horizontal room each day needs before labels start colliding. */
++const PX_PER_DAY = 34;
++
++/**
++ * Recharts renders every Nth+1 tick, so `interval={6}` yields every 7th day.
++ * Short ranges stay fully labelled.
++ */
++export function getTickInterval(pointCount: number): number {
++  return pointCount > 14 ? 6 : 0;
++}
++
++/** Chart height tiers: mobile, tablet, desktop. */
++export function getChartHeight(viewportWidth: number): number {
++  if (viewportWidth < 640) return 220;
++  if (viewportWidth < 1024) return 260;
++  return 300;
++}
++
++/** Ranges of 30+ days get a horizontally scrollable viewport. */
++export function isScrollableRange(pointCount: number): boolean {
++  return pointCount >= SCROLL_THRESHOLD_DAYS;
++}
++
++function useViewportWidth(): number {
++  const [width, setWidth] = useState(() => (typeof window === 'undefined' ? 1024 : window.innerWidth));
++
++  useEffect(() => {
++    if (typeof window === 'undefined') return;
++    const onResize = () => setWidth(window.innerWidth);
++    window.addEventListener('resize', onResize);
++    return () => window.removeEventListener('resize', onResize);
++  }, []);
++
++  return width;
++}
++
++export type VisitsTooltipPayloadItem = {
++  dataKey?: string | number;
++  value?: number | string;
++  payload?: VisitPoint;
++};
++
++export type VisitsTooltipProps = {
++  active?: boolean;
++  label?: string | number;
++  payload?: VisitsTooltipPayloadItem[];
++};
++
++/**
++ * Dark tooltip card. Reads the whole datum off the payload so both metrics stay
++ * visible even when one series has been toggled off via the legend.
++ */
++export function VisitsTooltip({ active, payload, label }: VisitsTooltipProps) {
++  if (!active || !payload || payload.length === 0) return null;
++
++  const point = payload[0]?.payload;
++  if (!point) return null;
++
++  return (
++    <div className="visits-chart-tooltip" role="tooltip">
++      <div className="visits-chart-tooltip-date">{point.label ?? label}</div>
++      <div className="visits-chart-tooltip-row">
++        <span className="visits-chart-tooltip-swatch" style={{ background: SERIES.visits.color }} />
++        <span className="visits-chart-tooltip-name">{SERIES.visits.name}</span>
++        <strong className="visits-chart-tooltip-value">{point.visits}</strong>
++      </div>
++      <div className="visits-chart-tooltip-row">
++        <span
++          className="visits-chart-tooltip-swatch"
++          style={{ background: SERIES.uniqueGuests.color }}
++        />
++        <span className="visits-chart-tooltip-name">{SERIES.uniqueGuests.name}</span>
++        <strong className="visits-chart-tooltip-value">{point.uniqueGuests}</strong>
++      </div>
++    </div>
++  );
++}
++
++export type VisitsOverTimeChartProps = {
++  data: VisitPoint[];
++  loading?: boolean;
++  error?: Error | null;
++};
++
++export function VisitsOverTimeChart({ data, loading, error }: VisitsOverTimeChartProps) {
++  const [hiddenSeries, setHiddenSeries] = useState<Record<string, boolean>>({});
++  const viewportWidth = useViewportWidth();
++
++  const isMobile = viewportWidth < 640;
++  const chartHeight = getChartHeight(viewportWidth);
++  const scrollable = isScrollableRange(data.length);
++  const tickInterval = getTickInterval(data.length);
++
++  // Recharts types dataKey as string | number | accessor fn; only our string keys toggle.
++  const toggleSeries = useCallback((key: unknown) => {
++    if (typeof key !== 'string') return;
++    setHiddenSeries((previous) => ({ ...previous, [key]: !previous[key] }));
++  }, []);
++
++  const summary = useMemo(() => {
++    if (data.length === 0) return 'Visits over time';
++    const totalVisits = data.reduce((sum, point) => sum + point.visits, 0);
++    return `Visits over time: ${totalVisits} visits across ${data.length} days, from ${data[0].label} to ${data[data.length - 1].label}`;
++  }, [data]);
++
++  if (loading) {
++    return (
++      <div className="visits-chart-state" role="status" aria-live="polite">
++        <Spinner label="Loading visits…" />
++      </div>
++    );
++  }
++
++  if (error) {
++    return (
++      <div className="visits-chart-state visits-chart-error" role="alert">
++        <p className="visits-chart-error-title">Could not load visits</p>
++        <p className="visits-chart-error-message">{error.message}</p>
++      </div>
++    );
++  }
++
++  if (data.length === 0) {
++    return (
++      <div className="visits-chart-state dashboard-empty-state">No visit data for this period</div>
++    );
++  }
++
++  return (
++    <div className="visits-chart-container" role="img" aria-label={summary}>
++      <div className="visits-chart-scroll">
++        <div
++          className="visits-chart-inner"
++          style={scrollable ? { minWidth: data.length * PX_PER_DAY } : undefined}
++        >
++          <ResponsiveContainer width="100%" height={chartHeight}>
++            <ComposedChart data={data} margin={{ top: 12, right: 12, bottom: 4, left: -12 }}>
++              <defs>
++                <linearGradient id={GRADIENT_ID} x1="0" y1="0" x2="0" y2="1">
++                  <stop offset="0%" stopColor={UNIQUE_GUESTS_COLOR} stopOpacity={0.2} />
++                  <stop offset="100%" stopColor={UNIQUE_GUESTS_COLOR} stopOpacity={0} />
++                </linearGradient>
++              </defs>
++
++              <CartesianGrid
++                vertical={false}
++                stroke="var(--visits-chart-grid)"
++                strokeDasharray="3 3"
++              />
++
++              <XAxis
++                dataKey="shortLabel"
++                interval={tickInterval}
++                tickLine={false}
++                axisLine={false}
++                tickMargin={10}
++                minTickGap={4}
++                tick={{ fill: 'var(--visits-chart-axis)', fontSize: 12 }}
++              />
++
++              {/* Both series are plain visit counts, so they share one axis —
++                  unique guests is a subset of visits and separate scales would
++                  make the area appear to exceed the line. */}
++              <YAxis
++                allowDecimals={false}
++                width={48}
++                tickLine={false}
++                axisLine={false}
++                tick={{ fill: 'var(--visits-chart-axis)', fontSize: 12 }}
++              />
++
++              <Tooltip
++                content={<VisitsTooltip />}
++                cursor={{ stroke: 'var(--visits-chart-cursor)', strokeDasharray: '4 4' }}
++              />
++
++              {!isMobile && (
++                <Legend
++                  verticalAlign="top"
++                  align="right"
++                  height={32}
++                  iconType="circle"
++                  iconSize={8}
++                  onClick={(entry) => toggleSeries(entry.dataKey)}
++                  formatter={(value: string) => (
++                    <span className="visits-chart-legend-label">{value}</span>
++                  )}
++                />
++              )}
++
++              <Area
++                type="monotone"
++                dataKey={SERIES.uniqueGuests.key}
++                name={SERIES.uniqueGuests.name}
++                stroke={UNIQUE_GUESTS_COLOR}
++                strokeWidth={1.5}
++                strokeOpacity={0.6}
++                fill={`url(#${GRADIENT_ID})`}
++                hide={hiddenSeries[SERIES.uniqueGuests.key]}
++                activeDot={{ r: 4, strokeWidth: 0 }}
++                isAnimationActive={false}
++              />
++
++              <Line
++                type="monotone"
++                dataKey={SERIES.visits.key}
++                name={SERIES.visits.name}
++                stroke={VISITS_COLOR}
++                strokeWidth={2.5}
++                strokeLinecap="round"
++                dot={false}
++                hide={hiddenSeries[SERIES.visits.key]}
++                activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--visits-chart-dot-ring)' }}
++                isAnimationActive={false}
++              />
++            </ComposedChart>
++          </ResponsiveContainer>
++        </div>
++      </div>
++      {scrollable && (
++        <p className="visits-chart-scroll-hint">Scroll horizontally to see the full range</p>
++      )}
++    </div>
++  );
++}
+diff --git a/src/components/dashboard/__tests__/VisitsOverTimeChart.test.tsx b/src/components/dashboard/__tests__/VisitsOverTimeChart.test.tsx
+new file mode 100644
+index 0000000..e8a5c88
+--- /dev/null
++++ b/src/components/dashboard/__tests__/VisitsOverTimeChart.test.tsx
+@@ -0,0 +1,201 @@
++// @vitest-environment jsdom
++import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest';
++import { render, screen, cleanup, act } from '@testing-library/react';
++import {
++  VisitsOverTimeChart,
++  VisitsTooltip,
++  getTickInterval,
++  getChartHeight,
++  isScrollableRange,
++  type VisitPoint
++} from '../VisitsOverTimeChart';
++
++// Recharts measures its container with ResizeObserver and refuses to draw at zero
++// size. jsdom provides neither, so stub the observer and force ResponsiveContainer
++// to a fixed desktop-ish box.
++beforeAll(() => {
++  globalThis.ResizeObserver = class {
++    observe() {}
++    unobserve() {}
++    disconnect() {}
++  } as unknown as typeof ResizeObserver;
++});
++
++vi.mock('recharts', async () => {
++  const actual = await vi.importActual<typeof import('recharts')>('recharts');
++  return {
++    ...actual,
++    ResponsiveContainer: ({ children, height }: { children: React.ReactNode; height?: number }) => (
++      <div className="mock-responsive-container" style={{ width: 800, height: height ?? 300 }}>
++        <actual.ResponsiveContainer width={800} height={height ?? 300}>
++          {children as React.ReactElement}
++        </actual.ResponsiveContainer>
++      </div>
++    )
++  };
++});
++
++function makeData(days: number): VisitPoint[] {
++  return Array.from({ length: days }, (_, index) => ({
++    isoDate: `2026-07-${String(index + 1).padStart(2, '0')}`,
++    label: `${index + 1} July 2026`,
++    shortLabel: `${index + 1} Jul`,
++    visits: 10 + index,
++    uniqueGuests: 5 + index
++  }));
++}
++
++function setViewportWidth(width: number) {
++  Object.defineProperty(window, 'innerWidth', { value: width, writable: true, configurable: true });
++}
++
++afterEach(() => {
++  cleanup();
++  setViewportWidth(1024);
++  vi.restoreAllMocks();
++});
++
++describe('VisitsOverTimeChart', () => {
++  it('should render loading state', () => {
++    const { container } = render(<VisitsOverTimeChart data={[]} loading />);
++
++    const status = screen.getByRole('status');
++    expect(status).toBeDefined();
++    expect(status.textContent).toContain('Loading visits');
++    // No chart is drawn while loading.
++    expect(container.querySelector('.recharts-surface')).toBeNull();
++  });
++
++  it('should render error state with message', () => {
++    const { container } = render(
++      <VisitsOverTimeChart data={makeData(5)} error={new Error('Analytics fetch failed')} />
++    );
++
++    const alert = screen.getByRole('alert');
++    expect(alert).toBeDefined();
++    expect(alert.textContent).toContain('Analytics fetch failed');
++    // Error takes precedence over data.
++    expect(container.querySelector('.recharts-surface')).toBeNull();
++  });
++
++  it('should render empty state when no data', () => {
++    const { container } = render(<VisitsOverTimeChart data={[]} />);
++
++    expect(screen.getByText('No visit data for this period')).toBeDefined();
++    expect(container.querySelector('.recharts-surface')).toBeNull();
++  });
++
++  it('should render chart with data', () => {
++    const { container } = render(<VisitsOverTimeChart data={makeData(7)} />);
++
++    // Recharts drew a real surface with both series.
++    expect(container.querySelector('.recharts-surface')).not.toBeNull();
++    expect(container.querySelector('.recharts-line')).not.toBeNull();
++    expect(container.querySelector('.recharts-area')).not.toBeNull();
++    expect(container.querySelector('.recharts-cartesian-grid')).not.toBeNull();
++
++    // Gradient fill for the area series is defined.
++    expect(container.querySelector('linearGradient#visitsUniqueGuestsGradient')).not.toBeNull();
++
++    // Legend labels both series.
++    expect(screen.getByText('Visits')).toBeDefined();
++    expect(screen.getByText('Unique Guests')).toBeDefined();
++
++    // Accessible description of the chart.
++    expect(screen.getByRole('img', { name: /visits over time/i })).toBeDefined();
++  });
++
++  it('should display tooltip on hover', () => {
++    const point = makeData(1)[0];
++    render(
++      <VisitsTooltip
++        active
++        label={point.shortLabel}
++        payload={[{ dataKey: 'visits', value: point.visits, payload: point }]}
++      />
++    );
++
++    const tooltip = screen.getByRole('tooltip');
++    expect(tooltip).toBeDefined();
++    // Full date label, not the abbreviated axis label.
++    expect(tooltip.textContent).toContain('1 July 2026');
++    // Both metrics are shown even though only one series is in the payload.
++    expect(tooltip.textContent).toContain('Visits');
++    expect(tooltip.textContent).toContain('10');
++    expect(tooltip.textContent).toContain('Unique Guests');
++    expect(tooltip.textContent).toContain('5');
++  });
++
++  it('should not render tooltip when inactive or payload is empty', () => {
++    const { container: inactive } = render(<VisitsTooltip active={false} payload={[]} />);
++    expect(inactive.querySelector('[role="tooltip"]')).toBeNull();
++
++    cleanup();
++
++    const { container: noPayload } = render(<VisitsTooltip active payload={[]} />);
++    expect(noPayload.querySelector('[role="tooltip"]')).toBeNull();
++  });
++
++  it('should format labels correctly', () => {
++    // Short ranges label every day; long ranges thin out to every 7th day.
++    expect(getTickInterval(7)).toBe(0);
++    expect(getTickInterval(14)).toBe(0);
++    expect(getTickInterval(15)).toBe(6);
++    expect(getTickInterval(30)).toBe(6);
++
++    const { container } = render(<VisitsOverTimeChart data={makeData(7)} />);
++    const axisText = Array.from(
++      container.querySelectorAll('.recharts-xAxis-tick-labels text')
++    ).map((node) => node.textContent);
++    // Axis uses the abbreviated label, not the ISO date.
++    expect(axisText).toContain('1 Jul');
++    expect(axisText.join(' ')).not.toContain('2026-07-01');
++  });
++
++  it('should be responsive', () => {
++    // Desktop: full height, legend visible.
++    const desktop = render(<VisitsOverTimeChart data={makeData(7)} />);
++    expect(desktop.container.querySelector('.recharts-legend-wrapper')).not.toBeNull();
++    cleanup();
++
++    // Mobile: shorter chart, legend hidden (series are still drawn).
++    setViewportWidth(375);
++    const mobile = render(<VisitsOverTimeChart data={makeData(7)} />);
++    expect(mobile.container.querySelector('.recharts-legend-wrapper')).toBeNull();
++    expect(mobile.container.querySelector('.recharts-line')).not.toBeNull();
++    expect(mobile.container.querySelector('.recharts-area')).not.toBeNull();
++
++    // Height tiers are distinct and shrink towards mobile.
++    expect(getChartHeight(1440)).toBeGreaterThan(getChartHeight(800));
++    expect(getChartHeight(800)).toBeGreaterThan(getChartHeight(375));
++  });
++
++  it('should react to viewport resize', () => {
++    const { container } = render(<VisitsOverTimeChart data={makeData(7)} />);
++    expect(container.querySelector('.recharts-legend-wrapper')).not.toBeNull();
++
++    act(() => {
++      setViewportWidth(375);
++      window.dispatchEvent(new Event('resize'));
++    });
++
++    expect(container.querySelector('.recharts-legend-wrapper')).toBeNull();
++  });
++
++  it('should enable horizontal scroll for 30+ day ranges', () => {
++    const short = render(<VisitsOverTimeChart data={makeData(7)} />);
++    const shortInner = short.container.querySelector<HTMLElement>('.visits-chart-inner');
++    expect(shortInner).not.toBeNull();
++    expect(shortInner!.style.minWidth).toBe('');
++    cleanup();
++
++    const long = render(<VisitsOverTimeChart data={makeData(30)} />);
++    const longInner = long.container.querySelector<HTMLElement>('.visits-chart-inner');
++    expect(longInner).not.toBeNull();
++    expect(longInner!.style.minWidth).not.toBe('');
++    expect(parseInt(longInner!.style.minWidth, 10)).toBeGreaterThan(800);
++
++    expect(isScrollableRange(29)).toBe(false);
++    expect(isScrollableRange(30)).toBe(true);
++  });
++});
+diff --git a/src/index.css b/src/index.css
+index 4eadd30..d2b5a9f 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -2471,10 +2471,179 @@ a {
+ 
+   .preset-custom-range {
+     flex-direction: column;
+     align-items: stretch;
+   }
+ 
+   .preset-apply-button {
+     width: 100%;
+   }
+ }
++
++/* ── VisitsOverTimeChart (Recharts) ─────────────────────────────────────── */
++
++:root {
++  --visits-chart-grid: rgba(17, 35, 29, 0.1);
++  --visits-chart-axis: #61756d;
++  --visits-chart-cursor: rgba(17, 35, 29, 0.18);
++  --visits-chart-dot-ring: #ffffff;
++  --visits-chart-frame-border: rgba(17, 35, 29, 0.08);
++  --visits-chart-frame-bg: rgba(34, 197, 94, 0.03);
++}
++
++:root[data-theme='dark'] {
++  --visits-chart-grid: rgba(255, 255, 255, 0.08);
++  --visits-chart-axis: #8ca1b8;
++  --visits-chart-cursor: rgba(255, 255, 255, 0.14);
++  --visits-chart-dot-ring: #0b1620;
++  --visits-chart-frame-border: rgba(255, 255, 255, 0.08);
++  --visits-chart-frame-bg: rgba(34, 197, 94, 0.04);
++}
++
++/* Frames the plot as a distinct "viewport" inside the dashboard card. */
++.visits-chart-container {
++  border: 1px solid var(--visits-chart-frame-border);
++  border-radius: 16px;
++  background: var(--visits-chart-frame-bg);
++  padding: 8px 4px 4px;
++}
++
++.visits-chart-scroll {
++  overflow-x: auto;
++  overflow-y: hidden;
++  overscroll-behavior-x: contain;
++  scrollbar-width: thin;
++  scrollbar-color: var(--visits-chart-grid) transparent;
++}
++
++.visits-chart-scroll::-webkit-scrollbar {
++  height: 6px;
++}
++
++.visits-chart-scroll::-webkit-scrollbar-thumb {
++  background: var(--visits-chart-grid);
++  border-radius: 999px;
++}
++
++/* Grows past the viewport for 30+ day ranges via an inline min-width. */
++.visits-chart-inner {
++  width: 100%;
++}
++
++.visits-chart-scroll-hint {
++  margin: 6px 10px 2px;
++  font-size: 11px;
++  color: var(--dashboard-muted);
++}
++
++.visits-chart-legend-label {
++  font-size: 12px;
++  color: var(--dashboard-muted);
++  cursor: pointer;
++  user-select: none;
++}
++
++/* Recharts sets inline fill on legend text; override for theme awareness. */
++.visits-chart-container .recharts-legend-item-text {
++  color: var(--dashboard-muted) !important;
++}
++
++.visits-chart-container .recharts-surface {
++  overflow: visible;
++}
++
++/* Tooltip: dark card, white text, green accent per metric. */
++.visits-chart-tooltip {
++  min-width: 168px;
++  padding: 10px 12px;
++  border-radius: 12px;
++  border: 1px solid rgba(255, 255, 255, 0.1);
++  background: rgba(0, 0, 0, 0.8);
++  backdrop-filter: blur(6px);
++  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
++  color: #ffffff;
++  font-size: 12px;
++  line-height: 1.4;
++  pointer-events: none;
++}
++
++.visits-chart-tooltip-date {
++  margin-bottom: 8px;
++  padding-bottom: 6px;
++  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
++  font-weight: 600;
++  color: #ffffff;
++}
++
++.visits-chart-tooltip-row {
++  display: flex;
++  align-items: center;
++  gap: 8px;
++}
++
++.visits-chart-tooltip-row + .visits-chart-tooltip-row {
++  margin-top: 4px;
++}
++
++.visits-chart-tooltip-swatch {
++  width: 8px;
++  height: 8px;
++  flex: none;
++  border-radius: 999px;
++}
++
++.visits-chart-tooltip-name {
++  flex: 1;
++  color: rgba(255, 255, 255, 0.72);
++}
++
++.visits-chart-tooltip-value {
++  font-variant-numeric: tabular-nums;
++  font-weight: 600;
++  color: #ffffff;
++}
++
++.visits-chart-state {
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  justify-content: center;
++  gap: 6px;
++  min-height: 220px;
++  text-align: center;
++}
++
++.visits-chart-error {
++  border: 1px solid rgba(239, 68, 68, 0.24);
++  border-radius: 16px;
++  background: rgba(239, 68, 68, 0.06);
++  padding: 16px;
++}
++
++.visits-chart-error-title {
++  font-size: 13px;
++  font-weight: 600;
++  color: #ef4444;
++}
++
++.visits-chart-error-message {
++  font-size: 12px;
++  color: var(--dashboard-muted);
++}
++
++@media (max-width: 640px) {
++  .visits-chart-container {
++    padding: 4px 0 0;
++    border-radius: 12px;
++  }
++
++  .visits-chart-state {
++    min-height: 160px;
++  }
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .visits-chart-container * {
++    animation-duration: 0.01ms !important;
++    transition-duration: 0.01ms !important;
++  }
++}
