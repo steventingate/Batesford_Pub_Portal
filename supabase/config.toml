@@ -1,2 +1,5 @@
 [functions.wifi-connect]
 verify_jwt = false
+
+[functions.get-dashboard-analytics]
+verify_jwt = false
