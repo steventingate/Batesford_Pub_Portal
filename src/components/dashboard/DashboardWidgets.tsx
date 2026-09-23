@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import type { DashboardAnalyticsResult } from '../../lib/dashboardAnalytics';
 
@@ -152,7 +152,18 @@ export function VisitsChart({ data }: { data: VisitPoint[] }) {
 
   const visitPoints = toPoints('visits');
   const uniquePoints = toPoints('uniqueGuests');
-  const activeIndex = hoverIndex ?? safe.length - 1;
+  const activeIndex = Math.min(Math.max(hoverIndex ?? safe.length - 1, 0), safe.length - 1);
+  const activeVisitPoint = visitPoints[activeIndex];
+  const activeUniquePoint = uniquePoints[activeIndex];
+  const activeDatum = safe[activeIndex];
+
+  useEffect(() => {
+    setHoverIndex((current) => {
+      if (!data.length) return null;
+      if (current === null) return data.length - 1;
+      return Math.min(current, data.length - 1);
+    });
+  }, [data.length]);
 
   return (
     <DashboardCard
@@ -171,20 +182,24 @@ export function VisitsChart({ data }: { data: VisitPoint[] }) {
           ))}
           <polyline fill="none" stroke="#22c55e" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" points={visitPoints.map((point) => `${point.x},${point.y}`).join(' ')} />
           <polyline fill="none" stroke="#94a3b8" strokeWidth="1.8" strokeDasharray="5 5" strokeLinecap="round" strokeLinejoin="round" points={uniquePoints.map((point) => `${point.x},${point.y}`).join(' ')} />
-          {visitPoints.map((point, index) => (
-            <g key={`${point.label}-${index}`} onMouseEnter={() => setHoverIndex(index)}>
-              <circle cx={point.x} cy={point.y} r="3.8" fill="#22c55e" />
-              <circle cx={uniquePoints[index].x} cy={uniquePoints[index].y} r="3.2" fill="#94a3b8" />
-            </g>
-          ))}
-          {hoverIndex !== null ? (
+          {visitPoints.map((point, index) => {
+            const uniquePoint = uniquePoints[index];
+            if (!uniquePoint) return null;
+            return (
+              <g key={`${point.label}-${index}`} onMouseEnter={() => setHoverIndex(index)}>
+                <circle cx={point.x} cy={point.y} r="3.8" fill="#22c55e" />
+                <circle cx={uniquePoint.x} cy={uniquePoint.y} r="3.2" fill="#94a3b8" />
+              </g>
+            );
+          })}
+          {activeVisitPoint && activeUniquePoint && activeDatum ? (
             <>
-              <line x1={visitPoints[activeIndex].x} y1="28" x2={visitPoints[activeIndex].x} y2="220" className="chart-focus-line" />
-              <foreignObject x={Math.max(18, visitPoints[activeIndex].x - 54)} y="26" width="124" height="88">
+              <line x1={activeVisitPoint.x} y1="28" x2={activeVisitPoint.x} y2="220" className="chart-focus-line" />
+              <foreignObject x={Math.max(18, activeVisitPoint.x - 54)} y="26" width="124" height="88">
                 <div className="chart-tooltip">
-                  <div className="chart-tooltip-date">{safe[activeIndex].label}</div>
-                  <div className="chart-tooltip-row"><span className="green-dot" /> Visits <strong>{visitPoints[activeIndex].value}</strong></div>
-                  <div className="chart-tooltip-row"><span className="blue-dot" /> Unique Guests <strong>{uniquePoints[activeIndex].value}</strong></div>
+                  <div className="chart-tooltip-date">{activeDatum.label}</div>
+                  <div className="chart-tooltip-row"><span className="green-dot" /> Visits <strong>{activeVisitPoint.value}</strong></div>
+                  <div className="chart-tooltip-row"><span className="blue-dot" /> Unique Guests <strong>{activeUniquePoint.value}</strong></div>
                 </div>
               </foreignObject>
             </>
