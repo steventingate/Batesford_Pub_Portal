@@ -15,10 +15,37 @@ import { supabase } from '../lib/supabaseClient';
 
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const formatDeviceLabel = (device: string | null, os: string | null) => {
-  const deviceLabel = (device || 'unknown').toUpperCase();
-  const osLabel = (os || 'unknown').toUpperCase();
+const isUnknownValue = (value: string | null | undefined) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return !normalized || normalized === 'unknown' || normalized === 'null';
+};
+
+const isPortalSessionGuest = (guest: Pick<GuestProfile, 'guest_id'>) =>
+  String(guest.guest_id || '').startsWith('session:');
+
+const formatDeviceLabel = (device: string | null, os: string | null, portalBackfill = false) => {
+  if (isUnknownValue(device) && isUnknownValue(os)) {
+    return portalBackfill ? 'Captured through portal' : 'Not detected';
+  }
+  const deviceLabel = isUnknownValue(device) ? 'Device' : String(device).toUpperCase();
+  const osLabel = isUnknownValue(os) ? 'OS not detected' : String(os).toUpperCase();
   return `${deviceLabel} / ${osLabel}`;
+};
+
+const formatGuestStatus = (guest: GuestProfile) => {
+  if (guest.is_live_now) return 'Live now';
+  if (isPortalSessionGuest(guest)) return 'Portal capture';
+  return 'CRM profile';
+};
+
+const formatGuestSource = (guest: GuestProfile) => {
+  if (isPortalSessionGuest(guest)) return 'Guest portal';
+  return 'Guest database';
+};
+
+const formatGuestStage = (guest: GuestProfile) => {
+  if (Number(guest.visit_count ?? 0) >= 2) return 'Returning';
+  return 'New';
 };
 
 const buildPostcodeMapUrl = (postcode: string) => `https://www.google.com/maps?q=${encodeURIComponent(`${postcode} VIC Australia`)}&output=embed`;
@@ -426,7 +453,7 @@ export default function Contacts() {
                 <th>Email</th>
                 <th>Mobile</th>
                 <th>Postcode</th>
-                <th>Segment</th>
+                <th>Status</th>
                 <th>Visits</th>
                 <th>Last seen</th>
                 <th>Device</th>
@@ -443,7 +470,13 @@ export default function Contacts() {
                   <td>{guest.email || '-'}</td>
                   <td>{guest.mobile || '-'}</td>
                   <td>{guest.postcode || '-'}</td>
-                  <td><span className="status-pill">{(guest.segment || 'unknown').replace(/^./, (char) => char.toUpperCase())}</span></td>
+                  <td>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="status-pill">{formatGuestStatus(guest)}</span>
+                      <span className="status-pill">{formatGuestStage(guest)}</span>
+                    </div>
+                    <div className="mt-2 text-xs text-muted">{formatGuestSource(guest)}</div>
+                  </td>
                   <td>{Number(guest.visit_count ?? 0)}</td>
                   <td>
                     <div className="flex flex-col gap-1">
@@ -451,7 +484,7 @@ export default function Contacts() {
                       {guest.is_live_now ? <span className="text-[11px] font-semibold text-emerald-200">Live now{guest.live_area ? ` · ${guest.live_area}` : ''}</span> : null}
                     </div>
                   </td>
-                  <td>{formatDeviceLabel(guest.last_device_type, guest.last_os_family)}</td>
+                  <td>{formatDeviceLabel(guest.last_device_type, guest.last_os_family, isPortalSessionGuest(guest))}</td>
                   <td>
                     <div className="flex flex-wrap gap-2">
                       <Link to={`/guests/${guest.guest_id}`} className="btn btn-outline" onClick={(event) => event.stopPropagation()}>
@@ -490,7 +523,8 @@ export default function Contacts() {
             email={guest.email}
             mobile={guest.mobile}
             postcode={guest.postcode}
-            segment={(guest.segment || 'unknown').replace(/^./, (char) => char.toUpperCase())}
+            status={`${formatGuestStatus(guest)} - ${formatGuestStage(guest)}`}
+            source={formatGuestSource(guest)}
             visits={Number(guest.visit_count ?? 0)}
             lastSeen={guest.is_live_now
               ? `${guest.last_seen_at ? formatDateTime(guest.last_seen_at) : '-'} · Live now${guest.live_area ? ` (${guest.live_area})` : ''}`
@@ -558,9 +592,8 @@ export default function Contacts() {
                 <h3 className="mt-2 font-display text-3xl text-white">{selectedGuest.full_name || 'Guest'}</h3>
                 <p className="mt-2 text-sm text-muted">{selectedGuest.email || 'No email'} / {selectedGuest.mobile || 'No mobile'}</p>
                 <p className="mt-1 text-sm text-muted">
-                  {selectedGuest.postcode
-                    ? `Postcode ${selectedGuest.postcode} (${(selectedGuest.segment || 'unknown').replace(/^./, (char) => char.toUpperCase())})`
-                    : 'Postcode not provided'}
+                  {selectedGuest.postcode ? `Postcode ${selectedGuest.postcode}` : 'Postcode not provided'}
+                  {` - ${formatGuestSource(selectedGuest)} - ${formatGuestStage(selectedGuest)}`}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -575,7 +608,7 @@ export default function Contacts() {
               <Card><Info label="Visits" value={String(selectedGuest.visit_count)} /></Card>
               <Card><Info label="First Seen" value={selectedGuest.first_seen_at ? formatDateTime(selectedGuest.first_seen_at) : '-'} /></Card>
               <Card><Info label="Last Seen" value={selectedGuest.last_seen_at ? formatDateTime(selectedGuest.last_seen_at) : '-'} /></Card>
-              <Card><Info label="Last Device" value={formatDeviceLabel(selectedGuest.last_device_type, selectedGuest.last_os_family)} /></Card>
+              <Card><Info label="Last Device" value={formatDeviceLabel(selectedGuest.last_device_type, selectedGuest.last_os_family, isPortalSessionGuest(selectedGuest))} /></Card>
             </div>
             {selectedGuest.is_live_now ? (
               <div className="mt-4 rounded-3xl border border-emerald-300/20 bg-emerald-300/[0.07] px-4 py-3 text-sm text-emerald-100">

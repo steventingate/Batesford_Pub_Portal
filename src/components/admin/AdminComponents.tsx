@@ -109,14 +109,15 @@ type ContactCardProps = {
   email?: string | null;
   mobile?: string | null;
   postcode?: string | null;
-  segment?: string | null;
+  status?: string | null;
+  source?: string | null;
   visits: number;
   lastSeen?: string | null;
   action?: React.ReactNode;
   onClick?: () => void;
 };
 
-export function ContactCard({ name, email, mobile, postcode, segment, visits, lastSeen, action, onClick }: ContactCardProps) {
+export function ContactCard({ name, email, mobile, postcode, status, source, visits, lastSeen, action, onClick }: ContactCardProps) {
   return (
     <button
       type="button"
@@ -133,7 +134,8 @@ export function ContactCard({ name, email, mobile, postcode, segment, visits, la
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <Info label="Mobile" value={mobile || '-'} />
         <Info label="Postcode" value={postcode || '-'} />
-        <Info label="Segment" value={segment || 'Unknown'} />
+        <Info label="Status" value={status || 'Captured'} />
+        <Info label="Source" value={source || 'Guest portal'} />
         <Info label="Last seen" value={lastSeen || '-'} />
       </div>
       {action ? <div className="mt-4" onClick={(event) => event.stopPropagation()}>{action}</div> : null}
